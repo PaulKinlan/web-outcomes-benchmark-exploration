@@ -1,0 +1,720 @@
+{
+  "syncedAt": "2026-10-28T22:37:57.713Z",
+  "source": "https://openrouter.ai/api/v1/models",
+  "discoveredCount": 31,
+  "discoveredModels": [
+    {
+      "key": "claude-sonnet-5",
+      "label": "Claude Sonnet 5",
+      "family": "Claude (Anthropic)",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-06-30",
+      "routes": [
+        {
+          "provider": "anthropic",
+          "modelId": "claude-sonnet-5",
+          "api": "anthropic-messages"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "anthropic/claude-sonnet-5",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1000000,
+      "maxTokens": 128000
+    },
+    {
+      "key": "gemini-3-6-flash",
+      "label": "Gemini 3.6 Flash",
+      "family": "Gemini (Google)",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-07-21",
+      "routes": [
+        {
+          "provider": "google",
+          "modelId": "gemini-3.6-flash",
+          "api": "google-generative-ai"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "google/gemini-3.6-flash",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 65536
+    },
+    {
+      "key": "gemini-3-5-flash",
+      "label": "Gemini 3.5 Flash",
+      "family": "Gemini (Google)",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-05-19",
+      "routes": [
+        {
+          "provider": "google",
+          "modelId": "gemini-3.5-flash",
+          "api": "google-generative-ai"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "google/gemini-3.5-flash",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 65536
+    },
+    {
+      "key": "gpt-6-1-sol-pro",
+      "label": "GPT-6.1 Sol Pro",
+      "family": "OpenAI",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-09-29",
+      "routes": [
+        {
+          "provider": "openai",
+          "modelId": "gpt-6.1-sol-pro",
+          "api": "openai-responses"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "openai/gpt-6.1-sol-pro",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1050000,
+      "maxTokens": 128000
+    },
+    {
+      "key": "gpt-6-luna-pro",
+      "label": "GPT-6 Luna Pro",
+      "family": "OpenAI",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-09-22",
+      "routes": [
+        {
+          "provider": "openai",
+          "modelId": "gpt-6-luna-pro",
+          "api": "openai-responses"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "openai/gpt-6-luna-pro",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1050000,
+      "maxTokens": 128000
+    },
+    {
+      "key": "deepseek-v4-1-flash",
+      "label": "DeepSeek V4.1 Flash",
+      "family": "DeepSeek",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-09-10",
+      "routes": [
+        {
+          "provider": "deepseek",
+          "modelId": "deepseek-v4.1-flash",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "deepseek/deepseek-v4.1-flash",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 943718
+    },
+    {
+      "key": "deepseek-v4-flash-vision-exp",
+      "label": "DeepSeek V4 Flash Vision Exp",
+      "family": "DeepSeek",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-08-21",
+      "routes": [
+        {
+          "provider": "deepseek",
+          "modelId": "deepseek-v4-flash-vision-exp",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "deepseek/deepseek-v4-flash-vision-exp",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 262144
+    },
+    {
+      "key": "deepseek-v4-flash-0731",
+      "label": "DeepSeek V4 Flash 0731",
+      "family": "DeepSeek",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-07-31",
+      "routes": [
+        {
+          "provider": "deepseek",
+          "modelId": "deepseek-v4-flash-0731",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "deepseek/deepseek-v4-flash-0731",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 943718
+    },
+    {
+      "key": "deepseek-v4-pro",
+      "label": "DeepSeek V4 Pro 0423",
+      "family": "DeepSeek",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-04-24",
+      "routes": [
+        {
+          "provider": "deepseek",
+          "modelId": "deepseek-v4-pro",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "deepseek/deepseek-v4-pro",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 384000
+    },
+    {
+      "key": "qwen3-8-max-0902",
+      "label": "Qwen3.8 Max (0902)",
+      "family": "Qwen (Alibaba)",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-09-03",
+      "routes": [
+        {
+          "provider": "qwen-token-plan",
+          "modelId": "qwen3.8-max-0902",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "qwen/qwen3.8-max-0902",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1000000,
+      "maxTokens": 131072
+    },
+    {
+      "key": "qwen3-8-2-4t-a95b",
+      "label": "Qwen3.8 2.4T A95B",
+      "family": "Qwen (Alibaba)",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-08-12",
+      "routes": [
+        {
+          "provider": "qwen-token-plan",
+          "modelId": "qwen3.8-2.4t-a95b",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "qwen/qwen3.8-2.4t-a95b",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 909000
+    },
+    {
+      "key": "grok-4-6",
+      "label": "Grok 4.6",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-08-12",
+      "routes": [
+        {
+          "provider": "xai",
+          "modelId": "grok-4.6",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "x-ai/grok-4.6",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 500000,
+      "maxTokens": 450000
+    },
+    {
+      "key": "grok-4-5",
+      "label": "Grok 4.5",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-07-08",
+      "routes": [
+        {
+          "provider": "xai",
+          "modelId": "grok-4.5",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "x-ai/grok-4.5",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 500000,
+      "maxTokens": 450000
+    },
+    {
+      "key": "grok-build-0-1",
+      "label": "Grok Build 0.1",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-05-20",
+      "routes": [
+        {
+          "provider": "xai",
+          "modelId": "grok-build-0.1",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "x-ai/grok-build-0.1",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 256000,
+      "maxTokens": 230400
+    },
+    {
+      "key": "grok-4-3",
+      "label": "Grok 4.3",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-04-30",
+      "routes": [
+        {
+          "provider": "xai",
+          "modelId": "grok-4.3",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "x-ai/grok-4.3",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1000000,
+      "maxTokens": 900000
+    },
+    {
+      "key": "grok-4-20-multi-agent",
+      "label": "Grok 4.20 Multi-Agent",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-03-31",
+      "routes": [
+        {
+          "provider": "xai",
+          "modelId": "grok-4.20-multi-agent",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "x-ai/grok-4.20-multi-agent",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 2000000,
+      "maxTokens": 1800000
+    },
+    {
+      "key": "glm-5-3-flashx",
+      "label": "GLM 5.3 FlashX",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-09-18",
+      "routes": [
+        {
+          "provider": "zai",
+          "modelId": "glm-5.3-flashx",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "z-ai/glm-5.3-flashx",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 131072
+    },
+    {
+      "key": "glm-5-3-flash",
+      "label": "GLM 5.3 Flash",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-08-26",
+      "routes": [
+        {
+          "provider": "zai",
+          "modelId": "glm-5.3-flash",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "z-ai/glm-5.3-flash",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 131072
+    },
+    {
+      "key": "glm-5-3",
+      "label": "GLM 5.3",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-08-18",
+      "routes": [
+        {
+          "provider": "zai",
+          "modelId": "glm-5.3",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "z-ai/glm-5.3",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 943718
+    },
+    {
+      "key": "glm-5-2",
+      "label": "GLM 5.2",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-06-16",
+      "routes": [
+        {
+          "provider": "zai",
+          "modelId": "glm-5.2",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "z-ai/glm-5.2",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 943718
+    },
+    {
+      "key": "glm-5-1",
+      "label": "GLM 5.1",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-04-07",
+      "routes": [
+        {
+          "provider": "zai",
+          "modelId": "glm-5.1",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "z-ai/glm-5.1",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 204800,
+      "maxTokens": 131072
+    },
+    {
+      "key": "kimi-k3",
+      "label": "Kimi K3",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-07-16",
+      "routes": [
+        {
+          "provider": "kimi-coding",
+          "modelId": "kimi-k3",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "moonshotai/kimi-k3",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 943718
+    },
+    {
+      "key": "kimi-k2-7-code",
+      "label": "Kimi K2.7 Code",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-06-12",
+      "routes": [
+        {
+          "provider": "kimi-coding",
+          "modelId": "kimi-k2.7-code",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "moonshotai/kimi-k2.7-code",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 262144,
+      "maxTokens": 235929
+    },
+    {
+      "key": "kimi-k2-6",
+      "label": "Kimi K2.6",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-04-20",
+      "routes": [
+        {
+          "provider": "kimi-coding",
+          "modelId": "kimi-k2.6",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "moonshotai/kimi-k2.6",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 262144,
+      "maxTokens": 235929
+    },
+    {
+      "key": "kimi-k2-5",
+      "label": "Kimi K2.5",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-01-27",
+      "routes": [
+        {
+          "provider": "kimi-coding",
+          "modelId": "kimi-k2.5",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "moonshotai/kimi-k2.5",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 262144,
+      "maxTokens": 235929
+    },
+    {
+      "key": "kimi-k2-thinking",
+      "label": "Kimi K2 Thinking",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2025-11-06",
+      "routes": [
+        {
+          "provider": "kimi-coding",
+          "modelId": "kimi-k2-thinking",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "moonshotai/kimi-k2-thinking",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 262144,
+      "maxTokens": 98304
+    },
+    {
+      "key": "minimax-m3",
+      "label": "MiniMax M3",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-05-31",
+      "routes": [
+        {
+          "provider": "minimax",
+          "modelId": "minimax-m3",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "minimax/minimax-m3",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 512000
+    },
+    {
+      "key": "minimax-m2-7",
+      "label": "MiniMax M2.7",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-03-18",
+      "routes": [
+        {
+          "provider": "minimax",
+          "modelId": "minimax-m2.7",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "minimax/minimax-m2.7",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 204800,
+      "maxTokens": 131072
+    },
+    {
+      "key": "minimax-m2-5",
+      "label": "MiniMax M2.5",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-02-12",
+      "routes": [
+        {
+          "provider": "minimax",
+          "modelId": "minimax-m2.5",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "minimax/minimax-m2.5",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 204800,
+      "maxTokens": 131072
+    },
+    {
+      "key": "minimax-m2-her",
+      "label": "MiniMax M2-her",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-01-23",
+      "routes": [
+        {
+          "provider": "minimax",
+          "modelId": "minimax-m2-her",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "minimax/minimax-m2-her",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 65536,
+      "maxTokens": 2048
+    },
+    {
+      "key": "minimax-m2-1",
+      "label": "MiniMax M2.1",
+      "family": "Frontier Peers",
+      "tier": "synced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2025-12-23",
+      "routes": [
+        {
+          "provider": "minimax",
+          "modelId": "minimax-m2.1",
+          "api": "openai-completions"
+        },
+        {
+          "provider": "openrouter",
+          "modelId": "minimax/minimax-m2.1",
+          "api": "openai-completions"
+        }
+      ],
+      "contextWindow": 204800,
+      "maxTokens": 131072
+    }
+  ]
+}

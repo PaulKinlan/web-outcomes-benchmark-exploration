@@ -1,0 +1,813 @@
+{
+  "version": "1.0.0",
+  "categories": [
+    {
+      "id": "portfolio",
+      "label": "Portfolio Website",
+      "description": "Showcases visual or creative work such as photography, design, writing, or art to attract clients or employers."
+    },
+    {
+      "id": "blog",
+      "label": "Blog Website",
+      "description": "Publishes regular articles, tutorials, news, or thought pieces organized chronologically or by category."
+    },
+    {
+      "id": "educational-course",
+      "label": "Educational / Course Website",
+      "description": "Offers online training, workshops, classes, or academic resources."
+    },
+    {
+      "id": "booking-scheduling",
+      "label": "Booking / Scheduling Website",
+      "description": "Manages service appointments, calendar reservations, cancellations, and client payments."
+    },
+    {
+      "id": "membership-community",
+      "label": "Membership / Community Website",
+      "description": "Restricts content behind a paywall or login for exclusive subscriber forums, courses, or resources."
+    },
+    {
+      "id": "directory-listing",
+      "label": "Directory / Listing Website",
+      "description": "Organizes large amounts of structured data or local business listings into a searchable index."
+    },
+    {
+      "id": "ecommerce-retail",
+      "label": "E-Commerce & Retail",
+      "description": "Online storefronts with catalog browsing, product variants, cart management, and multi-step checkout."
+    },
+    {
+      "id": "saas-business",
+      "label": "SaaS & Business Portals",
+      "description": "Transactional product portals with interactive calculators, account onboarding, and multi-step workflows."
+    },
+    {
+      "id": "productivity-apps",
+      "label": "Interactive Productivity Apps",
+      "description": "Stateful workspaces for organizing tasks, schedules, notes, and plans."
+    },
+    {
+      "id": "games-creative",
+      "label": "Games & Creative Studios",
+      "description": "Interactive browser games, synthesizers, and canvas creation tools."
+    }
+  ],
+  "prompts": [
+    {
+      "id": "photo-portfolio",
+      "category": "portfolio",
+      "title": "Documentary Photographer Portfolio",
+      "pilot": true,
+      "requiresAuth": false,
+      "prompt": "Create a portfolio website for a documentary and portrait photographer. Visitors should be able to filter photo series by subject, open a full-screen gallery viewer to step forward and backward through photographs with captions, read detailed project stories, and submit a booking inquiry form with project dates and budget.",
+      "expectedFlows": ["filter-gallery", "open-lightbox", "navigate-slides", "read-story", "submit-inquiry"],
+      "canonicalJourney": [
+        { "id": "filter-work", "label": "Filter gallery series", "action": "click", "patterns": ["portrait", "editorial", "documentary", "travel", "series", "filter"] },
+        { "id": "open-viewer", "label": "Open project or gallery viewer", "action": "click", "patterns": ["view", "open", "gallery", "project", "story", "photo"], "roles": ["button", "link", "img", "article"] },
+        { "id": "next-photo", "label": "Advance to next photograph", "action": "click", "patterns": ["next", "forward", "›", "→", "arrow"] },
+        { "id": "open-contact", "label": "Navigate to inquiry form", "action": "click", "patterns": ["inquir", "contact", "hire", "book", "commission", "work with"] },
+        { "id": "submit-inquiry", "label": "Fill and submit client inquiry", "action": "form-submit", "fields": { "name": "Alex Rivera", "email": "alex@example.org", "message": "Editorial portrait assignment in Berlin next month." }, "submitPatterns": ["send", "submit", "inquire", "request"] }
+      ],
+      "leakLoop": {
+        "description": "Open and close gallery lightbox viewer repeatedly",
+        "doPatterns": ["view", "photo", "gallery", "project", "series"],
+        "undoPatterns": ["close", "×", "✕", "back", "escape"]
+      }
+    },
+    {
+      "id": "industrial-design-portfolio",
+      "category": "portfolio",
+      "title": "Industrial & Product Design Portfolio",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a portfolio website for an industrial designer showcasing hardware products, furniture, and packaging. Include discipline filtering, multi-section case studies with process sketches and specifications, a resume and awards view, and a client project brief form.",
+      "expectedFlows": ["filter-discipline", "open-case-study", "view-resume", "submit-brief"],
+      "canonicalJourney": [
+        { "id": "filter-discipline", "label": "Filter by design discipline", "action": "click", "patterns": ["hardware", "furniture", "packaging", "product"] },
+        { "id": "open-case-study", "label": "Open product case study", "action": "click", "patterns": ["case study", "read", "explore", "view", "details"] },
+        { "id": "view-about", "label": "Open resume and awards section", "action": "click", "patterns": ["about", "resume", "cv", "awards", "experience"] },
+        { "id": "submit-brief", "label": "Submit client brief form", "action": "form-submit", "fields": { "name": "Jordan Lee", "email": "jordan@example.com", "message": "Consumer audio enclosure concept." }, "submitPatterns": ["send", "submit", "start", "contact"] }
+      ],
+      "leakLoop": {
+        "description": "Open and close product case study view",
+        "doPatterns": ["case study", "view", "details", "project"],
+        "undoPatterns": ["close", "back", "all work", "projects", "×"]
+      }
+    },
+    {
+      "id": "literary-illustration-portfolio",
+      "category": "portfolio",
+      "title": "Illustrator & Author Showcase",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a portfolio website for a book illustrator and essayist. Visitors should be able to browse illustrated collections, read excerpt chapters in a customizable reader view, inspect artwork details, and request rights or commissions.",
+      "expectedFlows": ["browse-collections", "open-excerpt-reader", "inspect-artwork", "commission-form"],
+      "canonicalJourney": [
+        { "id": "select-collection", "label": "Select art or book collection", "action": "click", "patterns": ["book", "editorial", "illustration", "essay", "collection"] },
+        { "id": "open-excerpt", "label": "Open reading sample or artwork", "action": "click", "patterns": ["read", "excerpt", "sample", "inspect", "view"] },
+        { "id": "open-commission", "label": "Open commission request", "action": "click", "patterns": ["commission", "rights", "contact", "inquire"] },
+        { "id": "send-request", "label": "Submit commission form", "action": "form-submit", "fields": { "name": "Samira Patel", "email": "samira@publishing.example", "message": "Cover art commission for autumn release." }, "submitPatterns": ["send", "submit", "request"] }
+      ],
+      "leakLoop": {
+        "description": "Open and close artwork detail modal",
+        "doPatterns": ["view", "inspect", "read", "artwork"],
+        "undoPatterns": ["close", "back", "×", "escape"]
+      }
+    },
+    {
+      "id": "architecture-studio-portfolio",
+      "category": "portfolio",
+      "title": "Architecture Studio Showcase",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a portfolio website for an architecture studio featuring residential, cultural, and civic buildings. Allow visitors to filter projects by sector and year, switch between photography and floorplan views inside each project, and schedule an initial consultation.",
+      "expectedFlows": ["filter-sector", "open-project", "toggle-floorplan", "request-consultation"],
+      "canonicalJourney": [
+        { "id": "filter-sector", "label": "Filter projects by sector", "action": "click", "patterns": ["residential", "cultural", "civic", "commercial"] },
+        { "id": "open-project", "label": "Open building project", "action": "click", "patterns": ["project", "view", "explore", "house", "museum", "pavilion"] },
+        { "id": "toggle-floorplan", "label": "Switch to floorplan or drawings", "action": "click", "patterns": ["plan", "floorplan", "drawing", "section", "details"] },
+        { "id": "submit-consultation", "label": "Submit consultation form", "action": "form-submit", "fields": { "name": "Morgan Chen", "email": "morgan@example.com", "message": "Residential renovation inquiry." }, "submitPatterns": ["schedule", "submit", "send", "request"] }
+      ],
+      "leakLoop": {
+        "description": "Open and exit project detail view",
+        "doPatterns": ["project", "view", "explore"],
+        "undoPatterns": ["close", "back", "projects", "×"]
+      }
+    },
+
+    {
+      "id": "tech-engineering-blog",
+      "category": "blog",
+      "title": "Systems Engineering Blog",
+      "pilot": true,
+      "requiresAuth": false,
+      "prompt": "Create a blog website about distributed systems and software engineering. Visitors should be able to browse posts chronologically or by topic category, search articles by keyword, read full articles with a clickable table of contents, save articles to a reading list, post reader comments, and subscribe to the newsletter.",
+      "expectedFlows": ["filter-category", "search-posts", "open-article", "bookmark-post", "post-comment"],
+      "canonicalJourney": [
+        { "id": "filter-topic", "label": "Filter posts by category", "action": "click", "patterns": ["database", "systems", "networking", "architecture", "category", "tutorials"] },
+        { "id": "search-articles", "label": "Search posts by keyword", "action": "type", "inputPatterns": ["search", "find", "filter"], "value": "consensus" },
+        { "id": "open-article", "label": "Open full article", "action": "click", "patterns": ["read", "min read", "202", "distributed", "guide", "post"], "roles": ["link", "button", "heading", "article"] },
+        { "id": "bookmark-article", "label": "Save or bookmark article", "action": "click", "patterns": ["save", "bookmark", "reading list", "later"] },
+        { "id": "post-comment", "label": "Write and submit a reader comment", "action": "form-submit", "fields": { "name": "Devon Brooks", "comment": "Helpful walkthrough of leader election trade-offs." }, "submitPatterns": ["post", "comment", "reply", "submit"] }
+      ],
+      "leakLoop": {
+        "description": "Open full article and return to main feed",
+        "doPatterns": ["read", "article", "min read"],
+        "undoPatterns": ["back", "all posts", "home", "articles", "close"]
+      }
+    },
+    {
+      "id": "culinary-journal-blog",
+      "category": "blog",
+      "title": "Seasonal Cooking & Fermentation Blog",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a culinary blog website publishing seasonal essays, baking guides, and fermentation tutorials. Organize articles chronologically and by category, include keyword search, allow readers to adjust serving sizes inside articles, save favorite posts, and leave comments.",
+      "expectedFlows": ["browse-category", "search-journal", "open-post", "save-favorite", "leave-comment"],
+      "canonicalJourney": [
+        { "id": "select-category", "label": "Select seasonal or topic category", "action": "click", "patterns": ["ferment", "baking", "autumn", "seasonal", "essays", "recipes"] },
+        { "id": "open-post", "label": "Open culinary article", "action": "click", "patterns": ["read", "sourdough", "miso", "guide", "story"] },
+        { "id": "save-post", "label": "Save post to favorites", "action": "click", "patterns": ["save", "bookmark", "favorite"] },
+        { "id": "leave-comment", "label": "Submit reader note", "action": "form-submit", "fields": { "name": "Clara N.", "comment": "Tried this at ambient kitchen temperature and it turned out great." }, "submitPatterns": ["post", "comment", "submit", "send"] }
+      ],
+      "leakLoop": {
+        "description": "Cycle between article detail and archive list",
+        "doPatterns": ["read", "continue", "guide"],
+        "undoPatterns": ["back", "journal", "home", "all", "close"]
+      }
+    },
+    {
+      "id": "indie-news-publication",
+      "category": "blog",
+      "title": "Local Investigative News Site",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a local news and commentary website organized by beat (transit, housing, culture, city hall) and publication date. Include article search, author profile views, full story pages with related coverage, reader comments, and a tip submission form.",
+      "expectedFlows": ["switch-section", "search-news", "read-story", "view-author", "submit-comment"],
+      "canonicalJourney": [
+        { "id": "switch-beat", "label": "Switch news beat section", "action": "click", "patterns": ["transit", "housing", "culture", "city", "politics"] },
+        { "id": "read-story", "label": "Open full news story", "action": "click", "patterns": ["read", "story", "council", "transit", "housing", "report"] },
+        { "id": "post-comment", "label": "Post reader comment", "action": "form-submit", "fields": { "name": "Neighbor", "comment": "Thanks for covering the bus corridor proposal." }, "submitPatterns": ["post", "comment", "submit"] },
+        { "id": "open-tip", "label": "Open newsroom tip form", "action": "click", "patterns": ["tip", "contact", "submit", "newsroom"] }
+      ],
+      "leakLoop": {
+        "description": "Open and close stories across sections",
+        "doPatterns": ["read", "story", "report"],
+        "undoPatterns": ["home", "back", "latest", "close"]
+      }
+    },
+    {
+      "id": "personal-essays-blog",
+      "category": "blog",
+      "title": "Longform Essays & Thought Pieces",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a personal blog for longform essays on science, history, and books. Organize posts chronologically by year and by topic tag, include search, interactive side-notes inside essays, a saved reading queue, and email subscription.",
+      "expectedFlows": ["filter-year-or-tag", "search-essays", "read-essay", "subscribe"],
+      "canonicalJourney": [
+        { "id": "filter-tag", "label": "Filter essays by tag or year", "action": "click", "patterns": ["science", "history", "books", "2026", "2025", "archive"] },
+        { "id": "open-essay", "label": "Open essay", "action": "click", "patterns": ["read", "essay", "notes", "on "] },
+        { "id": "save-queue", "label": "Add to reading queue", "action": "click", "patterns": ["queue", "save", "bookmark", "later"] },
+        { "id": "subscribe", "label": "Subscribe to essays", "action": "form-submit", "fields": { "email": "reader@example.com" }, "submitPatterns": ["subscribe", "join", "sign up"] }
+      ],
+      "leakLoop": {
+        "description": "Open essay and return to archive",
+        "doPatterns": ["read", "essay"],
+        "undoPatterns": ["archive", "back", "essays", "home", "close"]
+      }
+    },
+
+    {
+      "id": "dataviz-academy",
+      "category": "educational-course",
+      "title": "Online Data Visualization Course Platform",
+      "pilot": true,
+      "requiresAuth": true,
+      "prompt": "Create an online course website for learning data visualization and statistics. Visitors should be able to browse and filter the course catalog by difficulty, sign in or create a student account (include a working demo student login), enroll in a course, step through multi-lesson modules while tracking completion progress, and take a graded practice quiz.",
+      "expectedFlows": ["sign-in-student", "filter-catalog", "enroll-course", "complete-lessons", "submit-quiz"],
+      "canonicalJourney": [
+        { "id": "student-auth", "label": "Sign in as demo student", "action": "auth", "triggerPatterns": ["sign in", "log in", "login", "student", "demo"], "demoPatterns": ["demo", "guest", "sample student", "one-click"], "credentials": { "email": "student@example.com", "password": "Password123!" } },
+        { "id": "filter-courses", "label": "Filter courses by level or topic", "action": "click", "patterns": ["beginner", "intermediate", "advanced", "catalog", "courses"] },
+        { "id": "enroll-course", "label": "Open and enroll in a course", "action": "click", "patterns": ["enroll", "start course", "join", "begin", "view course"] },
+        { "id": "complete-lesson", "label": "Mark lesson complete or advance module", "action": "click", "patterns": ["mark complete", "complete", "next lesson", "continue", "lesson 2"] },
+        { "id": "take-quiz", "label": "Open and submit graded quiz", "action": "quiz", "openPatterns": ["quiz", "assessment", "test", "practice"], "submitPatterns": ["submit", "check", "grade", "finish"] }
+      ],
+      "leakLoop": {
+        "description": "Switch between course catalog, lesson player, and quiz view",
+        "doPatterns": ["lesson", "curriculum", "course", "quiz"],
+        "undoPatterns": ["catalog", "courses", "dashboard", "back", "close"]
+      }
+    },
+    {
+      "id": "language-learning-hub",
+      "category": "educational-course",
+      "title": "Interactive Language Workshop Platform",
+      "pilot": false,
+      "requiresAuth": true,
+      "prompt": "Create an educational website for learning Japanese and Spanish through structured lessons and workshops. Include learner login (with a working demo account), a placement check, structured grammar and vocabulary lessons, a flippable flashcard review deck, and learner streak progress.",
+      "expectedFlows": ["learner-login", "select-language", "study-lesson", "flip-flashcards", "check-progress"],
+      "canonicalJourney": [
+        { "id": "learner-auth", "label": "Log in with demo learner account", "action": "auth", "triggerPatterns": ["sign in", "log in", "login", "demo"], "demoPatterns": ["demo", "try", "guest"], "credentials": { "email": "learner@example.com", "password": "Password123!" } },
+        { "id": "open-lesson", "label": "Start a language lesson", "action": "click", "patterns": ["lesson", "start", "module", "japanese", "spanish", "study"] },
+        { "id": "open-flashcards", "label": "Open flashcard practice", "action": "click", "patterns": ["flashcard", "practice", "review", "deck", "vocab"] },
+        { "id": "flip-card", "label": "Flip or advance flashcard", "action": "click", "patterns": ["flip", "reveal", "show answer", "next", "knew"] }
+      ],
+      "leakLoop": {
+        "description": "Cycle flashcard deck and lesson view",
+        "doPatterns": ["flashcard", "flip", "next", "practice"],
+        "undoPatterns": ["dashboard", "lessons", "back", "close"]
+      }
+    },
+    {
+      "id": "music-theory-classes",
+      "category": "educational-course",
+      "title": "Music Theory & Ear Training School",
+      "pilot": false,
+      "requiresAuth": true,
+      "prompt": "Create an online school website offering music theory classes, live workshop schedules, and interactive ear-training exercises. Include student login (with a demo account), syllabus browsing, class enrollment, lesson notes, and an interval recognition quiz.",
+      "expectedFlows": ["login", "browse-syllabus", "enroll-class", "run-exercise"],
+      "canonicalJourney": [
+        { "id": "auth", "label": "Sign in as student", "action": "auth", "triggerPatterns": ["sign in", "log in", "student", "demo"], "demoPatterns": ["demo", "guest"], "credentials": { "email": "music@example.com", "password": "Password123!" } },
+        { "id": "enroll", "label": "Enroll in class or workshop", "action": "click", "patterns": ["enroll", "start", "harmony", "rhythm", "class", "course"] },
+        { "id": "exercise", "label": "Open ear training or theory quiz", "action": "quiz", "openPatterns": ["quiz", "exercise", "practice", "ear", "test"], "submitPatterns": ["submit", "check", "verify", "next"] },
+        { "id": "progress", "label": "View student dashboard", "action": "click", "patterns": ["dashboard", "my classes", "progress", "certificate"] }
+      ],
+      "leakLoop": {
+        "description": "Open and close class syllabus and exercise views",
+        "doPatterns": ["syllabus", "lesson", "exercise", "class"],
+        "undoPatterns": ["back", "catalog", "classes", "close"]
+      }
+    },
+    {
+      "id": "coding-bootcamp-portal",
+      "category": "educational-course",
+      "title": "Academic & Technical Workshop Portal",
+      "pilot": false,
+      "requiresAuth": true,
+      "prompt": "Create an academic training website offering structured tracks in data science, cybersecurity, and product management. Support student sign-in (with a working demo account), track filtering, workshop registration, reading materials, assignment submission, and knowledge checks.",
+      "expectedFlows": ["student-signin", "filter-tracks", "open-module", "submit-assignment"],
+      "canonicalJourney": [
+        { "id": "signin", "label": "Sign in to student portal", "action": "auth", "triggerPatterns": ["sign in", "log in", "portal", "demo"], "demoPatterns": ["demo", "student"], "credentials": { "email": "cohort@example.com", "password": "Password123!" } },
+        { "id": "filter-track", "label": "Filter curriculum track", "action": "click", "patterns": ["data", "security", "product", "track", "all"] },
+        { "id": "open-workshop", "label": "Enroll or open module", "action": "click", "patterns": ["enroll", "register", "open", "start", "module"] },
+        { "id": "submit-work", "label": "Submit assignment or check", "action": "form-submit", "fields": { "submission": "Completed lab notebook analysis and summary." }, "submitPatterns": ["submit", "turn in", "complete", "check"] }
+      ],
+      "leakLoop": {
+        "description": "Open and close curriculum modules",
+        "doPatterns": ["module", "lesson", "view", "open"],
+        "undoPatterns": ["back", "tracks", "catalog", "close"]
+      }
+    },
+
+    {
+      "id": "plumbing-appointment",
+      "category": "booking-scheduling",
+      "title": "Plumbing Service Appointment & Management",
+      "pilot": true,
+      "requiresAuth": false,
+      "prompt": "Create an appointment booking website for my plumbing business. Customers should be able to choose a service type (emergency leak repair, drain cleaning, water heater installation, inspection), pick an available date and time slot on a calendar, enter their address and payment details to confirm a reservation, and look up, reschedule, or cancel an existing appointment using their confirmation code or email.",
+      "expectedFlows": ["select-service", "pick-calendar-slot", "confirm-payment", "lookup-booking", "cancel-booking"],
+      "canonicalJourney": [
+        { "id": "select-service", "label": "Select plumbing service", "action": "click", "patterns": ["drain", "leak", "water heater", "inspection", "repair", "select", "book"] },
+        { "id": "pick-slot", "label": "Choose available calendar date and time slot", "action": "click", "patterns": ["am", "pm", ":00", ":30", "available", "slot", "10:", "09:", "14:", "2:"] },
+        { "id": "confirm-booking", "label": "Enter customer and payment details to confirm", "action": "form-submit", "fields": { "name": "Taylor Morgan", "email": "taylor@example.com", "phone": "555-0192", "address": "742 Evergreen Terrace", "card": "4242424242424242" }, "submitPatterns": ["confirm", "book", "pay", "schedule", "complete"] },
+        { "id": "manage-booking", "label": "Open manage or lookup reservation view", "action": "click", "patterns": ["manage", "look up", "lookup", "my booking", "my appointment", "existing", "cancel"] },
+        { "id": "cancel-or-reschedule", "label": "Cancel or modify reservation", "action": "click", "patterns": ["cancel", "reschedule", "modify"] }
+      ],
+      "leakLoop": {
+        "description": "Switch between booking wizard, calendar dates, and manage-appointment tab",
+        "doPatterns": ["manage", "my appointment", "book", "schedule"],
+        "undoPatterns": ["book", "new", "services", "back", "close"]
+      }
+    },
+    {
+      "id": "boutique-fitness-studio",
+      "category": "booking-scheduling",
+      "title": "Fitness Studio Class Scheduler",
+      "pilot": false,
+      "requiresAuth": true,
+      "prompt": "Create a class scheduling website for a pilates and strength studio. Visitors can filter the weekly calendar by class type and instructor, sign in (include a demo member account), buy class credits or drop-in passes, reserve a reformer or mat spot, and cancel reservations from their upcoming schedule.",
+      "expectedFlows": ["member-signin", "filter-timetable", "reserve-spot", "cancel-reservation"],
+      "canonicalJourney": [
+        { "id": "signin", "label": "Sign in as studio member", "action": "auth", "triggerPatterns": ["sign in", "log in", "member", "demo"], "demoPatterns": ["demo", "guest"], "credentials": { "email": "member@studio.example", "password": "Password123!" } },
+        { "id": "filter-class", "label": "Filter weekly schedule", "action": "click", "patterns": ["pilates", "strength", "reformer", "mobility", "instructor"] },
+        { "id": "book-spot", "label": "Reserve class spot", "action": "click", "patterns": ["book", "reserve", "join", "spot"] },
+        { "id": "cancel-spot", "label": "View schedule and cancel booking", "action": "click", "patterns": ["my bookings", "my schedule", "upcoming", "cancel"] }
+      ],
+      "leakLoop": {
+        "description": "Open class reservation modal and close repeatedly",
+        "doPatterns": ["book", "reserve", "details"],
+        "undoPatterns": ["close", "cancel", "back", "×"]
+      }
+    },
+    {
+      "id": "dental-clinic-scheduler",
+      "category": "booking-scheduling",
+      "title": "Family Dental Clinic Booking Portal",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create an appointment scheduling website for a family dental clinic. Support new vs returning patient selection, dentist choice, insurance or self-pay payment options, interactive calendar slot booking, and an appointment lookup and cancellation portal.",
+      "expectedFlows": ["choose-visit-type", "select-dentist-slot", "confirm-visit", "cancel-visit"],
+      "canonicalJourney": [
+        { "id": "patient-type", "label": "Choose visit reason or patient type", "action": "click", "patterns": ["cleaning", "checkup", "new patient", "exam", "whitening", "book"] },
+        { "id": "select-time", "label": "Pick dentist and time slot", "action": "click", "patterns": ["am", "pm", ":00", ":30", "dr.", "available"] },
+        { "id": "confirm-visit", "label": "Submit patient booking details", "action": "form-submit", "fields": { "name": "Jamie Lin", "email": "jamie@example.com", "phone": "555-0148" }, "submitPatterns": ["confirm", "book", "schedule", "complete"] },
+        { "id": "lookup-visit", "label": "Open appointment lookup or cancel", "action": "click", "patterns": ["manage", "lookup", "my appointment", "cancel"] }
+      ],
+      "leakLoop": {
+        "description": "Cycle between booking calendar and manage appointments",
+        "doPatterns": ["book", "schedule", "manage"],
+        "undoPatterns": ["back", "home", "services", "close"]
+      }
+    },
+    {
+      "id": "restaurant-table-reservations",
+      "category": "booking-scheduling",
+      "title": "Neighborhood Bistro Table Reservations",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a restaurant website and table reservation system. Diners should be able to browse the dinner and wine menus, search table availability by party size, date, and seating area (dining room, chef counter, patio), complete a reservation with dietary notes and card hold, and modify or cancel their booking.",
+      "expectedFlows": ["browse-menu", "check-availability", "book-table", "modify-or-cancel"],
+      "canonicalJourney": [
+        { "id": "view-menu", "label": "Inspect menu tab", "action": "click", "patterns": ["menu", "dinner", "wine", "tasting"] },
+        { "id": "select-slot", "label": "Select party size and time slot", "action": "click", "patterns": ["pm", "6:", "7:", "8:", "19:", "20:", "patio", "reserve", "find"] },
+        { "id": "complete-booking", "label": "Confirm diner details", "action": "form-submit", "fields": { "name": "Robin Vance", "email": "robin@example.com", "phone": "555-0177", "notes": "Nut allergy at table" }, "submitPatterns": ["confirm", "reserve", "book", "complete"] },
+        { "id": "manage-reservation", "label": "Modify or cancel booking", "action": "click", "patterns": ["manage", "modify", "cancel", "reservation"] }
+      ],
+      "leakLoop": {
+        "description": "Switch between menu tabs and reservation modal",
+        "doPatterns": ["reserve", "book a table", "menu"],
+        "undoPatterns": ["close", "back", "×"]
+      }
+    },
+
+    {
+      "id": "filmmakers-community",
+      "category": "membership-community",
+      "title": "Indie Filmmakers Membership Community",
+      "pilot": true,
+      "requiresAuth": true,
+      "prompt": "Create a membership community website for independent filmmakers. Include public teaser articles, a paywall and member login/signup flow (provide a working demo member login), exclusive subscriber discussion forums organized by topic where logged-in members can read threads and post replies, a downloadable production templates vault, and membership plan management.",
+      "expectedFlows": ["hit-paywall", "demo-member-login", "browse-forum", "post-forum-reply", "manage-membership"],
+      "canonicalJourney": [
+        { "id": "inspect-gated", "label": "Click gated forum or member resource", "action": "click", "patterns": ["forum", "community", "vault", "members", "locked", "exclusive"] },
+        { "id": "member-login", "label": "Authenticate with demo member account", "action": "auth", "triggerPatterns": ["sign in", "log in", "login", "member", "unlock", "demo"], "demoPatterns": ["demo", "sample", "test member", "one-click"], "credentials": { "email": "member@filmmakers.example", "password": "Password123!" } },
+        { "id": "open-thread", "label": "Open subscriber forum thread", "action": "click", "patterns": ["forum", "discussion", "thread", "cinematography", "lighting", "post"] },
+        { "id": "reply-thread", "label": "Post a reply in member forum", "action": "form-submit", "fields": { "title": "Location sound kit notes", "reply": "Using dual-system timecode saved our edit last week." }, "submitPatterns": ["post", "reply", "publish", "send", "submit"] },
+        { "id": "manage-plan", "label": "Open membership tier or billing settings", "action": "click", "patterns": ["membership", "account", "plan", "billing", "profile", "tier"] }
+      ],
+      "leakLoop": {
+        "description": "Open and close member forum threads and resource modals",
+        "doPatterns": ["thread", "discussion", "vault", "templates", "account"],
+        "undoPatterns": ["forum", "community", "back", "close", "×"]
+      }
+    },
+    {
+      "id": "paid-research-substack",
+      "category": "membership-community",
+      "title": "Subscriber Market Research Publication",
+      "pilot": false,
+      "requiresAuth": true,
+      "prompt": "Create a paid research membership website publishing semiconductor and energy industry briefings. Free visitors see abstracts and a paywall; logged-in subscribers (include a working demo subscriber login and plan upgrade flow) unlock full reports, data tables, subscriber-only discussion threads, and saved briefings.",
+      "expectedFlows": ["view-paywall", "subscriber-login", "read-unlocked-report", "comment-subscriber-thread"],
+      "canonicalJourney": [
+        { "id": "open-locked-report", "label": "Click locked research briefing", "action": "click", "patterns": ["report", "briefing", "pro", "subscriber", "locked", "read"] },
+        { "id": "subscriber-auth", "label": "Sign in with demo subscriber account", "action": "auth", "triggerPatterns": ["sign in", "log in", "subscribe", "demo"], "demoPatterns": ["demo", "subscriber", "trial"], "credentials": { "email": "analyst@research.example", "password": "Password123!" } },
+        { "id": "save-briefing", "label": "Save unlocked report to library", "action": "click", "patterns": ["save", "bookmark", "library"] },
+        { "id": "post-discussion", "label": "Comment in subscriber thread", "action": "form-submit", "fields": { "comment": "Useful breakdown of wafer fab capex guidance." }, "submitPatterns": ["post", "comment", "reply", "submit"] }
+      ],
+      "leakLoop": {
+        "description": "Switch between unlocked reports and subscriber forum",
+        "doPatterns": ["report", "briefing", "discussion"],
+        "undoPatterns": ["all", "archive", "back", "home", "close"]
+      }
+    },
+    {
+      "id": "makerspace-member-portal",
+      "category": "membership-community",
+      "title": "Community Makerspace & Workshop Club",
+      "pilot": false,
+      "requiresAuth": true,
+      "prompt": "Create a membership website for a neighborhood woodworking and electronics makerspace. Include public membership tiers, member login (with a working demo member account), gated laser-cutter and CNC tool reservation, member project showcase posts, and safety badge status.",
+      "expectedFlows": ["member-login", "reserve-equipment", "post-member-project", "view-account"],
+      "canonicalJourney": [
+        { "id": "login", "label": "Log in as makerspace member", "action": "auth", "triggerPatterns": ["sign in", "log in", "member", "demo"], "demoPatterns": ["demo", "member"], "credentials": { "email": "maker@shop.example", "password": "Password123!" } },
+        { "id": "reserve-tool", "label": "Reserve shop machine slot", "action": "click", "patterns": ["laser", "cnc", "woodshop", "reserve", "equipment", "tool"] },
+        { "id": "community-showcase", "label": "Open member project forum", "action": "click", "patterns": ["projects", "community", "forum", "showcase"] },
+        { "id": "share-project", "label": "Create member post", "action": "form-submit", "fields": { "title": "Walnut desk build", "body": "Finished mortise and tenon joinery on the planer." }, "submitPatterns": ["post", "share", "publish", "submit"] }
+      ],
+      "leakLoop": {
+        "description": "Switch between equipment booking and member forum",
+        "doPatterns": ["equipment", "reserve", "projects", "forum"],
+        "undoPatterns": ["dashboard", "back", "close", "×"]
+      }
+    },
+    {
+      "id": "fitness-club-community",
+      "category": "membership-community",
+      "title": "Run Club & Training Membership Hub",
+      "pilot": false,
+      "requiresAuth": true,
+      "prompt": "Create a membership community website for a marathon training club. Restrict training plans, pace calculators, and club chat behind member sign-in (include a working demo login and tier selector), and let signed-in runners log workouts and RSVP to weekend group runs.",
+      "expectedFlows": ["member-signin", "unlock-training-plan", "rsvp-group-run", "log-workout"],
+      "canonicalJourney": [
+        { "id": "signin", "label": "Sign in as club member", "action": "auth", "triggerPatterns": ["sign in", "log in", "member", "demo"], "demoPatterns": ["demo", "runner"], "credentials": { "email": "runner@club.example", "password": "Password123!" } },
+        { "id": "training-plan", "label": "Open gated training plan", "action": "click", "patterns": ["plan", "training", "marathon", "schedule"] },
+        { "id": "rsvp-event", "label": "RSVP to group run", "action": "click", "patterns": ["rsvp", "join run", "events", "group run"] },
+        { "id": "log-run", "label": "Log a completed workout", "action": "form-submit", "fields": { "distance": "12", "notes": "Tempo miles along the riverfront." }, "submitPatterns": ["log", "save", "post", "submit"] }
+      ],
+      "leakLoop": {
+        "description": "Toggle between training plans, events, and community feed",
+        "doPatterns": ["events", "community", "plan", "leaderboard"],
+        "undoPatterns": ["dashboard", "home", "back", "close"]
+      }
+    },
+
+    {
+      "id": "coffee-roasters-directory",
+      "category": "directory-listing",
+      "title": "Specialty Coffee Roasters Directory",
+      "pilot": true,
+      "requiresAuth": false,
+      "prompt": "Create a searchable directory website indexing at least 25 independent coffee roasters across different cities. Visitors should be able to search by name or city, filter by roast profile, sourcing certifications, and tasting room amenities, sort listings, compare selected roasters side-by-side, open detailed roaster profile pages, and submit a new listing or customer review.",
+      "expectedFlows": ["keyword-search", "multi-facet-filter", "sort-listings", "open-detail-profile", "submit-review"],
+      "canonicalJourney": [
+        { "id": "search-directory", "label": "Search roasters by keyword or city", "action": "type", "inputPatterns": ["search", "city", "roaster", "find"], "value": "Portland" },
+        { "id": "apply-filter", "label": "Toggle roast or amenity filter", "action": "click", "patterns": ["light", "single origin", "organic", "direct trade", "tasting", "espresso", "all"] },
+        { "id": "sort-or-compare", "label": "Change sort order or compare selection", "action": "click", "patterns": ["rating", "sort", "compare", "name", "grid", "list"] },
+        { "id": "open-listing", "label": "Open roaster detail profile", "action": "click", "patterns": ["view", "profile", "details", "roast", "coffee"] },
+        { "id": "submit-review", "label": "Submit customer review on listing", "action": "form-submit", "fields": { "name": "Casey W.", "comment": "Washed Ethiopian pour-over was floral and balanced." }, "submitPatterns": ["submit", "post", "add review", "review"] }
+      ],
+      "leakLoop": {
+        "description": "Open listing detail modal/view and return to filtered directory",
+        "doPatterns": ["view", "details", "profile", "compare"],
+        "undoPatterns": ["close", "back", "all", "directory", "×"]
+      }
+    },
+    {
+      "id": "local-trades-directory",
+      "category": "directory-listing",
+      "title": "Verified Local Tradespeople Index",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a local business directory website for licensed electricians, carpenters, roofers, and landscapers. Include trade category filters, neighborhood search, emergency-availability and rating filters, side-by-side quote shortlist, detailed contractor pages with license info and reviews, and a request-quote form.",
+      "expectedFlows": ["filter-trade", "search-area", "shortlist-compare", "open-contractor", "request-quote"],
+      "canonicalJourney": [
+        { "id": "filter-trade", "label": "Filter by trade category", "action": "click", "patterns": ["electrician", "carpenter", "roofer", "landscap"] },
+        { "id": "search-zip", "label": "Search by neighborhood or city", "action": "type", "inputPatterns": ["search", "zip", "location", "city"], "value": "Northside" },
+        { "id": "open-profile", "label": "Open contractor listing", "action": "click", "patterns": ["view", "profile", "details", "quote"] },
+        { "id": "request-quote", "label": "Send quote request", "action": "form-submit", "fields": { "name": "Pat Avery", "email": "pat@example.com", "details": "Panel upgrade for 1950s bungalow." }, "submitPatterns": ["request", "send", "submit", "quote"] }
+      ],
+      "leakLoop": {
+        "description": "Open contractor profile and return to index",
+        "doPatterns": ["view", "profile", "details"],
+        "undoPatterns": ["back", "directory", "close", "×"]
+      }
+    },
+    {
+      "id": "open-datasets-index",
+      "category": "directory-listing",
+      "title": "Public Civic & Climate Datasets Directory",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a structured data directory website organizing 30+ civic, transit, and climate datasets. Provide keyword search, multi-select filtering by domain, file format (CSV, Parquet, GeoJSON), and license, sorting by update date or row count, table vs card layout switching, and dataset detail pages with column previews.",
+      "expectedFlows": ["search-datasets", "filter-format-domain", "toggle-table-view", "inspect-schema"],
+      "canonicalJourney": [
+        { "id": "search-data", "label": "Search dataset index", "action": "type", "inputPatterns": ["search", "dataset", "filter", "keyword"], "value": "transit" },
+        { "id": "filter-format", "label": "Filter by format or domain", "action": "click", "patterns": ["geojson", "csv", "parquet", "climate", "transit"] },
+        { "id": "toggle-layout", "label": "Switch table and card view", "action": "click", "patterns": ["table", "list", "grid", "card"] },
+        { "id": "inspect-dataset", "label": "Open dataset schema preview", "action": "click", "patterns": ["preview", "details", "schema", "view", "inspect"] }
+      ],
+      "leakLoop": {
+        "description": "Open and close dataset detail drawer repeatedly",
+        "doPatterns": ["details", "preview", "schema", "view"],
+        "undoPatterns": ["close", "back", "×", "escape"]
+      }
+    },
+    {
+      "id": "coworking-spaces-listing",
+      "category": "directory-listing",
+      "title": "Global Coworking Spaces Directory",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a directory website of coworking spaces across major cities with search, daily/monthly price filtering, amenity checkboxes (phone booths, 24/7 access, monitors, dog friendly), saved favorites shortlist, detailed space listings, and day-pass tour inquiries.",
+      "expectedFlows": ["search-city", "filter-amenities", "save-shortlist", "open-space", "book-tour"],
+      "canonicalJourney": [
+        { "id": "search-city", "label": "Search city", "action": "type", "inputPatterns": ["search", "city", "location"], "value": "London" },
+        { "id": "filter-amenity", "label": "Toggle amenity filter", "action": "click", "patterns": ["24/7", "phone", "monitor", "dog", "quiet", "all"] },
+        { "id": "open-space", "label": "Open space listing", "action": "click", "patterns": ["view", "details", "tour", "explore"] },
+        { "id": "inquire-tour", "label": "Submit day-pass or tour inquiry", "action": "form-submit", "fields": { "name": "Riley Quinn", "email": "riley@example.com" }, "submitPatterns": ["book", "request", "inquire", "submit"] }
+      ],
+      "leakLoop": {
+        "description": "Open and close coworking listing details",
+        "doPatterns": ["view", "details", "explore"],
+        "undoPatterns": ["close", "back", "listings", "×"]
+      }
+    },
+
+    {
+      "id": "outdoor-ecommerce-store",
+      "category": "ecommerce-retail",
+      "title": "Backcountry Outdoor Gear Store",
+      "pilot": true,
+      "requiresAuth": false,
+      "prompt": "Create an ecommerce store selling camping tents, backpacks, and alpine outerwear. Shoppers should be able to browse categories, search and filter by price or rating, open product pages to choose size and color variants, add items to a cart, adjust quantities, and complete a multi-step checkout with shipping and order confirmation.",
+      "expectedFlows": ["filter-category", "open-product-variant", "add-to-cart", "update-cart", "complete-checkout"],
+      "canonicalJourney": [
+        { "id": "filter-gear", "label": "Select gear category", "action": "click", "patterns": ["tent", "backpack", "jacket", "outerwear", "shelter", "packs"] },
+        { "id": "open-product", "label": "Open product detail view", "action": "click", "patterns": ["view", "details", "pack", "tent", "jacket", "alpine"] },
+        { "id": "add-to-cart", "label": "Select variant and add to cart", "action": "click", "patterns": ["add to cart", "add to bag", "buy"] },
+        { "id": "open-cart", "label": "Open shopping cart", "action": "click", "patterns": ["cart", "bag", "checkout"] },
+        { "id": "complete-checkout", "label": "Complete checkout form", "action": "form-submit", "fields": { "name": "Dana Sterling", "email": "dana@example.com", "address": "100 Pine St", "city": "Denver", "zip": "80202" }, "submitPatterns": ["place order", "complete", "pay", "confirm", "continue", "checkout"] }
+      ],
+      "leakLoop": {
+        "description": "Open product detail and cart drawer repeatedly",
+        "doPatterns": ["cart", "bag", "add to cart", "details"],
+        "undoPatterns": ["close", "continue shopping", "back", "×"]
+      }
+    },
+    {
+      "id": "artisan-coffee-shop-store",
+      "category": "ecommerce-retail",
+      "title": "Neighborhood Coffee Shop & Bean Store",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a homepage and online store for my coffee shop. Visitors should be able to explore the seasonal drink and pastry menu, configure whole-bean vs ground coffee bags or recurring subscriptions, add items to an order cart, and place a pickup or shipping order.",
+      "expectedFlows": ["browse-menu", "configure-beans", "add-to-order", "checkout-pickup"],
+      "canonicalJourney": [
+        { "id": "explore-menu", "label": "Switch menu or shop section", "action": "click", "patterns": ["beans", "shop", "espresso", "pastries", "menu"] },
+        { "id": "add-item", "label": "Add coffee or drink to order", "action": "click", "patterns": ["add", "order", "bag", "cart"] },
+        { "id": "open-order", "label": "Open cart or pickup bag", "action": "click", "patterns": ["cart", "bag", "order", "checkout"] },
+        { "id": "submit-order", "label": "Complete pickup order", "action": "form-submit", "fields": { "name": "Chris Park", "email": "chris@example.com", "phone": "555-0133" }, "submitPatterns": ["place order", "checkout", "confirm", "pay", "complete"] }
+      ],
+      "leakLoop": {
+        "description": "Open and close cart drawer",
+        "doPatterns": ["cart", "bag", "order"],
+        "undoPatterns": ["close", "back", "×"]
+      }
+    },
+    {
+      "id": "custom-sneaker-store",
+      "category": "ecommerce-retail",
+      "title": "Running Shoe & Custom Colorway Storefront",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create an ecommerce website for running shoes with road vs trail filtering, interactive colorway and shoe size pickers, customer fit reviews, wishlist saving, shopping bag, and checkout.",
+      "expectedFlows": ["filter-terrain", "pick-size-color", "save-wishlist", "add-bag-checkout"],
+      "canonicalJourney": [
+        { "id": "filter-shoes", "label": "Filter road or trail shoes", "action": "click", "patterns": ["trail", "road", "marathon", "all"] },
+        { "id": "pick-size", "label": "Select shoe size or colorway", "action": "click", "patterns": ["9", "10", "10.5", "42", "size"] },
+        { "id": "add-bag", "label": "Add shoes to bag", "action": "click", "patterns": ["add to bag", "add to cart", "buy"] },
+        { "id": "checkout", "label": "Proceed through checkout", "action": "click", "patterns": ["bag", "cart", "checkout"] }
+      ],
+      "leakLoop": {
+        "description": "Toggle product views and bag drawer",
+        "doPatterns": ["bag", "cart", "wishlist", "details"],
+        "undoPatterns": ["close", "back", "×"]
+      }
+    },
+    {
+      "id": "vinyl-record-marketplace",
+      "category": "ecommerce-retail",
+      "title": "Independent Vinyl Record Shop",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create an online record store where music fans can browse crates by genre and decade, inspect album tracklists and pressing grades, add records to a crate cart, apply a promo code, and check out.",
+      "expectedFlows": ["filter-genre", "inspect-tracklist", "add-to-crate", "checkout"],
+      "canonicalJourney": [
+        { "id": "filter-genre", "label": "Filter records by genre", "action": "click", "patterns": ["jazz", "soul", "electronic", "indie", "rock"] },
+        { "id": "inspect-album", "label": "Inspect album tracklist", "action": "click", "patterns": ["tracklist", "details", "view", "listen"] },
+        { "id": "add-record", "label": "Add vinyl to crate", "action": "click", "patterns": ["add", "crate", "cart", "buy"] },
+        { "id": "open-crate", "label": "Open crate and checkout", "action": "click", "patterns": ["crate", "cart", "checkout"] }
+      ],
+      "leakLoop": {
+        "description": "Open and close album detail views",
+        "doPatterns": ["details", "tracklist", "view"],
+        "undoPatterns": ["close", "back", "×"]
+      }
+    },
+
+    {
+      "id": "team-collab-saas",
+      "category": "saas-business",
+      "title": "Team Collaboration SaaS & Onboarding",
+      "pilot": true,
+      "requiresAuth": true,
+      "prompt": "Create a product website and signup portal for a team project collaboration tool. Include interactive seat-count pricing with monthly/annual billing toggle, feature comparison, a multi-step workspace signup and onboarding flow (plus a working demo workspace login), and team member invitation settings.",
+      "expectedFlows": ["toggle-billing", "adjust-seats", "signup-or-demo-login", "invite-teammate"],
+      "canonicalJourney": [
+        { "id": "toggle-billing", "label": "Toggle annual and monthly pricing", "action": "click", "patterns": ["annual", "yearly", "monthly", "pricing"] },
+        { "id": "workspace-auth", "label": "Sign in to demo workspace or start trial", "action": "auth", "triggerPatterns": ["demo", "sign in", "log in", "start free", "get started", "trial"], "demoPatterns": ["demo", "workspace", "guest"], "credentials": { "name": "Avery Stone", "email": "avery@acme.example", "password": "Password123!" } },
+        { "id": "invite-member", "label": "Invite a team member or update workspace", "action": "form-submit", "fields": { "email": "teammate@acme.example", "workspace": "Design Ops" }, "submitPatterns": ["invite", "continue", "create", "save", "add"] },
+        { "id": "inspect-settings", "label": "Switch workspace view or billing tab", "action": "click", "patterns": ["settings", "team", "members", "billing", "projects"] }
+      ],
+      "leakLoop": {
+        "description": "Toggle pricing tiers and workspace modals",
+        "doPatterns": ["pricing", "invite", "settings", "compare"],
+        "undoPatterns": ["close", "back", "overview", "×"]
+      }
+    },
+    {
+      "id": "personal-budget-tracker",
+      "category": "saas-business",
+      "title": "Personal Finance & Expense Portal",
+      "pilot": false,
+      "requiresAuth": true,
+      "prompt": "Create a personal budget and expense tracker website with account sign-in (include a working demo account), checking/savings account views, adding and categorizing income and expenses, monthly category budget limits, and transaction search.",
+      "expectedFlows": ["demo-login", "add-expense", "filter-transactions", "adjust-budget"],
+      "canonicalJourney": [
+        { "id": "login", "label": "Sign in to demo finance account", "action": "auth", "triggerPatterns": ["demo", "sign in", "log in"], "demoPatterns": ["demo", "sample"], "credentials": { "email": "demo@budget.example", "password": "Password123!" } },
+        { "id": "add-transaction", "label": "Add a new expense transaction", "action": "form-submit", "fields": { "description": "Grocery Market", "amount": "64.50" }, "submitPatterns": ["add", "save", "record", "submit"] },
+        { "id": "filter-tx", "label": "Filter or search transactions", "action": "type", "inputPatterns": ["search", "filter"], "value": "Grocery" },
+        { "id": "view-budgets", "label": "Open monthly budget limits view", "action": "click", "patterns": ["budget", "categories", "goals", "analytics", "overview"] }
+      ],
+      "leakLoop": {
+        "description": "Switch between transactions, budgets, and add-expense modal",
+        "doPatterns": ["add", "budget", "transactions"],
+        "undoPatterns": ["cancel", "close", "overview", "×"]
+      }
+    },
+    {
+      "id": "flight-search-booking",
+      "category": "saas-business",
+      "title": "Airline Flight Search & Seat Booking",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a flight search and booking website where travelers can search one-way or round-trip routes, filter flights by stops, cabin class, and departure time, pick seats on a cabin map, enter passenger details, and receive a boarding itinerary.",
+      "expectedFlows": ["search-flights", "filter-stops", "select-flight-and-seat", "confirm-passenger"],
+      "canonicalJourney": [
+        { "id": "search-flights", "label": "Trigger flight search or filter", "action": "click", "patterns": ["search", "nonstop", "direct", "one-way", "economy", "business"] },
+        { "id": "select-flight", "label": "Select outbound flight", "action": "click", "patterns": ["select", "choose", "book", "$"] },
+        { "id": "pick-seat", "label": "Choose cabin seat", "action": "click", "patterns": ["12a", "14c", "seat", "continue", "next"] },
+        { "id": "confirm-passenger", "label": "Submit passenger details", "action": "form-submit", "fields": { "name": "Noah Bennett", "email": "noah@example.com", "passport": "X8829104" }, "submitPatterns": ["confirm", "book", "complete", "pay"] }
+      ],
+      "leakLoop": {
+        "description": "Toggle flight details and seat map modal",
+        "doPatterns": ["details", "select", "seat", "filter"],
+        "undoPatterns": ["back", "change", "close", "×"]
+      }
+    },
+
+    {
+      "id": "kanban-project-board",
+      "category": "productivity-apps",
+      "title": "Team Kanban Task Board",
+      "pilot": true,
+      "requiresAuth": false,
+      "prompt": "Create a kanban board website for managing tasks across backlog, in-progress, review, and done columns. Users should be able to create tasks with priority and due dates, edit task descriptions and subtasks in a detail view, move tasks between columns, filter by priority or assignee, and archive completed work.",
+      "expectedFlows": ["create-task", "open-task-detail", "move-column", "filter-priority"],
+      "canonicalJourney": [
+        { "id": "open-new-task", "label": "Open new task creator", "action": "click", "patterns": ["add task", "new task", "+ add", "create", "new card"] },
+        { "id": "create-task", "label": "Create task card", "action": "form-submit", "fields": { "title": "Prepare Q4 launch checklist", "description": "Verify staging sign-off with QA." }, "submitPatterns": ["add", "create", "save"] },
+        { "id": "move-or-open", "label": "Move or inspect task card", "action": "click", "patterns": ["in progress", "move", "launch", "edit", "details", "→"] },
+        { "id": "filter-board", "label": "Filter tasks by keyword or priority", "action": "click", "patterns": ["high", "urgent", "all", "filter", "review"] }
+      ],
+      "leakLoop": {
+        "description": "Open and close task detail / creation modals repeatedly",
+        "doPatterns": ["add task", "new task", "create", "edit"],
+        "undoPatterns": ["cancel", "close", "×", "escape"]
+      }
+    },
+    {
+      "id": "recipe-meal-planner",
+      "category": "productivity-apps",
+      "title": "Weekly Meal Planner & Grocery List",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a recipe book and 7-day meal planner website. Users can browse and add recipes, assign meals to breakfast, lunch, and dinner across the week, scale servings, and generate a consolidated grocery list where items can be checked off.",
+      "expectedFlows": ["browse-recipes", "assign-to-day", "open-grocery-list", "check-off-items"],
+      "canonicalJourney": [
+        { "id": "open-recipe", "label": "Inspect or add recipe to plan", "action": "click", "patterns": ["add to plan", "schedule", "assign", "monday", "recipe", "+"] },
+        { "id": "open-grocery", "label": "Open generated grocery list", "action": "click", "patterns": ["grocery", "shopping list", "ingredients"] },
+        { "id": "check-ingredient", "label": "Check off grocery item", "action": "click", "patterns": ["garlic", "olive", "onion", "tomato", "check"], "roles": ["checkbox", "listitem", "button"] },
+        { "id": "add-custom-recipe", "label": "Open add-recipe form", "action": "click", "patterns": ["new recipe", "add recipe", "create"] }
+      ],
+      "leakLoop": {
+        "description": "Switch between recipes, weekly planner, and shopping list",
+        "doPatterns": ["grocery", "shopping", "planner", "recipes"],
+        "undoPatterns": ["recipes", "planner", "close", "×"]
+      }
+    },
+    {
+      "id": "pomodoro-study-workspace",
+      "category": "productivity-apps",
+      "title": "Study Timer & Notebook Workspace",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a study timer and note-taking website with focus and break intervals, task queue tracking, multi-folder study notes with tag search, and completed session statistics.",
+      "expectedFlows": ["start-pause-timer", "switch-interval", "create-note", "search-notes"],
+      "canonicalJourney": [
+        { "id": "toggle-timer", "label": "Start focus timer", "action": "click", "patterns": ["start", "focus", "play"] },
+        { "id": "pause-or-mode", "label": "Pause or switch break mode", "action": "click", "patterns": ["pause", "short break", "break", "stop"] },
+        { "id": "create-note", "label": "Create a study note", "action": "form-submit", "fields": { "title": "Thermodynamics Ch. 3", "content": "Entropy and reversible Carnot cycles." }, "submitPatterns": ["save", "add note", "new note", "create"] },
+        { "id": "search-notes", "label": "Search study notes", "action": "type", "inputPatterns": ["search", "filter", "notes"], "value": "Carnot" }
+      ],
+      "leakLoop": {
+        "description": "Switch timer modes and open/close notes",
+        "doPatterns": ["short break", "stats", "notes", "new note"],
+        "undoPatterns": ["focus", "pomodoro", "close", "×"]
+      }
+    },
+
+    {
+      "id": "minecraft-clone",
+      "category": "games-creative",
+      "title": "Voxel Block World Game",
+      "pilot": true,
+      "requiresAuth": false,
+      "prompt": "Create a minecraft clone where players can explore a block terrain, move around, switch between block types (grass, stone, wood, glass, brick), place and break blocks, and open a pause or world settings menu.",
+      "expectedFlows": ["start-world", "select-block-type", "interact-world", "toggle-pause-menu"],
+      "canonicalJourney": [
+        { "id": "enter-world", "label": "Start or enter voxel world", "action": "click", "patterns": ["play", "start", "enter", "resume", "world", "click"], "fallbackCanvas": true },
+        { "id": "move-player", "label": "Move player and look around", "action": "keys", "keys": ["KeyW", "KeyD", "Space", "Digit2", "Digit3"] },
+        { "id": "interact-canvas", "label": "Place and break blocks on canvas", "action": "canvas-click", "clicks": 4 },
+        { "id": "open-menu", "label": "Open pause or settings menu", "action": "keys-or-click", "keys": ["Escape"], "patterns": ["pause", "menu", "settings", "controls", "reset"] }
+      ],
+      "leakLoop": {
+        "description": "Cycle block selection, world interaction, and pause menu",
+        "doPatterns": ["play", "resume", "stone", "wood", "settings"],
+        "undoPatterns": ["pause", "menu", "close", "resume"]
+      }
+    },
+    {
+      "id": "browser-drum-synthesizer",
+      "category": "games-creative",
+      "title": "16-Step Drum Machine & Synthesizer",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a drum machine and synthesizer website with a 16-step pattern sequencer, kick/snare/hi-hat/synth tracks, tempo and filter controls, starter beat presets, pattern clearing, and play/stop transport.",
+      "expectedFlows": ["load-preset", "toggle-steps", "play-transport", "stop-and-clear"],
+      "canonicalJourney": [
+        { "id": "load-preset", "label": "Select a beat preset", "action": "click", "patterns": ["house", "hip", "techno", "funk", "preset", "demo"] },
+        { "id": "toggle-step", "label": "Toggle sequencer grid steps", "action": "click", "patterns": ["step", "kick", "snare", "1", "2"], "roles": ["button", "checkbox", "gridcell"] },
+        { "id": "start-playback", "label": "Start sequencer transport", "action": "click", "patterns": ["play", "start", "▶"] },
+        { "id": "stop-playback", "label": "Stop sequencer transport", "action": "click", "patterns": ["stop", "pause", "■"] }
+      ],
+      "leakLoop": {
+        "description": "Start and stop audio sequencer and switch presets",
+        "doPatterns": ["play", "start", "preset"],
+        "undoPatterns": ["stop", "pause", "clear"]
+      }
+    },
+    {
+      "id": "pixel-art-studio",
+      "category": "games-creative",
+      "title": "Pixel Art Drawing & Animation Studio",
+      "pilot": false,
+      "requiresAuth": false,
+      "prompt": "Create a pixel art studio website with customizable grid sizes, a color palette, pencil/bucket-fill/eraser/eyedropper tools, multiple layers or animation frames, undo/redo history, and image export.",
+      "expectedFlows": ["select-tool-color", "paint-canvas", "undo-redo", "open-export"],
+      "canonicalJourney": [
+        { "id": "pick-tool", "label": "Select brush or fill tool", "action": "click", "patterns": ["fill", "bucket", "pencil", "brush", "pen"] },
+        { "id": "paint-grid", "label": "Draw strokes on pixel canvas", "action": "canvas-click", "clicks": 5 },
+        { "id": "undo-stroke", "label": "Trigger undo action", "action": "click", "patterns": ["undo", "↶"] },
+        { "id": "export-art", "label": "Open export view or download", "action": "click", "patterns": ["export", "download", "save", "png"] }
+      ],
+      "leakLoop": {
+        "description": "Draw, undo, and open/close export dialog",
+        "doPatterns": ["fill", "pencil", "export", "layer"],
+        "undoPatterns": ["undo", "close", "cancel", "×"]
+      }
+    }
+  ]
+}

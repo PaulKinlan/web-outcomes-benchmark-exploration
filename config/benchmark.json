@@ -1,0 +1,80 @@
+{
+  "version": "2.1.0",
+  "studioPort": 4321,
+  "generation": {
+    "defaultMode": "agent",
+    "agentConcurrency": 2,
+    "oneshotConcurrency": 3,
+    "thinkingLevel": "low",
+    "maxTokens": 32768,
+    "timeoutMs": 240000,
+    "agentTimeoutMs": 600000,
+    "agentWorkspaceContract": "Build this as a complete, realistic multi-page or multi-route web application in the current directory with a real HTTP backend server and a seeded local data store so all user flows, forms, authentication, and state changes persist across page reloads.\n\nDeployment contract (required):\n1. Write `.bench-runtime.json` in the workspace root with JSON fields:\n   {\n     \"buildCommand\": \"<production build command, or empty string if none>\",\n     \"startCommand\": \"<command that starts the production server bound to 127.0.0.1 using the PORT environment variable>\",\n     \"healthPath\": \"/\"\n   }\n   (Alternatively, provide an executable `./start.sh` that honors `$PORT`.)\n2. Run your build and verify your production server actually boots on a temporary free port and returns HTTP 200 on key routes and APIs before finishing.\n3. Stop any test server processes you started before completing your turn.",
+    "neutralSystemPrompt": "Generate the complete, working source code for the requested website as one self-contained HTML document with all markup, styling, and scripts inline so no separate local asset files are required. Return only the code block without prose explanations outside the code block.",
+    "visualReferenceInstruction": "Match the layout hierarchy, visual tone, color palette, and component styling shown in the attached reference image(s) while implementing all requested functionality."
+  },
+  "cleanRoomEnvironment": {
+    "harness": "pi CLI (agent mode) / @earendil-works/pi-ai (oneshot mode)",
+    "piIsolationFlags": [
+      "--no-skills",
+      "--no-extensions",
+      "--no-prompt-templates",
+      "--no-themes",
+      "--no-context-files",
+      "--tools read,bash,edit,write"
+    ],
+    "skillsLoaded": 0,
+    "extensionsLoaded": 0,
+    "promptTemplatesLoaded": 0,
+    "contextFilesLoaded": 0,
+    "mcpServersLoaded": 0,
+    "agentAllowedTools": ["read", "bash", "edit", "write"],
+    "oneshotAllowedTools": [],
+    "modeDesignRationale": {
+      "agent": "Goal-oriented multi-turn autonomous coding loop inside a fresh empty directory with only the 4 core file/shell tools (read, bash, edit, write) and zero skills, extensions, MCP servers, or AGENTS.md/CLAUDE.md context files. Builds a realistic multi-file application + real $PORT HTTP server.",
+      "oneshot": "Single-pass zero-tool completion returning one self-contained HTML document with inline styles and scripts, avoiding multi-file token truncation or broken local stylesheet/script links while keeping library and framework choices completely unsteered."
+    },
+    "multimodalStyleProtocol": "Prompts may optionally attach one or more visual reference images (`referenceImages`) to hold visual aesthetic complexity constant across models while keeping technology stack and performance completely unsteered."
+  },
+  "browser": {
+    "concurrency": 1,
+    "viewportDesktop": { "width": 1440, "height": 900 },
+    "viewportMobile": { "width": 390, "height": 844 },
+    "desktopThrottle": {
+      "cpuSlowdownMultiplier": 1,
+      "latencyMs": 28,
+      "downloadThroughputKbps": 20480,
+      "uploadThroughputKbps": 8192
+    },
+    "mobileThrottle": {
+      "cpuSlowdownMultiplier": 4,
+      "latencyMs": 150,
+      "downloadThroughputKbps": 1638.4,
+      "uploadThroughputKbps": 750
+    },
+    "settleWaitMs": 1200,
+    "journeyStepTimeoutMs": 6000
+  },
+  "uplift": {
+    "enabled": true,
+    "agent": "pi",
+    "judgeModel": "google/gemini-3.8-flash",
+    "fallbackJudgeModel": "deepseek/deepseek-flash",
+    "maxTurns": 28,
+    "timeoutMs": 480000
+  },
+  "memory": {
+    "idleProbeSeconds": [0, 3, 10],
+    "leakLoopIterations": 10,
+    "keepRawSnapshots": false
+  },
+  "scoring": {
+    "weights": {
+      "lighthouse": 0.25,
+      "uplift": 0.25,
+      "deepPerf": 0.25,
+      "memory": 0.15,
+      "functionalFlow": 0.10
+    }
+  }
+}

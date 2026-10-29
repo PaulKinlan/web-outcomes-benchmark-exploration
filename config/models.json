@@ -1,0 +1,474 @@
+{
+  "version": "2026.10",
+  "updatedAt": "2026-10-28",
+  "models": [
+    {
+      "key": "claude-opus-5-5",
+      "label": "Claude Opus 5.5",
+      "family": "Claude (Anthropic)",
+      "tier": "flagship",
+      "pilot": true,
+      "enabled": true,
+      "releaseDate": "2026-09-22",
+      "routes": [
+        { "provider": "anthropic", "modelId": "claude-opus-5-5", "api": "anthropic-messages" },
+        { "provider": "openrouter", "modelId": "anthropic/claude-opus-5.5", "api": "openai-completions" }
+      ],
+      "contextWindow": 250000,
+      "maxTokens": 64000
+    },
+    {
+      "key": "claude-sonnet-5-5",
+      "label": "Claude Sonnet 5.5",
+      "family": "Claude (Anthropic)",
+      "tier": "balanced",
+      "pilot": true,
+      "enabled": true,
+      "releaseDate": "2026-09-28",
+      "routes": [
+        { "provider": "anthropic", "modelId": "claude-sonnet-5-5", "api": "anthropic-messages" },
+        { "provider": "openrouter", "modelId": "anthropic/claude-sonnet-5.5", "api": "openai-completions" }
+      ],
+      "contextWindow": 250000,
+      "maxTokens": 64000
+    },
+    {
+      "key": "claude-haiku-5-5",
+      "label": "Claude Haiku 5.5",
+      "family": "Claude (Anthropic)",
+      "tier": "fast",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-10-07",
+      "routes": [
+        { "provider": "anthropic", "modelId": "claude-haiku-5-5", "api": "anthropic-messages" },
+        { "provider": "openrouter", "modelId": "anthropic/claude-haiku-5.5", "api": "openai-completions" }
+      ],
+      "contextWindow": 200000,
+      "maxTokens": 64000
+    },
+    {
+      "key": "claude-fable-5-1",
+      "label": "Claude Fable 5.1",
+      "family": "Claude (Anthropic)",
+      "tier": "specialized",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-09-01",
+      "routes": [
+        { "provider": "anthropic", "modelId": "claude-fable-5-1", "api": "anthropic-messages" },
+        { "provider": "openrouter", "modelId": "anthropic/claude-fable-5.1", "api": "openai-completions" }
+      ],
+      "contextWindow": 250000,
+      "maxTokens": 64000
+    },
+    {
+      "key": "claude-opus-5",
+      "label": "Claude Opus 5",
+      "family": "Claude (Anthropic)",
+      "tier": "prior-flagship",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-07-24",
+      "routes": [
+        { "provider": "anthropic", "modelId": "claude-opus-5", "api": "anthropic-messages" },
+        { "provider": "openrouter", "modelId": "anthropic/claude-opus-5", "api": "openai-completions" }
+      ],
+      "contextWindow": 250000,
+      "maxTokens": 64000
+    },
+    {
+      "key": "claude-sonnet-4-6",
+      "label": "Claude Sonnet 4.6",
+      "family": "Claude (Anthropic)",
+      "tier": "prior-balanced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-02-17",
+      "routes": [
+        { "provider": "antigravity", "modelId": "claude-sonnet-4-6" },
+        { "provider": "anthropic", "modelId": "claude-sonnet-4-6", "api": "anthropic-messages" },
+        { "provider": "openrouter", "modelId": "anthropic/claude-sonnet-4.6", "api": "openai-completions" }
+      ],
+      "contextWindow": 200000,
+      "maxTokens": 64000
+    },
+    {
+      "key": "claude-opus-4-6",
+      "label": "Claude Opus 4.6",
+      "family": "Claude (Anthropic)",
+      "tier": "prior-flagship",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-02-04",
+      "routes": [
+        { "provider": "antigravity", "modelId": "claude-opus-4-6" },
+        { "provider": "anthropic", "modelId": "claude-opus-4-6", "api": "anthropic-messages" },
+        { "provider": "openrouter", "modelId": "anthropic/claude-opus-4.6", "api": "openai-completions" }
+      ],
+      "contextWindow": 250000,
+      "maxTokens": 64000
+    },
+
+    {
+      "key": "gemini-4-argon",
+      "label": "Gemini 4 Argon",
+      "family": "Gemini (Google)",
+      "tier": "flagship",
+      "pilot": true,
+      "enabled": true,
+      "releaseDate": "2026-10-13",
+      "routes": [
+        { "provider": "google", "modelId": "gemini-4-argon", "api": "google-generative-ai" },
+        { "provider": "antigravity", "modelId": "gemini-4-argon" },
+        { "provider": "openrouter", "modelId": "google/gemini-4-argon", "api": "openai-completions" }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 65536
+    },
+    {
+      "key": "gemini-3-8-flash",
+      "label": "Gemini 3.8 Flash",
+      "family": "Gemini (Google)",
+      "tier": "fast",
+      "pilot": true,
+      "enabled": true,
+      "releaseDate": "2026-09-02",
+      "routes": [
+        { "provider": "google", "modelId": "gemini-3.8-flash", "api": "google-generative-ai" },
+        { "provider": "antigravity", "modelId": "gemini-3.8-flash" },
+        { "provider": "openrouter", "modelId": "google/gemini-3.8-flash", "api": "openai-completions" }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 65536
+    },
+    {
+      "key": "gemini-3-7-flash",
+      "label": "Gemini 3.7 Flash",
+      "family": "Gemini (Google)",
+      "tier": "fast",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-08-13",
+      "routes": [
+        { "provider": "google", "modelId": "gemini-3.7-flash", "api": "google-generative-ai" },
+        { "provider": "antigravity", "modelId": "gemini-3.7-flash" },
+        { "provider": "openrouter", "modelId": "google/gemini-3.7-flash", "api": "openai-completions" }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 65536
+    },
+    {
+      "key": "gemini-3-5-flash-lite",
+      "label": "Gemini 3.5 Flash Lite",
+      "family": "Gemini (Google)",
+      "tier": "ultra-fast",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-07-21",
+      "routes": [
+        { "provider": "google", "modelId": "gemini-3.5-flash-lite", "api": "google-generative-ai" },
+        { "provider": "antigravity", "modelId": "gemini-3.5-flash-lite" },
+        { "provider": "openrouter", "modelId": "google/gemini-3.5-flash-lite", "api": "openai-completions" }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 65536
+    },
+    {
+      "key": "gemini-3-1-pro",
+      "label": "Gemini 3.1 Pro",
+      "family": "Gemini (Google)",
+      "tier": "prior-flagship",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-05-01",
+      "routes": [
+        { "provider": "antigravity", "modelId": "gemini-3.1-pro" },
+        { "provider": "google", "modelId": "gemini-3.1-pro-preview", "api": "google-generative-ai" }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 65536
+    },
+    {
+      "key": "gemma-4-31b-it",
+      "label": "Gemma 4 31B IT",
+      "family": "Gemini (Google)",
+      "tier": "open-weights",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-04-03",
+      "routes": [
+        { "provider": "google", "modelId": "gemma-4-31b-it", "api": "google-generative-ai" },
+        { "provider": "openrouter", "modelId": "google/gemma-4-31b-it", "api": "openai-completions" }
+      ],
+      "contextWindow": 262144,
+      "maxTokens": 32768
+    },
+
+    {
+      "key": "gpt-6-1-terra-pro",
+      "label": "GPT-6.1 Terra Pro",
+      "family": "OpenAI",
+      "tier": "flagship",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-10-26",
+      "routes": [
+        { "provider": "openai", "modelId": "gpt-6.1-terra-pro", "api": "openai-responses" },
+        { "provider": "openai-codex", "modelId": "gpt-6.1-terra-pro", "api": "openai-codex-responses" },
+        { "provider": "openrouter", "modelId": "openai/gpt-6.1-terra-pro", "api": "openai-completions" }
+      ],
+      "contextWindow": 272000,
+      "maxTokens": 128000
+    },
+    {
+      "key": "gpt-6-1-terra",
+      "label": "GPT-6.1 Terra",
+      "family": "OpenAI",
+      "tier": "flagship",
+      "pilot": true,
+      "enabled": true,
+      "releaseDate": "2026-10-26",
+      "routes": [
+        { "provider": "openai", "modelId": "gpt-6.1-terra", "api": "openai-responses" },
+        { "provider": "openai-codex", "modelId": "gpt-6.1-terra", "api": "openai-codex-responses" },
+        { "provider": "openrouter", "modelId": "openai/gpt-6.1-terra", "api": "openai-completions" }
+      ],
+      "contextWindow": 272000,
+      "maxTokens": 128000
+    },
+    {
+      "key": "gpt-6-1-sol",
+      "label": "GPT-6.1 Sol",
+      "family": "OpenAI",
+      "tier": "balanced",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-09-29",
+      "routes": [
+        { "provider": "openai", "modelId": "gpt-6.1-sol", "api": "openai-responses" },
+        { "provider": "openai-codex", "modelId": "gpt-6.1-sol", "api": "openai-codex-responses" },
+        { "provider": "openrouter", "modelId": "openai/gpt-6.1-sol", "api": "openai-completions" }
+      ],
+      "contextWindow": 272000,
+      "maxTokens": 128000
+    },
+    {
+      "key": "gpt-6-luna",
+      "label": "GPT-6 Luna",
+      "family": "OpenAI",
+      "tier": "fast",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-09-22",
+      "routes": [
+        { "provider": "openai", "modelId": "gpt-6-luna", "api": "openai-responses" },
+        { "provider": "openai-codex", "modelId": "gpt-6-luna", "api": "openai-codex-responses" },
+        { "provider": "openrouter", "modelId": "openai/gpt-6-luna", "api": "openai-completions" }
+      ],
+      "contextWindow": 272000,
+      "maxTokens": 128000
+    },
+    {
+      "key": "gpt-6-astra",
+      "label": "GPT-6 Astra",
+      "family": "OpenAI",
+      "tier": "flagship",
+      "pilot": true,
+      "enabled": true,
+      "releaseDate": "2026-09-04",
+      "routes": [
+        { "provider": "openai-codex", "modelId": "gpt-6-astra" },
+        { "provider": "openai", "modelId": "gpt-6-astra", "api": "openai-responses" },
+        { "provider": "openrouter", "modelId": "openai/gpt-6-astra", "api": "openai-completions" }
+      ],
+      "contextWindow": 272000,
+      "maxTokens": 128000
+    },
+    {
+      "key": "gpt-5-6-terra",
+      "label": "GPT-5.6 Terra",
+      "family": "OpenAI",
+      "tier": "prior-flagship",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-07-09",
+      "routes": [
+        { "provider": "openai-codex", "modelId": "gpt-5.6-terra" },
+        { "provider": "openai", "modelId": "gpt-5.6-terra", "api": "openai-responses" },
+        { "provider": "openrouter", "modelId": "openai/gpt-5.6-terra", "api": "openai-completions" }
+      ],
+      "contextWindow": 272000,
+      "maxTokens": 128000
+    },
+
+    {
+      "key": "deepseek-flash",
+      "label": "DeepSeek Flash (V4.1)",
+      "family": "DeepSeek",
+      "tier": "fast",
+      "pilot": true,
+      "enabled": true,
+      "releaseDate": "2026-10-17",
+      "routes": [
+        { "provider": "deepseek", "modelId": "deepseek-flash", "api": "openai-completions" },
+        { "provider": "openrouter", "modelId": "deepseek/deepseek-v4.1-flash-1017", "api": "openai-completions" }
+      ],
+      "contextWindow": 1000000,
+      "maxTokens": 65536
+    },
+    {
+      "key": "deepseek-v4-1-flash-1017",
+      "label": "DeepSeek V4.1 Flash (1017)",
+      "family": "DeepSeek",
+      "tier": "fast",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-10-17",
+      "routes": [
+        { "provider": "openrouter", "modelId": "deepseek/deepseek-v4.1-flash-1017", "api": "openai-completions" },
+        { "provider": "deepseek", "modelId": "deepseek-flash", "api": "openai-completions" }
+      ],
+      "contextWindow": 1000000,
+      "maxTokens": 65536
+    },
+    {
+      "key": "deepseek-v4-pro",
+      "label": "DeepSeek V4 Pro",
+      "family": "DeepSeek",
+      "tier": "flagship",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-08-12",
+      "routes": [
+        { "provider": "deepseek", "modelId": "deepseek-v4-pro", "api": "openai-completions" },
+        { "provider": "openrouter", "modelId": "deepseek/deepseek-v4-pro-0813", "api": "openai-completions" }
+      ],
+      "contextWindow": 1000000,
+      "maxTokens": 65536
+    },
+
+    {
+      "key": "qwen3-8-max-prime",
+      "label": "Qwen 3.8 Max Prime",
+      "family": "Qwen (Alibaba)",
+      "tier": "flagship",
+      "pilot": true,
+      "enabled": true,
+      "releaseDate": "2026-09-23",
+      "routes": [
+        { "provider": "qwen-token-plan", "modelId": "qwen3.8-max-prime", "api": "openai-completions" },
+        { "provider": "qwen-token-plan", "modelId": "qwen3.8-max", "api": "openai-completions" },
+        { "provider": "openrouter", "modelId": "qwen/qwen3.8-max-prime", "api": "openai-completions" }
+      ],
+      "contextWindow": 262144,
+      "maxTokens": 65536
+    },
+    {
+      "key": "qwen3-8-omni-flash",
+      "label": "Qwen 3.8 Omni Flash",
+      "family": "Qwen (Alibaba)",
+      "tier": "fast",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-09-21",
+      "routes": [
+        { "provider": "qwen-token-plan", "modelId": "qwen3.8-omni-flash", "api": "openai-completions" },
+        { "provider": "openrouter", "modelId": "qwen/qwen3.8-omni-flash", "api": "openai-completions" }
+      ],
+      "contextWindow": 262144,
+      "maxTokens": 65536
+    },
+    {
+      "key": "qwen3-8-flash",
+      "label": "Qwen 3.8 Flash",
+      "family": "Qwen (Alibaba)",
+      "tier": "fast",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-08-26",
+      "routes": [
+        { "provider": "qwen-token-plan", "modelId": "qwen3.8-flash" },
+        { "provider": "openrouter", "modelId": "qwen/qwen3.8-flash", "api": "openai-completions" }
+      ],
+      "contextWindow": 262144,
+      "maxTokens": 65536
+    },
+    {
+      "key": "qwen3-8-27b",
+      "label": "Qwen 3.8 27B",
+      "family": "Qwen (Alibaba)",
+      "tier": "open-weights",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-08-14",
+      "routes": [
+        { "provider": "groq", "modelId": "qwen/qwen3.8-27b" },
+        { "provider": "openrouter", "modelId": "qwen/qwen3.8-27b", "api": "openai-completions" }
+      ],
+      "contextWindow": 131072,
+      "maxTokens": 32768
+    },
+
+    {
+      "key": "kimi-k3-1-pro",
+      "label": "Kimi K3.1 Pro",
+      "family": "Frontier Peers",
+      "tier": "flagship",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-10-23",
+      "routes": [
+        { "provider": "kimi-coding", "modelId": "k3" },
+        { "provider": "openrouter", "modelId": "moonshotai/kimi-k3.1-pro", "api": "openai-completions" }
+      ],
+      "contextWindow": 1000000,
+      "maxTokens": 65536
+    },
+    {
+      "key": "glm-5-3-prime",
+      "label": "GLM 5.3 Prime",
+      "family": "Frontier Peers",
+      "tier": "flagship",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-09-23",
+      "routes": [
+        { "provider": "zai", "modelId": "glm-5.3" },
+        { "provider": "openrouter", "modelId": "z-ai/glm-5.3-prime", "api": "openai-completions" }
+      ],
+      "contextWindow": 1000000,
+      "maxTokens": 65536
+    },
+    {
+      "key": "grok-4-7",
+      "label": "Grok 4.7",
+      "family": "Frontier Peers",
+      "tier": "flagship",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-09-21",
+      "routes": [
+        { "provider": "xai", "modelId": "grok-4.7", "api": "openai-completions" },
+        { "provider": "openrouter", "modelId": "x-ai/grok-4.7", "api": "openai-completions" }
+      ],
+      "contextWindow": 256000,
+      "maxTokens": 65536
+    },
+    {
+      "key": "minimax-m3-1-flash",
+      "label": "MiniMax M3.1 Flash",
+      "family": "Frontier Peers",
+      "tier": "fast",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-10-19",
+      "routes": [
+        { "provider": "minimax", "modelId": "MiniMax-M3", "api": "openai-completions" },
+        { "provider": "openrouter", "modelId": "minimax/minimax-m3.1-flash", "api": "openai-completions" }
+      ],
+      "contextWindow": 256000,
+      "maxTokens": 65536
+    }
+  ]
+}

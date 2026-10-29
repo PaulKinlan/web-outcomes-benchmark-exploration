@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Web Generation Benchmark — Model Quality, CWV, INP, Memory & Stack Observatory</title>
+  <meta name="description" content="Empirical clean-room benchmark comparing modern LLMs on unsteered website generation across Lighthouse passes/failures, web-uplift, W3C INP & LoAF deep performance, MemLab memory leak detection, and default framework choices." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles/main.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand-group">
+        <h1 class="site-title"><a href="#/leaderboard" class="brand-home-link">Web Generation Benchmark</a></h1>
+        <p class="site-subtitle">Clean-Room <code>pi</code> Agent Loop (0 skills · 0 extensions) + Real <code>$PORT</code> Server vs. Self-Contained 1-Shot across Lighthouse, <code>web-uplift</code>, CWV/INP/LoAF &amp; MemLab</p>
+      </div>
+
+      <div class="header-actions">
+        <div id="header-kpis" class="kpi-strip" aria-label="Benchmark corpus summary"></div>
+        <label class="inline-select" for="global-mode-select">
+          <span>Track</span>
+          <select id="global-mode-select">
+            <option value="all">All Modes (Agent + 1-Shot)</option>
+            <option value="agent">Agent Loop (pi + Server)</option>
+            <option value="oneshot">1-Shot Stream</option>
+          </select>
+        </label>
+        <button id="copy-view-link-btn" class="btn btn-ghost" type="button" title="Copy sharable permalink to current view and filters">
+          Copy Link
+        </button>
+        <button id="weights-trigger-btn" class="btn btn-secondary" type="button" commandfor="weights-popover" command="toggle-popover">
+          Score Weights
+        </button>
+        <button id="theme-toggle-btn" class="btn btn-ghost" type="button" aria-label="Toggle color theme">
+          Theme
+        </button>
+      </div>
+    </div>
+
+    <nav class="primary-tabs" aria-label="Benchmark studio views">
+      <a id="tab-leaderboard" class="tab-btn active" href="#/leaderboard" data-view="leaderboard">1. Leaderboard</a>
+      <a id="tab-matrix" class="tab-btn" href="#/matrix" data-view="matrix">2. Model × Prompt Matrix</a>
+      <a id="tab-observatory" class="tab-btn" href="#/observatory" data-view="observatory">3. Default Stack Observatory</a>
+      <a id="tab-arena" class="tab-btn" href="#/arena" data-view="arena">4. Side-by-Side Arena</a>
+      <a id="tab-methodology" class="tab-btn" href="#/methodology" data-view="methodology">5. Methodology &amp; Clean-Room</a>
+      <a id="tab-run" class="tab-btn" href="#/run" data-view="run">
+        6. Run &amp; Extend
+        <span id="live-run-indicator" class="run-dot hidden" aria-hidden="true"></span>
+      </a>
+    </nav>
+  </header>
+
+  <!-- Score Weights Popover -->
+  <div id="weights-popover" class="weights-popover" popover>
+    <div class="popover-header">
+      <h2>Composite Index Weights</h2>
+      <p>Adjust pillar importance and recompute rankings across all stored runs.</p>
+    </div>
+    <form id="weights-form" class="weights-grid">
+      <label for="weight-lighthouse">
+        <span>Lighthouse (Mobile/Desktop)</span>
+        <output id="out-weight-lighthouse">25%</output>
+        <input id="weight-lighthouse" name="lighthouse" type="range" min="0" max="100" value="25" />
+      </label>
+      <label for="weight-uplift">
+        <span>web-uplift (6 Outcomes)</span>
+        <output id="out-weight-uplift">25%</output>
+        <input id="weight-uplift" name="uplift" type="range" min="0" max="100" value="25" />
+      </label>
+      <label for="weight-deepPerf">
+        <span>Deep Perf (LCP, W3C INP, LoAF)</span>
+        <output id="out-weight-deepPerf">25%</output>
+        <input id="weight-deepPerf" name="deepPerf" type="range" min="0" max="100" value="25" />
+      </label>
+      <label for="weight-memory">
+        <span>Memory &amp; MemLab Leaks</span>
+        <output id="out-weight-memory">15%</output>
+        <input id="weight-memory" name="memory" type="range" min="0" max="100" value="15" />
+      </label>
+      <label for="weight-functionalFlow">
+        <span>Multi-Step Flow Completion</span>
+        <output id="out-weight-functionalFlow">10%</output>
+        <input id="weight-functionalFlow" name="functionalFlow" type="range" min="0" max="100" value="10" />
+      </label>
+      <div class="popover-actions">
+        <button id="reset-weights-btn" type="button" class="btn btn-ghost">Reset Default</button>
+        <button id="apply-weights-btn" type="submit" class="btn btn-primary">Apply Weights</button>
+      </div>
+    </form>
+  </div>
+
+  <main id="main-content" class="main-container">
+    <!-- VIEW 1: LEADERBOARD -->
+    <section id="view-leaderboard" class="studio-view active" aria-labelledby="heading-leaderboard">
+      <div class="section-toolbar">
+        <div>
+          <h2 id="heading-leaderboard" class="section-heading">Model Rankings &amp; Category Performance</h2>
+          <p class="section-desc">Click any column header to sort ascending or descending. Filter by category or track — every state has a sharable URL.</p>
+        </div>
+        <div class="toolbar-controls">
+          <a href="#/methodology" class="cleanroom-chip" title="View Clean-Room Harness & Isolation Spec">
+            ✓ Clean-Room <code>pi</code>: 0 skills · 0 extensions · 0 context files
+          </a>
+        </div>
+      </div>
+
+      <div id="category-filter-bar" class="category-pills" role="group" aria-label="Filter leaderboard by website category"></div>
+
+      <div id="leaderboard-empty" class="empty-callout hidden">
+        <h3>No benchmark cells recorded yet</h3>
+        <p>Open the <strong>6. Run &amp; Extend</strong> tab or run <code>npm run bench -- --pilot</code> to evaluate models and populate rankings.</p>
+        <a id="empty-goto-runner-btn" href="#/run" class="btn btn-primary">Launch Selective Run</a>
+      </div>
+
+      <div id="leaderboard-table-wrap" class="table-surface">
+        <table class="data-table sortable-table" id="leaderboard-table">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th data-th-col="label"><button type="button" class="th-sort-btn" data-sort-col="label">Model <span class="sort-glyph">↕</span></button></th>
+              <th data-th-col="mode"><button type="button" class="th-sort-btn" data-sort-col="mode">Mode <span class="sort-glyph">↕</span></button></th>
+              <th class="num" data-th-col="cellsRun"><button type="button" class="th-sort-btn num" data-sort-col="cellsRun">Cells <span class="sort-glyph">↕</span></button></th>
+              <th class="num" data-th-col="composite"><button type="button" class="th-sort-btn num" data-sort-col="composite">Composite <span class="sort-glyph">↓</span></button></th>
+              <th class="num" data-th-col="lighthouse"><button type="button" class="th-sort-btn num" data-sort-col="lighthouse">Lighthouse <span class="sort-glyph">↕</span></button></th>
+              <th class="num" data-th-col="uplift"><button type="button" class="th-sort-btn num" data-sort-col="uplift">web-uplift <span class="sort-glyph">↕</span></button></th>
+              <th class="num" data-th-col="deepPerf"><button type="button" class="th-sort-btn num" data-sort-col="deepPerf">Deep Perf <span class="sort-glyph">↕</span></button></th>
+              <th class="num" data-th-col="memory"><button type="button" class="th-sort-btn num" data-sort-col="memory">Memory <span class="sort-glyph">↕</span></button></th>
+              <th class="num" data-th-col="functionalFlow"><button type="button" class="th-sort-btn num" data-sort-col="functionalFlow">Flow % <span class="sort-glyph">↕</span></button></th>
+              <th class="num" data-th-col="mobileLcpMs"><button type="button" class="th-sort-btn num" data-sort-col="mobileLcpMs">Mob. LCP <span class="sort-glyph">↕</span></button></th>
+              <th class="num" data-th-col="inpMs"><button type="button" class="th-sort-btn num" data-sort-col="inpMs">W3C INP <span class="sort-glyph">↕</span></button></th>
+              <th class="num" data-th-col="burstP95TtfbMs"><button type="button" class="th-sort-btn num" data-sort-col="burstP95TtfbMs">P95 TTFB <span class="sort-glyph">↕</span></button></th>
+              <th class="num" data-th-col="baselineHeapMb"><button type="button" class="th-sort-btn num" data-sort-col="baselineHeapMb">Heap <span class="sort-glyph">↕</span></button></th>
+              <th data-th-col="dominantStack"><button type="button" class="th-sort-btn" data-sort-col="dominantStack">Default Stack <span class="sort-glyph">↕</span></button></th>
+            </tr>
+          </thead>
+          <tbody id="leaderboard-tbody"></tbody>
+        </table>
+      </div>
+
+      <article id="mode-head-to-head-panel" class="panel-card mt-lg hidden">
+        <h3>Paired Head-to-Head: Autonomous <code>pi</code> Agent Loop vs. 1-Shot Generation</h3>
+        <p class="panel-sub">Direct comparison on identical zero-bias prompts — click any score to inspect exact prompt, transcript, Lighthouse passes/failures, and live preview.</p>
+        <div class="table-surface">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Prompt</th>
+                <th class="num">Agent Score</th>
+                <th class="num">1-Shot Score</th>
+                <th class="num">Δ Score</th>
+                <th>Agent Full-Stack</th>
+                <th>1-Shot Stack</th>
+                <th class="num">Agent LCP / INP</th>
+                <th class="num">1-Shot LCP / INP</th>
+                <th class="num">pi Turns</th>
+              </tr>
+            </thead>
+            <tbody id="mode-h2h-tbody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article id="lighthouse-corpus-panel" class="panel-card mt-lg hidden">
+        <div class="cohort-header-row">
+          <div>
+            <h3>Corpus-Wide Lighthouse Audit Passes &amp; Failures</h3>
+            <p class="panel-sub">Which individual Lighthouse performance, accessibility, best-practices, and SEO checks models fail most often — and which checks pass universally.</p>
+          </div>
+          <div class="mini-actions" id="lh-corpus-filter-pills"></div>
+        </div>
+        <div id="lighthouse-corpus-body"></div>
+      </article>
+    </section>
+
+    <!-- VIEW 2: MATRIX -->
+    <section id="view-matrix" class="studio-view hidden" aria-labelledby="heading-matrix">
+      <div class="section-toolbar">
+        <div>
+          <h2 id="heading-matrix" class="section-heading">Model × Prompt Inspection Matrix</h2>
+          <p class="section-desc">Click any cell to inspect live interactive preview, exact prompt, turn-by-turn <code>pi</code> transcript, Lighthouse pass/fail list, and source code.</p>
+        </div>
+        <div class="toolbar-controls">
+          <label class="inline-select" for="matrix-category-select">
+            <span>Category</span>
+            <select id="matrix-category-select">
+              <option value="all">All 10 Categories</option>
+            </select>
+          </label>
+          <label class="inline-select" for="matrix-metric-select">
+            <span>Cell Display</span>
+            <select id="matrix-metric-select">
+              <option value="composite">Composite Score (0–100)</option>
+              <option value="lighthouse">Lighthouse Score</option>
+              <option value="lhFailures">Lighthouse Failed Audits</option>
+              <option value="framework">Default Frontend + Backend</option>
+              <option value="inpMs">W3C INP Latency (ms)</option>
+              <option value="mobileLcpMs">Mobile LCP (ms)</option>
+              <option value="burstP95TtfbMs">Server Burst P95 TTFB (ms)</option>
+              <option value="agentTurns">pi Agent Turns</option>
+              <option value="memory">Memory Health Score</option>
+              <option value="uplift">web-uplift Score</option>
+              <option value="functionalFlow">Journey Completion %</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div id="matrix-scroll-wrap" class="matrix-surface"></div>
+    </section>
+
+    <!-- VIEW 3: DEFAULT STACK OBSERVATORY -->
+    <section id="view-observatory" class="studio-view hidden" aria-labelledby="heading-tech">
+      <div class="section-toolbar">
+        <div>
+          <h2 id="heading-tech" class="section-heading">Default Library, Framework &amp; Backend Observatory</h2>
+          <p class="section-desc">Empirical test of default unprompted tech choices — click any Mode, Frontend, Backend, or Delivery cohort below to drill down into every matching site.</p>
+        </div>
+      </div>
+
+      <div class="observatory-grid">
+        <article class="panel-card">
+          <h3>Frontend Framework Share by Model</h3>
+          <p class="panel-sub">Distribution of primary UI frameworks emitted across prompts with zero stack instructions.</p>
+          <div id="tech-model-bars" class="bar-stack-list"></div>
+        </article>
+
+        <article class="panel-card">
+          <h3>Backend Server &amp; Persistence Share</h3>
+          <p class="panel-sub">Server runtimes and HTTP frameworks chosen autonomously in full-stack <code>pi</code> agent runs vs static builds.</p>
+          <div id="tech-backend-bars" class="bar-stack-list"></div>
+        </article>
+
+        <article class="panel-card">
+          <h3>Delivery &amp; Build-Step Tax</h3>
+          <p class="panel-sub">How often outputs run via real production servers or zero-dep bundles vs shipping runtime JIT CDNs.</p>
+          <div id="tech-delivery-bars" class="bar-stack-list"></div>
+        </article>
+      </div>
+
+      <article class="panel-card mt-lg">
+        <h3>Controlled Cohort Comparison: Performance, Server TTFB &amp; Memory by Stack / Mode</h3>
+        <p class="panel-sub">Click any cohort row to drill down into the exact generated websites matching that mode, frontend framework, backend server, or delivery pattern.</p>
+        <div class="table-surface">
+          <table class="data-table" id="tech-cohort-table">
+            <thead>
+              <tr>
+                <th>Mode / Framework / Backend Cohort</th>
+                <th class="num">Sites</th>
+                <th class="num">Share</th>
+                <th class="num">Composite</th>
+                <th class="num">Lighthouse</th>
+                <th class="num">web-uplift</th>
+                <th class="num">Avg Mob. LCP</th>
+                <th class="num">Avg W3C INP</th>
+                <th class="num">P95 TTFB</th>
+                <th class="num">Unused JS %</th>
+                <th class="num">Avg Heap</th>
+                <th class="num">Detached DOM Δ</th>
+                <th>Drill Down</th>
+              </tr>
+            </thead>
+            <tbody id="tech-cohort-tbody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article id="cohort-drilldown-panel" class="panel-card mt-lg hidden" aria-live="polite"></article>
+    </section>
+
+    <!-- VIEW 4: ARENA -->
+    <section id="view-arena" class="studio-view hidden" aria-labelledby="heading-arena">
+      <div class="section-toolbar">
+        <div>
+          <h2 id="heading-arena" class="section-heading">Side-by-Side Live Prompt Arena</h2>
+          <p class="section-desc">Test authentication, bookings, filters, checkouts, and games side-by-side across models and modes on isolated preview origins.</p>
+        </div>
+        <div class="toolbar-controls">
+          <label class="inline-select" for="arena-prompt-select">
+            <span>Prompt</span>
+            <select id="arena-prompt-select"></select>
+          </label>
+          <label class="inline-select" for="arena-model-a">
+            <span>Left Model</span>
+            <select id="arena-model-a"></select>
+          </label>
+          <label class="inline-select" for="arena-model-b">
+            <span>Right Model</span>
+            <select id="arena-model-b"></select>
+          </label>
+        </div>
+      </div>
+
+      <div id="arena-prompt-banner" class="prompt-quote-box"></div>
+      <div id="arena-split-grid" class="arena-grid"></div>
+    </section>
+
+    <!-- VIEW 5: METHODOLOGY & CLEAN-ROOM ENVIRONMENT -->
+    <section id="view-methodology" class="studio-view hidden" aria-labelledby="heading-methodology">
+      <div class="section-toolbar">
+        <div>
+          <h2 id="heading-methodology" class="section-heading">Methodology, Clean-Room Harness &amp; Visual Consistency Protocol</h2>
+          <p class="section-desc">Exact execution environment, tool isolation flags, 1-Shot vs. Agent Loop contract rules, zero-bias guardrails, and multimodal visual style anchoring.</p>
+        </div>
+      </div>
+      <div id="methodology-content"></div>
+    </section>
+
+    <!-- VIEW 6: RUN & EXTEND -->
+    <section id="view-run" class="studio-view hidden" aria-labelledby="heading-runner">
+      <div class="section-toolbar">
+        <div>
+          <h2 id="heading-runner" class="section-heading">Selective Runner &amp; Corpus Extension</h2>
+          <p class="section-desc">Run specific models, categories, prompts, or individual benchmark audits directly from the browser with live SSE telemetry.</p>
+        </div>
+        <div class="toolbar-controls">
+          <button id="sync-models-btn" type="button" class="btn btn-secondary">Sync Latest Models</button>
+          <button id="open-add-prompt-btn" type="button" class="btn btn-secondary">+ Add Prompt</button>
+          <button id="open-add-model-btn" type="button" class="btn btn-secondary">+ Add Model</button>
+        </div>
+      </div>
+
+      <div id="static-mode-notice" class="notice-banner hidden">
+        Running in read-only static export mode. Start the local Studio server (<code>npm run studio</code>) to execute new model generations and Chrome audits from this panel.
+      </div>
+
+      <div class="runner-layout">
+        <form id="runner-form" class="runner-config-panel">
+          <div class="selector-block">
+            <div class="selector-header">
+              <h3>1. Select Models</h3>
+              <div class="mini-actions">
+                <button type="button" class="link-btn" id="select-pilot-models-btn">Pilot Ready</button>
+                <button type="button" class="link-btn" id="select-all-ready-models-btn">All Ready</button>
+                <button type="button" class="link-btn" id="clear-models-btn">None</button>
+              </div>
+            </div>
+            <div id="runner-models-list" class="checkbox-grid"></div>
+          </div>
+
+          <div class="selector-block">
+            <div class="selector-header">
+              <h3>2. Select Prompts (10 Categories)</h3>
+              <div class="mini-actions">
+                <button type="button" class="link-btn" id="select-pilot-prompts-btn">10 Pilot Prompts</button>
+                <button type="button" class="link-btn" id="select-all-prompts-btn">All Prompts</button>
+                <button type="button" class="link-btn" id="clear-prompts-btn">None</button>
+              </div>
+            </div>
+            <div id="runner-prompts-list" class="prompts-accordion"></div>
+          </div>
+
+          <div class="selector-block">
+            <h3>3. Benchmark Pillars &amp; Options</h3>
+            <div id="runner-benchmarks-list" class="pillars-row"></div>
+
+            <div class="options-row">
+              <label class="check-item" for="opt-reuse-gen">
+                <input type="checkbox" id="opt-reuse-gen" />
+                <span>Reuse existing generations (audit-only pass)</span>
+              </label>
+              <label class="check-item" for="opt-force-rerun">
+                <input type="checkbox" id="opt-force-rerun" />
+                <span>Force overwrite cached artifacts</span>
+              </label>
+              <label class="check-item" for="opt-skip-judge">
+                <input type="checkbox" id="opt-skip-judge" />
+                <span>Fast deterministic uplift (skip LLM judge pass)</span>
+              </label>
+              <label class="inline-select" for="opt-gen-mode">
+                <span>Harness Mode</span>
+                <select id="opt-gen-mode">
+                  <option value="agent" selected>Clean-Room pi Agent Loop + Real $PORT Server (Default)</option>
+                  <option value="oneshot">Self-Contained 1-Shot HTML Stream</option>
+                  <option value="both">Both Side-by-Side (Agent + 1-Shot)</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="launch-bar">
+              <div id="run-scope-estimate" class="scope-summary">0 cells selected</div>
+              <div class="launch-buttons">
+                <button id="cancel-run-btn" type="button" class="btn btn-danger hidden">Cancel Active Run</button>
+                <button id="launch-run-btn" type="submit" class="btn btn-primary">Run Selected Benchmark Slice</button>
+              </div>
+            </div>
+          </div>
+        </form>
+
+        <aside class="runner-log-panel" aria-label="Live execution stream">
+          <div class="log-header">
+            <h3>Live Execution Stream (SSE)</h3>
+            <span id="run-status-badge" class="status-pill">Idle</span>
+          </div>
+          <pre id="sse-log-output" class="log-terminal">Ready. Select models and prompts to start a benchmark job.</pre>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <!-- CELL DEEP-DIVE INSPECTION DIALOG -->
+  <dialog id="cell-detail-dialog" class="detail-dialog" closedby="any" aria-labelledby="cell-dialog-title">
+    <div class="dialog-shell">
+      <header class="dialog-header">
+        <div>
+          <p id="cell-dialog-eyebrow" class="dialog-eyebrow"></p>
+          <h2 id="cell-dialog-title" class="dialog-title">Cell Inspection</h2>
+        </div>
+        <div class="dialog-header-actions">
+          <button id="copy-cell-link-btn" type="button" class="btn btn-ghost" title="Copy permalink to this cell">Copy Link</button>
+          <a id="open-transcript-newtab" href="#" target="_blank" rel="noopener" class="btn btn-secondary hidden">Raw pi HTML ↗</a>
+          <button id="rerun-single-cell-btn" type="button" class="btn btn-secondary">Re-run Cell</button>
+          <a id="open-preview-newtab" href="#" target="_blank" rel="noopener" class="btn btn-secondary">Open Site ↗</a>
+          <form method="dialog">
+            <button id="close-cell-dialog-btn" type="submit" class="btn btn-ghost" aria-label="Close inspection dialog">✕</button>
+          </form>
+        </div>
+      </header>
+      <nav id="cell-dialog-tabs" class="dialog-subtabs" aria-label="Cell inspection sections"></nav>
+      <div id="cell-dialog-body" class="dialog-body"></div>
+    </div>
+  </dialog>
+
+  <!-- ADD CUSTOM PROMPT DIALOG -->
+  <dialog id="add-prompt-dialog" class="modal-small" closedby="any" aria-labelledby="add-prompt-title">
+    <form id="add-prompt-form" class="dialog-shell">
+      <header class="dialog-header">
+        <h2 id="add-prompt-title">Add Zero-Bias Functional Prompt</h2>
+        <button type="button" class="btn btn-ghost" data-close-dialog="add-prompt-dialog">✕</button>
+      </header>
+      <div class="dialog-body form-stack">
+        <p class="form-hint">Prompts are validated automatically to ensure zero speed, quality, or framework steering words. Optional reference style images anchor visual layout consistency across models.</p>
+        <label for="new-prompt-id">Prompt ID (slug)
+          <input id="new-prompt-id" name="id" required placeholder="e.g. ceramic-pottery-classes" />
+        </label>
+        <label for="new-prompt-category">Website Category
+          <select id="new-prompt-category" name="category" required></select>
+        </label>
+        <label for="new-prompt-title-input">Title
+          <input id="new-prompt-title-input" name="title" required placeholder="e.g. Ceramic Studio Workshop Booking" />
+        </label>
+        <label for="new-prompt-text">Natural User Prompt (no tech/perf hints)
+          <textarea id="new-prompt-text" name="prompt" rows="4" required placeholder="Create a workshop booking website for a ceramics studio where visitors can filter classes by skill level, pick a wheel-throwing session date, confirm registration, and cancel an existing booking."></textarea>
+        </label>
+        <label for="new-prompt-ref-image">Optional Visual Style Reference Image (PNG/JPEG/WebP)
+          <input id="new-prompt-ref-image" name="refImageFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+        </label>
+        <label for="new-prompt-ref-label">Optional Reference Image Label (neutral description)
+          <input id="new-prompt-ref-label" name="refImageLabel" placeholder="e.g. Warm editorial desktop layout mockup" />
+        </label>
+        <div id="add-prompt-error" class="error-box hidden"></div>
+        <div class="popover-actions">
+          <button type="submit" class="btn btn-primary">Validate &amp; Save Prompt</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ADD CUSTOM MODEL DIALOG -->
+  <dialog id="add-model-dialog" class="modal-small" closedby="any" aria-labelledby="add-model-title">
+    <form id="add-model-form" class="dialog-shell">
+      <header class="dialog-header">
+        <h2 id="add-model-title">Register Model in pi-ai Matrix</h2>
+        <button type="button" class="btn btn-ghost" data-close-dialog="add-model-dialog">✕</button>
+      </header>
+      <div class="dialog-body form-stack">
+        <label for="new-model-key">Logical Key
+          <input id="new-model-key" name="key" required placeholder="e.g. gemini-4-pro" />
+        </label>
+        <label for="new-model-label">Display Name
+          <input id="new-model-label" name="label" required placeholder="e.g. Gemini 4 Pro" />
+        </label>
+        <label for="new-model-family">Model Family
+          <input id="new-model-family" name="family" required placeholder="e.g. Gemini (Google)" />
+        </label>
+        <label for="new-model-provider">Primary Provider ID
+          <input id="new-model-provider" name="provider" required placeholder="google | anthropic | openai | deepseek | openrouter" />
+        </label>
+        <label for="new-model-id">Provider Model ID
+          <input id="new-model-id" name="modelId" required placeholder="e.g. gemini-4-pro" />
+        </label>
+        <div id="add-model-error" class="error-box hidden"></div>
+        <div class="popover-actions">
+          <button type="submit" class="btn btn-primary">Save Model</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

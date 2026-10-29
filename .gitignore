@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.*
+!.env.example
+runs/
+data/summary.json
+dist-report/
+.synth-cache/
+*.heapsnapshot
+.DS_Store
