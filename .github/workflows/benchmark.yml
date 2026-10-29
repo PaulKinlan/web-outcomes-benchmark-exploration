@@ -78,7 +78,7 @@ jobs:
     name: Generate (${{ matrix.model }})
     needs: prepare-matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -119,10 +119,10 @@ jobs:
           PI_AUTH_JSON_B64: ${{ secrets.PI_AUTH_JSON_B64 }}
         run: |
           ARGS="--stage=generate --force --mode=${{ inputs.mode }} --models=${{ matrix.model }}"
-          if [ -n "${{ inputs.prompts }}" ]; then
-            ARGS="$ARGS --prompts=${{ inputs.prompts }}"
-          elif [ "${{ inputs.pilot }}" = "true" ]; then
+          if [ "${{ inputs.pilot }}" = "true" ]; then
             ARGS="$ARGS --pilot"
+          elif [ -n "${{ inputs.prompts }}" ]; then
+            ARGS="$ARGS --prompts=${{ inputs.prompts }}"
           fi
           node bin/bench.mjs $ARGS
 
@@ -139,7 +139,7 @@ jobs:
     name: Deterministic Performance & Memory Audit
     needs: generate
     runs-on: ${{ inputs.audit_runner }}
-    timeout-minutes: 90
+    timeout-minutes: 120
     concurrency:
       group: benchmark-hardware-audit-${{ inputs.audit_runner }}
       cancel-in-progress: false
@@ -171,10 +171,10 @@ jobs:
         # Notice: ZERO LLM API keys are passed into this step while executing generated $PORT servers!
         run: |
           ARGS="--stage=audit --force --skip-judge --audit-runs=${{ inputs.audit_runs }} --mode=${{ inputs.mode }} --models=${{ inputs.models }}"
-          if [ -n "${{ inputs.prompts }}" ]; then
-            ARGS="$ARGS --prompts=${{ inputs.prompts }}"
-          elif [ "${{ inputs.pilot }}" = "true" ]; then
+          if [ "${{ inputs.pilot }}" = "true" ]; then
             ARGS="$ARGS --pilot"
+          elif [ -n "${{ inputs.prompts }}" ]; then
+            ARGS="$ARGS --prompts=${{ inputs.prompts }}"
           fi
           node bin/bench.mjs $ARGS --markdown-summary="$GITHUB_STEP_SUMMARY"
 

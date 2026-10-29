@@ -177,16 +177,42 @@ export async function initializeModelRuntime() {
   };
 }
 
+export function matchesModelSelector(model, rawSelector) {
+  if (!rawSelector || !model) return false;
+  const sel = String(rawSelector).trim().toLowerCase();
+  const slugSel = sel.replace(/[./\s]+/g, '-');
+  if (model.key.toLowerCase() === sel || model.key.toLowerCase() === slugSel) return true;
+  for (const r of model.routes || []) {
+    const mid = String(r.modelId || '').toLowerCase();
+    const full = `${String(r.provider || '').toLowerCase()}/${mid}`;
+    if (mid === sel || full === sel || mid.replace(/[./\s]+/g, '-') === slugSel) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function selectModels(runtime, { keys = null, pilot = false, onlyReady = true } = {}) {
   let list = runtime.models.filter((m) => m.enabled !== false);
+  const unknownKeys = [];
   if (keys && keys.length > 0) {
-    const keySet = new Set(keys);
-    list = runtime.models.filter((m) => keySet.has(m.key));
+    const matchedKeySet = new Set();
+    for (const reqKey of keys) {
+      const hits = runtime.models.filter((m) => matchesModelSelector(m, reqKey));
+      if (hits.length === 0) {
+        unknownKeys.push(reqKey);
+      } else {
+        // Prefer exact key match if present, otherwise first route/alias match
+        const exact = hits.find((m) => m.key.toLowerCase() === String(reqKey).trim().toLowerCase());
+        matchedKeySet.add((exact || hits[0]).key);
+      }
+    }
+    list = runtime.models.filter((m) => matchedKeySet.has(m.key));
   } else if (pilot) {
     list = list.filter((m) => m.pilot === true);
   }
 
   const usable = onlyReady ? list.filter((m) => m.ready) : list;
   const skipped = onlyReady ? list.filter((m) => !m.ready) : [];
-  return { usable, skipped };
+  return { usable, skipped, unknownKeys };
 }

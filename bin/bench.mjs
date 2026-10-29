@@ -146,6 +146,11 @@ async function main() {
         `[bench] Skipped (${info.skippedModels.length} missing credentials): ${info.skippedModels.map((s) => s.key).join(', ')}`
       );
     }
+    if (info.unknownModels?.length > 0) {
+      console.warn(
+        `[bench] ! Unrecognized model keys (${info.unknownModels.length}): ${info.unknownModels.join(', ')}`
+      );
+    }
     console.log(`[bench] Prompts (${info.prompts.length}): ${info.prompts.join(', ')}`);
     if (info.benchmarks.length > 0) {
       console.log(`[bench] Benchmarks: ${info.benchmarks.join(', ')}\n`);

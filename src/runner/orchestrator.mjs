@@ -66,7 +66,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
 
   const runtime = await initializeModelRuntime();
   const prompts = selectPrompts({ ids: promptIds, categories, pilot });
-  const { usable: models, skipped: skippedModels } = selectModels(runtime, {
+  const { usable: models, skipped: skippedModels, unknownKeys = [] } = selectModels(runtime, {
     keys: modelKeys,
     pilot,
     onlyReady: !reuseGeneration,
@@ -84,6 +84,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
     modes: modesToRun,
     models: models.map((m) => m.key),
     skippedModels: skippedModels.map((m) => ({ key: m.key, missingProviders: m.missingProviders })),
+    unknownModels: unknownKeys,
     prompts: prompts.map((p) => p.id),
     benchmarks: pipelineStage === 'generate' ? [] : benchmarks.map((b) => b.id),
     totalCells,

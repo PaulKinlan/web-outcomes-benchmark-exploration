@@ -21,6 +21,7 @@ import {
 } from '../src/harness/pi-auth-bridge.mjs';
 import { buildSanitizedServerEnv } from '../src/materialize/server-runner.mjs';
 import { normalizePipelineStage } from '../src/runner/orchestrator.mjs';
+import { matchesModelSelector } from '../src/harness/model-registry.mjs';
 import { parseCliArgs, formatMarkdownSummary } from '../bin/bench.mjs';
 import { measureNodeCpuBaselineMs } from '../src/benchmarks/canary.mjs';
 
@@ -149,6 +150,15 @@ describe('Portable pi Runtime, Clean-Room Provider Bridges & Split VM Pipeline',
     assert.equal(normalizePipelineStage('generate'), 'generate');
     assert.equal(normalizePipelineStage('audit'), 'audit');
     assert.equal(normalizePipelineStage('all'), 'all');
+
+    const sampleGemini = {
+      key: 'gemini-3-8-flash',
+      routes: [{ provider: 'google', modelId: 'gemini-3.8-flash' }],
+    };
+    assert.equal(matchesModelSelector(sampleGemini, 'gemini-3-8-flash'), true);
+    assert.equal(matchesModelSelector(sampleGemini, 'gemini-3.8-flash'), true);
+    assert.equal(matchesModelSelector(sampleGemini, 'google/gemini-3.8-flash'), true);
+    assert.equal(matchesModelSelector(sampleGemini, 'nonexistent-model'), false);
 
     const parsed = parseCliArgs([
       'node',
