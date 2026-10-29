@@ -40,7 +40,7 @@
     "chrome-launcher": "^1.2.1",
     "chrome-remote-interface": "^0.33.3",
     "esbuild": "^0.25.5",
-    "lighthouse": "12.3.0",
+    "lighthouse": "13.6.0",
     "vite": "^7.0.6",
     "web-uplift": "github:PaulKinlan/web-uplift"
   },
