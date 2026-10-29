@@ -4,14 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       models:
-        description: 'Comma-separated model keys (e.g. deepseek-flash,gemini-4-argon,claude-sonnet-5-5)'
+        description: 'Comma-separated models (e.g. deepseek-flash,gemini-3.8-flash,claude-sonnet-5-5)'
         required: true
-        default: 'deepseek-flash'
+        default: 'deepseek-flash,gemini-3.8-flash'
         type: string
+      prompt_scope:
+        description: 'Which prompts to generate & audit across all 4 benchmark test pillars'
+        required: true
+        default: 'pilot'
+        type: choice
+        options:
+          - all
+          - pilot
+          - custom
       prompts:
-        description: 'Optional comma-separated prompt IDs (leave empty to use pilot/category filter)'
+        description: 'Custom prompt IDs (only used when prompt_scope is "custom", e.g. plumbing-appointment,minecraft-clone)'
         required: false
-        default: 'plumbing-appointment'
+        default: ''
         type: string
       mode:
         description: 'Harness mode'
@@ -22,11 +31,6 @@ on:
           - agent
           - oneshot
           - both
-      pilot:
-        description: 'Run all 10 pilot category prompts (ignored if prompts input is non-empty)'
-        required: false
-        default: false
-        type: boolean
       bridges:
         description: 'Optional clean-room provider bridges to install (e.g. antigravity)'
         required: false
@@ -35,7 +39,7 @@ on:
       audit_runs:
         description: 'Browser audit passes per cell (median selected to eliminate VM jitter)'
         required: true
-        default: '3'
+        default: '1'
         type: choice
         options:
           - '1'
@@ -59,30 +63,96 @@ permissions:
 
 jobs:
   prepare-matrix:
-    name: Prepare Model Shards
+    name: Prepare Parallel Model × Category Shards
     runs-on: ubuntu-latest
     outputs:
-      models_json: ${{ steps.split.outputs.models_json }}
+      shards_json: ${{ steps.plan.outputs.shards_json }}
+      audit_prompt_flag: ${{ steps.plan.outputs.audit_prompt_flag }}
     steps:
-      - id: split
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - id: plan
         run: |
-          MODELS_JSON=$(node -e '
-            const raw = process.argv[1] || "";
-            const arr = raw.split(",").map(s => s.trim()).filter(Boolean);
-            console.log(JSON.stringify(arr));
-          ' "${{ inputs.models }}")
-          echo "models_json=$MODELS_JSON" >> "$GITHUB_OUTPUT"
+          node -e '
+            const fs = require("node:fs");
+            const modelsRaw = process.argv[1] || "";
+            const scope = process.argv[2] || "pilot";
+            const customPromptsRaw = (process.argv[3] || "").trim();
+
+            const models = modelsRaw.split(",").map(s => s.trim()).filter(Boolean);
+            if (models.length === 0) {
+              throw new Error("At least one model must be provided in the models input.");
+            }
+
+            const reg = JSON.parse(fs.readFileSync("prompts/index.json", "utf8"));
+            const categories = (reg.categories || []).map(c => c.id);
+            const pilotIds = (reg.prompts || []).filter(p => p.pilot).map(p => p.id);
+
+            const shards = [];
+            let auditPromptFlag = "";
+
+            if (scope === "all") {
+              // Shard across categories in parallel (capped well under GitHub 256-job matrix limit)
+              const maxGroups = Math.max(1, Math.min(categories.length, Math.floor(200 / models.length)));
+              const groupSize = Math.ceil(categories.length / maxGroups);
+              for (let i = 0; i < categories.length; i += groupSize) {
+                const catSlice = categories.slice(i, i + groupSize);
+                for (const model of models) {
+                  shards.push({
+                    model,
+                    shardId: `${model.replace(/[^a-zA-Z0-9_-]/g, "-")}-cats-${Math.floor(i / groupSize) + 1}`,
+                    label: `${model} / ${catSlice.join("+")}`,
+                    promptFlag: `--category=${catSlice.join(",")}`,
+                  });
+                }
+              }
+              auditPromptFlag = ""; // empty filter = audit all 37 prompts!
+            } else if (scope === "pilot") {
+              // Split 10 pilot prompts into 2 parallel shards of 5 prompts per model
+              const half = Math.ceil(pilotIds.length / 2);
+              const groups = [pilotIds.slice(0, half), pilotIds.slice(half)].filter(g => g.length > 0);
+              groups.forEach((grp, idx) => {
+                for (const model of models) {
+                  shards.push({
+                    model,
+                    shardId: `${model.replace(/[^a-zA-Z0-9_-]/g, "-")}-pilot-${idx + 1}`,
+                    label: `${model} / pilot-${idx + 1} (${grp.length} prompts)`,
+                    promptFlag: `--prompts=${grp.join(",")}`,
+                  });
+                }
+              });
+              auditPromptFlag = "--pilot";
+            } else {
+              const ids = customPromptsRaw
+                ? customPromptsRaw.split(",").map(s => s.trim()).filter(Boolean)
+                : ["plumbing-appointment"];
+              for (const model of models) {
+                shards.push({
+                  model,
+                  shardId: `${model.replace(/[^a-zA-Z0-9_-]/g, "-")}-custom`,
+                  label: `${model} / ${ids.length} prompt(s)`,
+                  promptFlag: `--prompts=${ids.join(",")}`,
+                });
+              }
+              auditPromptFlag = `--prompts=${ids.join(",")}`;
+            }
+
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `shards_json=${JSON.stringify(shards)}\n`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `audit_prompt_flag=${auditPromptFlag}\n`);
+            console.log(`Planned ${shards.length} parallel generation shard(s) for scope="${scope}".`);
+          ' "${{ inputs.models }}" "${{ inputs.prompt_scope }}" "${{ inputs.prompts }}"
 
   # Stage 1: Parallel CPU-light LLM / pi Agent Generation (Zero Chrome needed)
   generate:
-    name: Generate (${{ matrix.model }})
+    name: Generate (${{ matrix.shard.label }})
     needs: prepare-matrix
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        model: ${{ fromJson(needs.prepare-matrix.outputs.models_json) }}
+        shard: ${{ fromJson(needs.prepare-matrix.outputs.shards_json) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -103,7 +173,7 @@ jobs:
             node scripts/setup-vm.mjs
           fi
 
-      - name: Run clean-room generation stage (${{ matrix.model }})
+      - name: Run clean-room generation shard (${{ matrix.shard.label }})
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -118,28 +188,27 @@ jobs:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           PI_AUTH_JSON_B64: ${{ secrets.PI_AUTH_JSON_B64 }}
         run: |
-          ARGS="--stage=generate --force --mode=${{ inputs.mode }} --models=${{ matrix.model }}"
-          if [ "${{ inputs.pilot }}" = "true" ]; then
-            ARGS="$ARGS --pilot"
-          elif [ -n "${{ inputs.prompts }}" ]; then
-            ARGS="$ARGS --prompts=${{ inputs.prompts }}"
-          fi
-          node bin/bench.mjs $ARGS
+          node bin/bench.mjs \
+            --stage=generate \
+            --force \
+            --mode="${{ inputs.mode }}" \
+            --models="${{ matrix.shard.model }}" \
+            ${{ matrix.shard.promptFlag }}
 
       - name: Upload generated workspace & pi session artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: generated-cells-${{ matrix.model }}
+          name: generated-cells-${{ matrix.shard.shardId }}
           path: runs/cells/
           if-no-files-found: warn
           retention-days: 14
 
-  # Stage 2: Airgapped-Secrets Serialized Performance, INP & Memory Audit (Concurrency = 1)
+  # Stage 2: Airgapped-Secrets Serialized Performance, INP & Memory Audit (All 4 Pillars: tech-stack, lighthouse-uplift, deep-perf, memory)
   audit:
-    name: Deterministic Performance & Memory Audit
-    needs: generate
+    name: Audit All 4 Pillars (Lighthouse + Uplift + CWV/INP + MemLab)
+    needs: [prepare-matrix, generate]
     runs-on: ${{ inputs.audit_runner }}
-    timeout-minutes: 120
+    timeout-minutes: 360
     concurrency:
       group: benchmark-hardware-audit-${{ inputs.audit_runner }}
       cancel-in-progress: false
@@ -167,16 +236,18 @@ jobs:
           path: runs/cells/
           merge-multiple: true
 
-      - name: Run Host Canary + Median-of-${{ inputs.audit_runs }} Browser & Memory Audits
+      - name: Run Host Canary + All 4 Benchmark Test Pillars
         # Notice: ZERO LLM API keys are passed into this step while executing generated $PORT servers!
         run: |
-          ARGS="--stage=audit --force --skip-judge --audit-runs=${{ inputs.audit_runs }} --mode=${{ inputs.mode }} --models=${{ inputs.models }}"
-          if [ "${{ inputs.pilot }}" = "true" ]; then
-            ARGS="$ARGS --pilot"
-          elif [ -n "${{ inputs.prompts }}" ]; then
-            ARGS="$ARGS --prompts=${{ inputs.prompts }}"
-          fi
-          node bin/bench.mjs $ARGS --markdown-summary="$GITHUB_STEP_SUMMARY"
+          node bin/bench.mjs \
+            --stage=audit \
+            --force \
+            --skip-judge \
+            --audit-runs="${{ inputs.audit_runs }}" \
+            --mode="${{ inputs.mode }}" \
+            --models="${{ inputs.models }}" \
+            ${{ needs.prepare-matrix.outputs.audit_prompt_flag }} \
+            --markdown-summary="$GITHUB_STEP_SUMMARY"
 
       - name: Export static Benchmark Studio report (dist-report/)
         run: npm run export
