@@ -13,6 +13,8 @@ jobs:
     name: Zero-Bias Validation & Harness Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      WEB_UPLIFT_NO_SANDBOX: '1'
 
     steps:
       - name: Checkout repository

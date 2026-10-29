@@ -29,17 +29,29 @@ test('model registry includes modern October 2026 frontier & flash families', as
     assert.ok(keys.has(expectedKey), `Missing model key "${expectedKey}" in config/models.json`);
   }
 
-  const runtime = await initializeModelRuntime();
-  assert.ok(runtime.models.length >= 25);
+  const prevDeepseekKey = process.env.DEEPSEEK_API_KEY;
+  try {
+    let runtime = await initializeModelRuntime();
+    assert.ok(runtime.models.length >= 25);
 
-  const { usable } = selectModels(runtime, { onlyReady: true });
-  assert.ok(usable.length >= 1, 'Expected at least one authenticated model route on this machine');
+    let { usable } = selectModels(runtime, { onlyReady: true });
+    if (usable.length === 0) {
+      // On unauthenticated CI runners (push/PR without secrets), verify route activation using a synthetic key
+      process.env.DEEPSEEK_API_KEY = 'sk-ci-unit-test-placeholder';
+      runtime = await initializeModelRuntime();
+      ({ usable } = selectModels(runtime, { onlyReady: true }));
+    }
 
-  // Verify synthetic pi-ai model descriptor construction on ready pi-ai routes
-  const directPiAiModel = usable.find((m) => m.activeRoute?.transport === 'pi-ai');
-  if (directPiAiModel) {
+    assert.ok(usable.length >= 1, 'Expected model route activation when provider key is present');
+
+    // Verify synthetic pi-ai model descriptor construction on ready pi-ai routes
+    const directPiAiModel = usable.find((m) => m.activeRoute?.transport === 'pi-ai');
+    assert.ok(directPiAiModel, 'Expected at least one pi-ai transport route');
     assert.ok(directPiAiModel.activeRoute.piModel.id);
     assert.ok(directPiAiModel.activeRoute.piModel.api);
     assert.ok(directPiAiModel.activeRoute.piModel.baseUrl.startsWith('http'));
+  } finally {
+    if (prevDeepseekKey === undefined) delete process.env.DEEPSEEK_API_KEY;
+    else process.env.DEEPSEEK_API_KEY = prevDeepseekKey;
   }
 });
