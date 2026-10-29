@@ -1,8 +1,9 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { PROJECT_ROOT } from '../util/env.mjs';
-import { loadPiAi } from './pi-loader.mjs';
+import { loadPiAi, getPiRuntimeInfo } from './pi-loader.mjs';
 import { createBridgedCredentialStore, getPiExtensionModels } from './pi-auth-bridge.mjs';
+import { listProviderBridges, resolveBridgeForProvider } from './provider-bridges.mjs';
 
 export const MODELS_CONFIG_PATH = join(PROJECT_ROOT, 'config', 'models.json');
 export const MODELS_CACHE_PATH = join(PROJECT_ROOT, 'config', 'models.catalog-cache.json');
@@ -127,17 +128,20 @@ export async function initializeModelRuntime() {
     for (const route of m.routes || []) {
       const isBuiltInPiAiProvider = Boolean(piModels.getProvider(route.provider));
 
-      if (!isBuiltInPiAiProvider && extModels.has(route.provider)) {
-        // Extension-only providers (e.g. antigravity) run via `pi --no-tools`
-        if (extModels.get(route.provider).has(route.modelId)) {
+      if (extModels.has(route.provider) && extModels.get(route.provider).has(route.modelId)) {
+        const bridge = resolveBridgeForProvider(route.provider);
+        // Extension-surfaced provider models (e.g. antigravity, claude-bridge, muse) run via clean-room pi CLI + -e <bridge>
+        if (!isBuiltInPiAiProvider || bridge) {
           activeRoute = {
             ...route,
             transport: 'pi-cli',
-            via: `pi extension (${route.provider})`,
+            bridgeId: bridge?.id || null,
+            via: bridge
+              ? `pi bridge (${bridge.id}@${bridge.version})`
+              : `pi extension (${route.provider})`,
           };
           break;
         }
-        continue;
       }
 
       const auth = await isProviderReady(route.provider);
@@ -164,6 +168,8 @@ export async function initializeModelRuntime() {
   return {
     piAi,
     piModels,
+    piRuntime: getPiRuntimeInfo(),
+    providerBridges: listProviderBridges(),
     credentials,
     config,
     models: resolvedModels,

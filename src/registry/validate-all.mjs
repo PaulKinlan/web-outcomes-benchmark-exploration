@@ -30,8 +30,10 @@ export async function validateAll() {
     models: {
       total: runtime.models.length,
       readyCount: readyModels.length,
-      readyKeys: readyModels.map((m) => `${m.key} -> ${m.activeRoute.provider}/${m.activeRoute.modelId}`),
+      readyKeys: readyModels.map((m) => `${m.key} -> ${m.activeRoute.provider}/${m.activeRoute.modelId} (${m.activeRoute.via})`),
     },
+    piRuntime: runtime.piRuntime,
+    providerBridges: (runtime.providerBridges || []).filter((b) => b.installed).map((b) => `${b.id}@${b.version}`),
     errors,
   };
 }
@@ -39,6 +41,9 @@ export async function validateAll() {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   validateAll()
     .then((res) => {
+      console.log(
+        `[validate] pi CLI:  v${res.piRuntime?.version || 'unavailable'} (${res.piRuntime?.source || 'missing'}) | Clean-room bridges: ${res.providerBridges.join(', ') || 'none'}`
+      );
       console.log(`[validate] Prompts: ${res.prompts.total} across ${res.prompts.categories} categories (${res.prompts.pilot} pilot)`);
       console.log(`[validate] Models:  ${res.models.total} configured, ${res.models.readyCount} ready with live credentials:`);
       for (const rk of res.models.readyKeys) {

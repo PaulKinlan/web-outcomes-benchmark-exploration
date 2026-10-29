@@ -1,6 +1,54 @@
 {
   "version": "2026.10",
-  "updatedAt": "2026-10-28",
+  "updatedAt": "2026-10-29",
+  "providerBridges": [
+    {
+      "id": "antigravity",
+      "label": "Antigravity / Cloud Code Assist Bridge",
+      "providers": ["antigravity"],
+      "packageName": "pi-antigravity",
+      "defaultInstallSpec": "git+https://github.com/Rahularya01/pi-antigravity.git",
+      "envOverrideVar": "PI_BRIDGE_ANTIGRAVITY",
+      "transportOnly": true,
+      "allowGlobalFallback": true,
+      "description": "Clean-room OAuth/transport extension bridging pi to Antigravity Gemini & Claude endpoints."
+    },
+    {
+      "id": "codex-bridge",
+      "label": "OpenAI Codex Transport Bridge",
+      "providers": ["openai-codex", "codex"],
+      "packageName": "pi-codex-bridge",
+      "defaultInstallSpec": null,
+      "envOverrideVar": "PI_BRIDGE_CODEX",
+      "builtInAuthSupported": true,
+      "transportOnly": true,
+      "allowGlobalFallback": true,
+      "description": "Supports pi's built-in openai-codex OAuth store plus optional explicit -e Codex extension bridges."
+    },
+    {
+      "id": "claude-bridge",
+      "label": "Claude OAuth / CLI Transport Bridge",
+      "providers": ["claude-bridge", "claude-code", "anthropic"],
+      "packageName": "pi-claude-bridge",
+      "defaultInstallSpec": null,
+      "envOverrideVar": "PI_BRIDGE_CLAUDE",
+      "builtInAuthSupported": true,
+      "transportOnly": true,
+      "allowGlobalFallback": true,
+      "description": "Optional explicit -e transport extension bridging pi to Claude Code / OAuth sessions when ANTHROPIC_API_KEY is not used."
+    },
+    {
+      "id": "muse",
+      "label": "Muse Provider Transport Bridge",
+      "providers": ["muse"],
+      "packageName": "pi-muse",
+      "defaultInstallSpec": null,
+      "envOverrideVar": "PI_BRIDGE_MUSE",
+      "transportOnly": true,
+      "allowGlobalFallback": true,
+      "description": "Explicit -e transport extension bridging pi to Muse model endpoints in clean-room mode."
+    }
+  ],
   "models": [
     {
       "key": "claude-opus-5-5",

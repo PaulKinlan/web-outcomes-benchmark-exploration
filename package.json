@@ -13,17 +13,30 @@
     "start": "node src/server/studio-server.mjs",
     "studio": "node src/server/studio-server.mjs",
     "bench": "node bin/bench.mjs",
+    "bench:generate": "node bin/bench.mjs --stage=generate",
+    "bench:audit": "node bin/bench.mjs --stage=audit",
     "pilot": "node bin/bench.mjs --pilot",
     "score": "node bin/bench.mjs --score-only",
+    "canary": "node src/benchmarks/canary.mjs",
+    "setup:vm": "node scripts/setup-vm.mjs",
+    "bridges:list": "node scripts/manage-bridges.mjs list",
+    "bridges:install": "node scripts/manage-bridges.mjs install",
     "sync:models": "node src/harness/sync-models.mjs",
     "export": "node src/export/static-export.mjs",
     "validate": "node src/registry/validate-all.mjs",
     "test": "node --test --test-concurrency=2 tests/*.test.mjs"
   },
+  "piRuntime": {
+    "package": "@earendil-works/pi-coding-agent",
+    "aiPackage": "@earendil-works/pi-ai",
+    "version": "0.85.1",
+    "chromeChannel": "stable"
+  },
   "engines": {
     "node": ">=22.0.0"
   },
   "dependencies": {
+    "@puppeteer/browsers": "^2.10.5",
     "chrome-launcher": "^1.2.1",
     "chrome-remote-interface": "^0.33.3",
     "esbuild": "^0.25.5",

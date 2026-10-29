@@ -9,12 +9,35 @@ import { extractGeneratedFiles } from '../materialize/extract-files.mjs';
 import { prepareCellRuntime, startCellServer } from '../materialize/server-runner.mjs';
 import { compileCanonicalFlow } from '../flows/compile-flow.mjs';
 import { selectBenchmarks } from '../benchmarks/registry.mjs';
+import { runHostCanaryCalibration } from '../benchmarks/canary.mjs';
 import { aggregateAllResults, CELLS_ROOT } from '../scoring/aggregate.mjs';
+
+export function normalizePipelineStage(stage) {
+  if (!stage || stage === 'all') return 'all';
+  if (stage === 'generate' || stage === 'gen') return 'generate';
+  if (stage === 'audit' || stage === 'bench') return 'audit';
+  return 'all';
+}
+
+function extractPrimaryBenchScore(benchId, resultObj) {
+  if (!resultObj || typeof resultObj !== 'object') return 0;
+  if (benchId === 'lighthouse-uplift') {
+    const lh = resultObj.lighthouse?.performanceScore ?? 0;
+    const up = resultObj.uplift?.overallScore ?? 0;
+    return (lh + up) / 2;
+  }
+  if (typeof resultObj.score === 'number') return resultObj.score;
+  if (typeof resultObj.overallScore === 'number') return resultObj.overallScore;
+  return 0;
+}
 
 /**
  * Runs a configurable matrix slice of [models x prompts x modes x benchmarks].
- * Supports mode="agent" (default full-stack pi loop), mode="oneshot" (1-shot pi-ai),
- * and mode="both" (side-by-side comparison).
+ * Supports:
+ *   - stage="all" (default): Stage 1 generation + Canary + Stage 2 serialized browser audits
+ *   - stage="generate": Stage 1 LLM generation ONLY (zero Chrome needed; ideal for cloud CPU workers)
+ *   - stage="audit": Canary + Stage 2 materialization & browser audits on existing generations
+ *   - auditRuns=N: Median-of-N browser audit passes per cell to eliminate VM scheduling jitter
  */
 export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()) {
   const {
@@ -24,11 +47,18 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
     benchmarkIds = null,
     pilot = false,
     mode = null,
-    reuseGeneration = false,
+    stage: rawStage = 'all',
+    auditRuns: rawAuditRuns = 1,
+    skipCanary = false,
+    reuseGeneration: rawReuseGeneration = false,
     force = false,
     skipJudge = false,
     signal = null,
   } = options;
+
+  const pipelineStage = normalizePipelineStage(rawStage);
+  const reuseGeneration = pipelineStage === 'audit' ? true : Boolean(rawReuseGeneration);
+  const auditRuns = Math.max(1, Math.min(7, Number(rawAuditRuns) || 1));
 
   const config = loadBenchmarkConfig();
   const requestedMode = normalizeHarnessMode(mode || config.generation.defaultMode || 'agent');
@@ -48,19 +78,21 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
 
   emitter.emit('job:start', {
     jobId,
+    stage: pipelineStage,
+    auditRuns,
     mode: requestedMode,
     modes: modesToRun,
     models: models.map((m) => m.key),
     skippedModels: skippedModels.map((m) => ({ key: m.key, missingProviders: m.missingProviders })),
     prompts: prompts.map((p) => p.id),
-    benchmarks: benchmarks.map((b) => b.id),
+    benchmarks: pipelineStage === 'generate' ? [] : benchmarks.map((b) => b.id),
     totalCells,
   });
 
   if (models.length === 0 || prompts.length === 0) {
     const summary = aggregateAllResults();
-    emitter.emit('job:done', { jobId, completedCells: 0, failedCells: 0, summary });
-    return { jobId, completedCells: 0, failedCells: 0, summary };
+    emitter.emit('job:done', { jobId, stage: pipelineStage, completedCells: 0, failedCells: 0, summary });
+    return { jobId, stage: pipelineStage, completedCells: 0, failedCells: 0, summary };
   }
 
   mkdirSync(CELLS_ROOT, { recursive: true });
@@ -83,6 +115,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
     }
   }
 
+  // Stage 1: LLM Generation (or cache inspection when stage="audit" / reuseGeneration=true)
   const hasAgentWork = modesToRun.includes('agent');
   const genConcurrency = Math.max(
     1,
@@ -121,6 +154,8 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
           detail: `Reusing cached ${cellMode} generation output`,
         });
         item.generation = JSON.parse(readFileSync(genJsonPath, 'utf8'));
+      } else if (reuseGeneration && !hasExistingGen) {
+        item.skippedNoGeneration = true;
       } else {
         emitter.emit('cell:start', {
           jobId,
@@ -144,9 +179,52 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
 
   await Promise.all(Array.from({ length: Math.min(genConcurrency, cellQueue.length) }, () => generationWorker()));
 
+  // If stage === 'generate', finish cleanly without launching Chrome or running audits!
+  if (pipelineStage === 'generate') {
+    for (const item of cellQueue) {
+      if (item.skippedNoGeneration) continue;
+      if (item.generation?.error) {
+        failedCells++;
+        emitter.emit('cell:done', { jobId, cellId: item.cellId, ok: false, error: item.generation.error });
+      } else {
+        completedCells++;
+        emitter.emit('cell:done', { jobId, cellId: item.cellId, ok: true });
+      }
+    }
+
+    const summary = aggregateAllResults();
+    const jobsDir = join(PROJECT_ROOT, 'runs', 'jobs');
+    mkdirSync(jobsDir, { recursive: true });
+    writeFileSync(
+      join(jobsDir, `${jobId}.json`),
+      JSON.stringify(
+        { jobId, stage: pipelineStage, mode: requestedMode, completedCells, failedCells, finishedAt: new Date().toISOString() },
+        null,
+        2
+      ) + '\n',
+      'utf8'
+    );
+    emitter.emit('job:done', { jobId, stage: pipelineStage, completedCells, failedCells, summary });
+    return { jobId, stage: pipelineStage, completedCells: 0 + completedCells, failedCells, summary };
+  }
+
+  // Host Hardware Canary Calibration before Stage 2 browser benchmarks
+  const actionableAuditCells = cellQueue.filter((i) => !i.skippedNoGeneration && !i.generation?.error);
+  let canary = null;
+  if (!skipCanary && actionableAuditCells.length > 0) {
+    try {
+      emitter.emit('job:canary', { jobId, detail: 'Running host CPU & Chrome canary calibration' });
+      canary = await runHostCanaryCalibration({ save: true });
+      emitter.emit('job:canary-done', { jobId, canary });
+    } catch {
+      // non-fatal if headless Chrome is unavailable during unit tests
+    }
+  }
+
   // Stage 2: Materialize / Verify Production Server + Serialized Browser Audits (strictly concurrency = 1)
   for (const item of cellQueue) {
     if (signal?.aborted) break;
+    if (item.skippedNoGeneration) continue;
     const { cellId, cellDir, promptEntry, generation } = item;
 
     if (generation?.error) {
@@ -236,19 +314,82 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
           continue;
         }
 
-        await bench.run({
-          url: serverHandle.url,
-          serverHandle,
-          cellDir,
-          distDir: materialization.distDir || join(cellDir, 'dist'),
-          extraction,
-          materialization,
-          compiledFlow,
-          promptEntry,
-          config,
-          options: { skipJudge },
-          onProgress: (p) => emitter.emit('cell:stage', { jobId, cellId, ...p }),
-        });
+        const isStaticAnalysisOnly = bench.id === 'tech-stack';
+        const passes = isStaticAnalysisOnly ? 1 : auditRuns;
+
+        if (passes === 1) {
+          await bench.run({
+            url: serverHandle.url,
+            serverHandle,
+            cellDir,
+            distDir: materialization.distDir || join(cellDir, 'dist'),
+            extraction,
+            materialization,
+            compiledFlow,
+            promptEntry,
+            config,
+            options: { skipJudge },
+            onProgress: (p) => emitter.emit('cell:stage', { jobId, cellId, ...p }),
+          });
+        } else {
+          const runArtifacts = [];
+          for (let passIdx = 1; passIdx <= passes; passIdx++) {
+            if (signal?.aborted) break;
+            emitter.emit('cell:stage', {
+              jobId,
+              cellId,
+              stage: bench.id,
+              detail: `Audit pass ${passIdx}/${passes} (${bench.label})`,
+            });
+            await bench.run({
+              url: serverHandle.url,
+              serverHandle,
+              cellDir,
+              distDir: materialization.distDir || join(cellDir, 'dist'),
+              extraction,
+              materialization,
+              compiledFlow,
+              promptEntry,
+              config,
+              options: { skipJudge },
+              onProgress: (p) =>
+                emitter.emit('cell:stage', {
+                  jobId,
+                  cellId,
+                  stage: p.stage || bench.id,
+                  detail: `[pass ${passIdx}/${passes}] ${p.detail}`,
+                }),
+            });
+            if (existsSync(resultFile)) {
+              const parsed = JSON.parse(readFileSync(resultFile, 'utf8'));
+              runArtifacts.push({
+                passIdx,
+                primaryScore: extractPrimaryBenchScore(bench.id, parsed),
+                payload: parsed,
+              });
+            }
+          }
+
+          if (runArtifacts.length > 0) {
+            runArtifacts.sort((a, b) => a.primaryScore - b.primaryScore);
+            const medianEntry = runArtifacts[Math.floor(runArtifacts.length / 2)];
+            const allScores = runArtifacts.map((r) => Math.round(r.primaryScore * 10) / 10);
+            const enrichedMedian = {
+              ...medianEntry.payload,
+              auditRunsMetadata: {
+                passesRequested: passes,
+                passesCompleted: runArtifacts.length,
+                selectedMedianPass: medianEntry.passIdx,
+                allPrimaryScores: allScores,
+                scoreSpread:
+                  allScores.length > 1
+                    ? Math.round((allScores[allScores.length - 1] - allScores[0]) * 10) / 10
+                    : 0,
+              },
+            };
+            writeFileSync(resultFile, JSON.stringify(enrichedMedian, null, 2) + '\n', 'utf8');
+          }
+        }
       }
 
       completedCells++;
@@ -269,10 +410,23 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
   mkdirSync(jobsDir, { recursive: true });
   writeFileSync(
     join(jobsDir, `${jobId}.json`),
-    JSON.stringify({ jobId, mode: requestedMode, completedCells, failedCells, finishedAt: new Date().toISOString() }, null, 2) + '\n',
+    JSON.stringify(
+      {
+        jobId,
+        stage: pipelineStage,
+        auditRuns,
+        canaryStatus: canary?.status || null,
+        mode: requestedMode,
+        completedCells,
+        failedCells,
+        finishedAt: new Date().toISOString(),
+      },
+      null,
+      2
+    ) + '\n',
     'utf8'
   );
 
-  emitter.emit('job:done', { jobId, completedCells, failedCells, summary });
-  return { jobId, completedCells, failedCells, summary };
+  emitter.emit('job:done', { jobId, stage: pipelineStage, completedCells, failedCells, summary });
+  return { jobId, stage: pipelineStage, completedCells, failedCells, summary };
 }

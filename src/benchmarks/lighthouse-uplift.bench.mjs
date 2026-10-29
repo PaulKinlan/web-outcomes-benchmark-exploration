@@ -27,7 +27,7 @@ function findLatestReportJson(rootDir) {
   return candidates[0]?.path || null;
 }
 
-async function runLighthousePass(url, formFactor = 'mobile') {
+export async function runLighthousePass(url, formFactor = 'mobile') {
   const chromeFlags = [
     '--headless=new',
     '--disable-gpu',
@@ -78,13 +78,16 @@ async function runLighthousePass(url, formFactor = 'mobile') {
     const scorePct = (cat) =>
       lhr?.categories?.[cat]?.score != null ? Math.round(lhr.categories[cat].score * 100) : null;
 
-    // Map each audit ID to its primary Lighthouse category (performance, accessibility, best-practices, seo)
-    const auditCategoryMap = new Map();
-    for (const [catId, catObj] of Object.entries(lhr?.categories || {})) {
+    // Map each audit ID to all Lighthouse categories referencing it (performance, accessibility, best-practices, seo)
+    const auditCategoriesMap = new Map();
+    const categoryOrder = ['performance', 'accessibility', 'best-practices', 'seo'];
+    for (const catId of categoryOrder) {
+      const catObj = lhr?.categories?.[catId];
       for (const ref of catObj?.auditRefs || []) {
-        if (ref?.id && !auditCategoryMap.has(ref.id)) {
-          auditCategoryMap.set(ref.id, catId);
-        }
+        if (!ref?.id) continue;
+        if (!auditCategoriesMap.has(ref.id)) auditCategoriesMap.set(ref.id, []);
+        const list = auditCategoriesMap.get(ref.id);
+        if (!list.includes(catId)) list.push(catId);
       }
     }
 
@@ -101,10 +104,12 @@ async function runLighthousePass(url, formFactor = 'mobile') {
       if (a.score === null || a.scoreDisplayMode === 'informative' || a.scoreDisplayMode === 'manual') {
         continue;
       }
+      const cats = auditCategoriesMap.get(a.id) || ['other'];
       const item = {
         id: a.id,
         title: a.title,
-        category: auditCategoryMap.get(a.id) || 'other',
+        category: cats[0],
+        categories: cats,
         score: Math.round((a.score ?? 0) * 100),
         displayValue: a.displayValue || null,
       };

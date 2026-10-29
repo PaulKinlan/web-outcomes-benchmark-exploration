@@ -1,9 +1,13 @@
 node_modules/
+.pi-runtime/
+.pi-bridges/
+.browsers/
 .env
 .env.*
 !.env.example
 runs/
 data/summary.json
+data/canary-latest.json
 dist-report/
 .synth-cache/
 *.heapsnapshot

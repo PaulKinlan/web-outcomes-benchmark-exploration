@@ -9,7 +9,10 @@ import { join } from 'node:path';
 import { PROJECT_ROOT, loadBenchmarkConfig } from '../util/env.mjs';
 import { loadPromptRegistry } from '../registry/prompts.mjs';
 import { loadModelRegistryConfig } from '../harness/model-registry.mjs';
+import { getPiRuntimeInfo } from '../harness/pi-loader.mjs';
+import { listProviderBridges } from '../harness/provider-bridges.mjs';
 import { BENCHMARK_PLUGINS } from '../benchmarks/registry.mjs';
+import { loadLatestCanary } from '../benchmarks/canary.mjs';
 
 export const CELLS_ROOT = join(PROJECT_ROOT, 'runs', 'cells');
 export const SUMMARY_OUT_PATH = join(PROJECT_ROOT, 'data', 'summary.json');
@@ -255,8 +258,8 @@ export function aggregateAllResults({ customWeights = null } = {}) {
               failedCount:
                 lhu.lighthouse.mobile.auditCounts?.failed ??
                 (lhu.lighthouse.mobile.failingAudits || []).length,
-              failingAudits: (lhu.lighthouse.mobile.failingAudits || []).slice(0, 20),
-              passedAudits: (lhu.lighthouse.mobile.passedAudits || []).slice(0, 60),
+              failingAudits: (lhu.lighthouse.mobile.failingAudits || []).slice(0, 40),
+              passedAudits: (lhu.lighthouse.mobile.passedAudits || []).slice(0, 120),
             }
           : null,
 
@@ -352,6 +355,12 @@ export function aggregateAllResults({ customWeights = null } = {}) {
         generationMs: avg(mCells.map((c) => c.generationMs)),
         avgTurns: avg(mCells.map((c) => c.trajectory?.turnCount).filter((x) => x != null)),
         avgToolCalls: avg(mCells.map((c) => c.trajectory?.totalToolCalls).filter((x) => x != null)),
+        avgCostUsd: (() => {
+          const priced = mCells.map((c) => c.costUsd).filter((x) => typeof x === 'number' && x > 0);
+          return priced.length > 0
+            ? Math.round((priced.reduce((a, b) => a + b, 0) / priced.length) * 10000) / 10000
+            : null;
+        })(),
         totalCostUsd: Math.round(mCells.reduce((s, c) => s + (c.costUsd || 0), 0) * 10000) / 10000,
       },
       techDefaults: {
@@ -520,9 +529,30 @@ export function aggregateAllResults({ customWeights = null } = {}) {
     }))
     .sort((a, b) => b.passCount - a.passCount || a.id.localeCompare(b.id));
 
+  const piInfo = getPiRuntimeInfo();
+  const bridgesSummary = listProviderBridges().map((b) => ({
+    id: b.id,
+    label: b.label,
+    providers: b.providers,
+    packageName: b.packageName,
+    installed: b.installed,
+    portable: b.portable,
+    source: b.source,
+    version: b.version,
+    builtInAuthSupported: Boolean(b.builtInAuthSupported),
+  }));
+
   const summary = {
     generatedAt: new Date().toISOString(),
     weights,
+    canary: loadLatestCanary(),
+    environment: {
+      piVersion: piInfo.version,
+      piSource: piInfo.source,
+      piPortable: piInfo.portable,
+      declaredPiPackage: `${piInfo.declaredSpec?.package}@${piInfo.declaredSpec?.version}`,
+      providerBridges: bridgesSummary,
+    },
     totals: {
       cells: cells.length,
       agentCells: agentCellsCount,

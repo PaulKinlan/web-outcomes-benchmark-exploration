@@ -136,7 +136,9 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
     join(outDir, 'api-static', 'state.json'),
     JSON.stringify({
       staticMode: true,
-      piVersion: detectPiVersion(),
+      piVersion: summary.environment?.piVersion || detectPiVersion(),
+      piRuntime: summary.environment || null,
+      providerBridges: summary.environment?.providerBridges || [],
       nodeVersion: process.version,
       config,
       models: modelReg.models.map((m) => ({

@@ -23,6 +23,7 @@ const DEFAULT_SORT_DIR = {
   inpMs: 'asc',
   burstP95TtfbMs: 'asc',
   baselineHeapMb: 'asc',
+  generationMs: 'asc',
 };
 
 const state = {
@@ -44,7 +45,7 @@ const state = {
   inspectedCellId: null,
   inspectedCell: null,
   dialogTab: 'overview',
-  lhCellFilter: 'failed',
+  lhCellFilter: 'all',
   transcriptFilter: 'all',
   transcriptQuery: '',
   suppressHashSync: false,
@@ -360,10 +361,15 @@ function renderHeaderKpis() {
   const cellCount = totals.cells || 0;
   const agentCount = totals.agentCells || 0;
   const oneshotCount = totals.oneshotCells || 0;
+  const canary = d.summary?.canary;
+  const canaryBadge = canary
+    ? `<span>Canary: <strong>${escapeHtml(String(canary.status || 'stable').toUpperCase())}</strong> (${canary.browserMainThreadComputeMs ?? canary.nodeCpuComputeMs ?? '—'}ms)</span>`
+    : '';
   el.innerHTML = `
     <span>Prompts: <strong>${d.prompts.length}</strong> (${d.categories.length} cats)</span>
     <span>Models: <strong>${d.models.length}</strong> (${readyCount} live)</span>
     <span>Cells: <strong>${cellCount}</strong> (${agentCount} agent · ${oneshotCount} 1-shot)</span>
+    ${canaryBadge}
   `;
 }
 
@@ -399,6 +405,8 @@ function getRowSortValue(row, col) {
       return row.averages?.burstP95TtfbMs ?? null;
     case 'baselineHeapMb':
       return row.averages?.baselineHeapMb ?? null;
+    case 'generationMs':
+      return row.averages?.generationMs ?? null;
     default:
       return row.scores?.composite ?? null;
   }
@@ -472,6 +480,7 @@ function computeFilteredLeaderboard() {
           inpMs: avg(built.map((c) => c.keyMetrics.inpMs)),
           burstP95TtfbMs: avg(built.map((c) => c.keyMetrics.burstP95TtfbMs)),
           baselineHeapMb: avg(built.map((c) => c.keyMetrics.baselineHeapMb)),
+          generationMs: avg(list.map((c) => c.generationMs)),
         },
         techDefaults: {
           ...base.techDefaults,
@@ -532,15 +541,22 @@ function renderCorpusLighthouseBreakdown() {
   }
   panel.classList.remove('hidden');
 
-  const failing = lh.topFailingAudits || [];
-  const passing = lh.universalPassingAudits || [];
+  const failing = (lh.topFailingAudits || []).map((f) => {
+    const cats = getAuditCategories(f);
+    return { ...f, category: cats[0], categories: cats };
+  });
+  const passing = (lh.universalPassingAudits || []).map((p) => {
+    const cats = getAuditCategories(p);
+    return { ...p, category: cats[0], categories: cats };
+  });
+  const matchesCat = (item, cat) => (item.categories || [item.category]).includes(cat);
 
   const filters = [
     { id: 'all-failures', label: `All Failing Checks (${failing.length})` },
-    { id: 'performance', label: `Perf Failures (${failing.filter((f) => f.category === 'performance').length})` },
-    { id: 'accessibility', label: `A11y Failures (${failing.filter((f) => f.category === 'accessibility').length})` },
-    { id: 'best-practices', label: `Best-Practice Failures (${failing.filter((f) => f.category === 'best-practices').length})` },
-    { id: 'seo', label: `SEO Failures (${failing.filter((f) => f.category === 'seo').length})` },
+    { id: 'performance', label: `Perf Failures (${failing.filter((f) => matchesCat(f, 'performance')).length})` },
+    { id: 'accessibility', label: `A11y Failures (${failing.filter((f) => matchesCat(f, 'accessibility')).length})` },
+    { id: 'best-practices', label: `Best-Practice Failures (${failing.filter((f) => matchesCat(f, 'best-practices')).length})` },
+    { id: 'seo', label: `SEO Failures (${failing.filter((f) => matchesCat(f, 'seo')).length})` },
     { id: 'universal-passes', label: `100% Universal Passes (${passing.length})` },
   ];
 
@@ -566,11 +582,11 @@ function renderCorpusLighthouseBreakdown() {
     }
     bodyEl.innerHTML = `
       <div class="table-surface">
-        <table class="data-table">
+        <table class="data-table lh-wrap-table">
           <thead>
             <tr>
               <th>Audit ID</th>
-              <th>Lighthouse Check Title</th>
+              <th class="col-wrap">Lighthouse Check Title</th>
               <th>Category</th>
               <th class="num">Passed Sites</th>
               <th class="num">Pass Rate</th>
@@ -582,7 +598,7 @@ function renderCorpusLighthouseBreakdown() {
                 (p) => `
                 <tr>
                   <td class="mono">${escapeHtml(p.id)}</td>
-                  <td><strong>${escapeHtml(p.title)}</strong></td>
+                  <td class="col-wrap"><strong>${escapeHtml(p.title)}</strong></td>
                   <td><span class="lh-audit-cat">${escapeHtml(p.category)}</span></td>
                   <td class="num mono">${p.passCount} / ${lh.cellsAudited}</td>
                   <td class="num"><span class="score-badge score-good">${p.passRatePct}% PASS</span></td>
@@ -600,7 +616,7 @@ function renderCorpusLighthouseBreakdown() {
   const filteredFails =
     state.lhCorpusFilter === 'all-failures'
       ? failing
-      : failing.filter((f) => f.category === state.lhCorpusFilter);
+      : failing.filter((f) => matchesCat(f, state.lhCorpusFilter));
 
   if (filteredFails.length === 0) {
     bodyEl.innerHTML = `<p class="panel-sub">Zero Lighthouse audit failures recorded in this category across ${lh.cellsAudited} audited sites.</p>`;
@@ -609,15 +625,15 @@ function renderCorpusLighthouseBreakdown() {
 
   bodyEl.innerHTML = `
     <div class="table-surface">
-      <table class="data-table">
+      <table class="data-table lh-wrap-table">
         <thead>
           <tr>
             <th>Audit ID</th>
-            <th>Failing Lighthouse Check</th>
+            <th class="col-wrap">Failing Lighthouse Check</th>
             <th>Category</th>
             <th class="num">Failed / Audited</th>
-            <th class="num">Avg Audit Score</th>
-            <th>Affected Models &amp; Sites (click to inspect Lighthouse tab)</th>
+            <th class="num">Avg Score</th>
+            <th class="col-wrap">Affected Sites (click to inspect)</th>
           </tr>
         </thead>
         <tbody>
@@ -628,17 +644,17 @@ function renderCorpusLighthouseBreakdown() {
               return `
                 <tr>
                   <td class="mono">${escapeHtml(f.id)}</td>
-                  <td><strong>${escapeHtml(f.title)}</strong></td>
+                  <td class="col-wrap"><strong>${escapeHtml(f.title)}</strong></td>
                   <td><span class="lh-audit-cat">${escapeHtml(f.category)}</span></td>
                   <td class="num"><span class="score-badge ${rateCls}">${f.failCount} / ${lh.cellsAudited} (${f.failRatePct}%)</span></td>
                   <td class="num mono">${f.avgFailScore != null ? f.avgFailScore : '0'}</td>
-                  <td>
-                    <div style="display:flex;flex-wrap:wrap;gap:5px">
+                  <td class="col-sites">
+                    <div class="lh-chips-wrap">
                       ${(f.failingCells || [])
-                        .slice(0, 6)
+                        .slice(0, 8)
                         .map(
                           (fc) =>
-                            `<button type="button" class="matrix-cell-btn score-warn" data-lh-cell="${escapeHtml(fc.cellId)}" title="${escapeHtml(`${fc.modelLabel} (${fc.mode}) — ${fc.promptTitle}${fc.displayValue ? ` · ${fc.displayValue}` : ''}`)}">${escapeHtml(fc.modelLabel)} [${fc.mode === 'agent' ? 'pi' : '1s'}]</button>`
+                            `<button type="button" class="lh-site-chip score-warn" data-lh-cell="${escapeHtml(fc.cellId)}" title="${escapeHtml(`${fc.modelLabel} (${fc.mode}) — ${fc.promptTitle}${fc.displayValue ? ` · ${fc.displayValue}` : ''}`)}">${escapeHtml(fc.modelLabel)} · ${escapeHtml(fc.promptTitle.split(' ')[0])} [${fc.mode === 'agent' ? 'pi' : '1s'}]</button>`
                         )
                         .join('')}
                     </div>
@@ -704,6 +720,14 @@ function renderLeaderboard() {
           r.mode === 'agent' && r.averages?.avgTurns != null
             ? ` · ${r.averages.avgTurns} turns`
             : '';
+        const costMeta =
+          r.averages?.avgCostUsd != null && r.averages.avgCostUsd > 0
+            ? ` · ~$${r.averages.avgCostUsd.toFixed(3)}/site`
+            : '';
+        const genSecStr =
+          r.averages?.generationMs != null
+            ? `${(r.averages.generationMs / 1000).toFixed(1)}s`
+            : '—';
         // Find top cell for this model+mode so clicking a row can inspect or jump to matrix
         const sampleCell = (state.data?.summary?.cells || []).find(
           (c) =>
@@ -722,7 +746,7 @@ function renderLeaderboard() {
               <a href="${escapeHtml(modelLinkHref)}" class="cohort-link" data-open-cell="${escapeHtml(sampleCell?.cellId || '')}">
                 <span>
                   <span class="model-cell-title">${escapeHtml(r.label)}</span>
-                  <span class="model-cell-sub">${escapeHtml(r.family)}${escapeHtml(turnsMeta)}</span>
+                  <span class="model-cell-sub">${escapeHtml(r.family)}${escapeHtml(turnsMeta)}${escapeHtml(costMeta)}</span>
                 </span>
               </a>
             </td>
@@ -738,6 +762,7 @@ function renderLeaderboard() {
             <td class="num"><span class="score-badge ${latencyClass(r.averages.inpMs, 200, 500)}">${fmtMs(r.averages.inpMs)}</span></td>
             <td class="num"><span class="score-badge ${latencyClass(r.averages.burstP95TtfbMs, 120, 350)}">${fmtMs(r.averages.burstP95TtfbMs)}</span></td>
             <td class="num">${r.averages.baselineHeapMb != null ? `${r.averages.baselineHeapMb.toFixed(1)} MB` : '—'}</td>
+            <td class="num mono">${genSecStr}</td>
             <td><span class="fw-tag">${escapeHtml(stackLabel)}</span></td>
           </tr>
         `;
@@ -1320,8 +1345,12 @@ function renderMethodology() {
   const cr = cfg.cleanRoomEnvironment || {};
   const gen = cfg.generation || {};
   const browser = cfg.browser || {};
-  const piVersion = state.data?.piVersion || '0.67.x';
+  const piVersion = state.data?.piVersion || '0.85.1';
+  const piRuntime = state.data?.piRuntime || state.data?.summary?.environment || {};
+  const bridges = state.data?.providerBridges || state.data?.summary?.environment?.providerBridges || [];
+  const canary = state.data?.summary?.canary || null;
   const nodeVersion = state.data?.nodeVersion || 'v22+';
+  const piSourceLabel = piRuntime.source || piRuntime.piSource || 'local-npm-runtime';
 
   el.innerHTML = `
     <div class="methodology-grid">
@@ -1331,9 +1360,10 @@ function renderMethodology() {
         <div class="table-surface">
           <table class="data-table">
             <tbody>
-              <tr><td><strong>Harness Runtime</strong></td><td class="mono">pi CLI ${escapeHtml(piVersion)} · Node ${escapeHtml(nodeVersion)}</td></tr>
+              <tr><td><strong>Harness Runtime</strong></td><td class="mono">pi CLI ${escapeHtml(piVersion)} (${escapeHtml(piSourceLabel)}) · Node ${escapeHtml(nodeVersion)}</td></tr>
               <tr><td><strong>Skills Loaded</strong></td><td><span class="score-badge score-good">0 (<code>--no-skills</code>)</span></td></tr>
-              <tr><td><strong>Extensions / Plugins</strong></td><td><span class="score-badge score-good">0 (<code>--no-extensions</code>)</span></td></tr>
+              <tr><td><strong>Ambient Extensions / Plugins</strong></td><td><span class="score-badge score-good">0 (<code>--no-extensions</code>)</span></td></tr>
+              <tr><td><strong>Subprocess Secret Scrubbing</strong></td><td><span class="score-badge score-good">Active (0 LLM keys in <code>$PORT</code> servers)</span></td></tr>
               <tr><td><strong>Prompt Templates &amp; Themes</strong></td><td><span class="score-badge score-good">0 (<code>--no-prompt-templates --no-themes</code>)</span></td></tr>
               <tr><td><strong>Context Files (AGENTS.md / CLAUDE.md)</strong></td><td><span class="score-badge score-good">0 (<code>--no-context-files</code>)</span></td></tr>
               <tr><td><strong>MCP Servers</strong></td><td><span class="score-badge score-good">0</span></td></tr>
@@ -1396,6 +1426,76 @@ function renderMethodology() {
         <p class="mono" style="font-size:0.78rem;color:var(--ink-secondary);margin-top:10px;margin-bottom:0">
           Mobile CWV/INP Emulation: ${browser.viewportMobile?.width || 390}×${browser.viewportMobile?.height || 844} · ${browser.mobileThrottle?.cpuSlowdownMultiplier || 4}× CPU slowdown · ${browser.mobileThrottle?.latencyMs || 150}ms RTT · ${browser.mobileThrottle?.downloadThroughputKbps || 1638.4} Kbps down · Isolated ephemeral preview origin per cell · ${cfg.memory?.leakLoopIterations || 10}× do/undo MemLab heap cycles.
         </p>
+      </article>
+
+      <article class="panel-card">
+        <h3>5. Portable npm <code>pi</code> Bootstrap &amp; Clean-Room Provider Bridges</h3>
+        <p class="panel-sub">Run identically on fresh cloud VMs, containers, or CI runners without pre-installing global <code>pi</code> — while bridging transport to Claude, Codex, Antigravity, or Muse without leaking capability skills.</p>
+        <div class="table-surface">
+          <table class="data-table lh-wrap-table">
+            <thead>
+              <tr>
+                <th>Bridge ID</th>
+                <th>Providers</th>
+                <th>Status &amp; Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                bridges.length > 0
+                  ? bridges
+                      .map((b) => {
+                        const pill = b.installed
+                          ? `<span class="score-badge score-good">INSTALLED (${escapeHtml(b.version || 'local')})</span>`
+                          : b.builtInAuthSupported
+                            ? `<span class="score-badge score-mid">BUILT-IN AUTH</span>`
+                            : `<span class="fw-tag">OPTIONAL</span>`;
+                        return `
+                          <tr>
+                            <td class="mono"><strong>${escapeHtml(b.id)}</strong></td>
+                            <td class="mono">${escapeHtml((b.providers || []).join(', '))}</td>
+                            <td class="col-wrap">${pill} <span class="model-cell-sub">${escapeHtml(b.source || '')}</span></td>
+                          </tr>
+                        `;
+                      })
+                      .join('')
+                  : `<tr><td colspan="3" class="col-wrap">Run <code>npm run bridges:list</code> to inspect configured provider bridges.</td></tr>`
+              }
+            </tbody>
+          </table>
+        </div>
+        <p class="panel-sub" style="margin-top:12px;margin-bottom:4px"><strong>Portable VM &amp; Bridge Commands:</strong></p>
+        <pre class="code-viewer" style="max-height:115px"># Bootstrap portable .pi-runtime + pinned Chrome for Testing on any VM:
+npm run setup:vm -- --with-chrome
+
+# Install clean-room provider transport bridges (-e entrypoint + --no-extensions):
+npm run bridges:install -- antigravity
+npm run bridges:install -- claude-bridge ./path/to/claude-ext
+npm run bridges:install -- muse git+https://github.com/org/pi-muse.git</pre>
+      </article>
+
+      <article class="panel-card">
+        <h3>6. Split CI / GitHub Actions Architecture &amp; Host Canary Calibration</h3>
+        <p class="panel-sub">Separating CPU-light parallel LLM generation from airgapped, single-concurrency Chrome CWV/INP/MemLab auditing with median-of-N variance control.</p>
+        ${
+          canary
+            ? `<div class="table-surface" style="margin-bottom:12px">
+                <table class="data-table">
+                  <tbody>
+                    <tr><td><strong>Host Canary Status</strong></td><td><span class="score-badge ${canary.noisyEnvironment ? 'score-poor' : 'score-good'}">${escapeHtml(String(canary.status || 'stable').toUpperCase())}</span></td></tr>
+                    <tr><td><strong>CPU &amp; Memory</strong></td><td class="mono">${escapeHtml(canary.host?.cpuModel || 'unknown')} (${canary.host?.cpuCores ?? '?'} cores · ${canary.host?.totalMemGb ?? '?'} GB RAM)</td></tr>
+                    <tr><td><strong>Node / Chrome Baselines</strong></td><td class="mono">Node CPU: ${canary.nodeCpuComputeMs ?? '—'}ms · Chrome Layout+JS: ${canary.browserMainThreadComputeMs ?? '—'}ms · Ref FCP: ${canary.referenceFcpMs != null ? `${canary.referenceFcpMs}ms` : '—'}</td></tr>
+                    <tr><td><strong>Calibrated Chrome</strong></td><td class="mono">${escapeHtml(canary.host?.chromeVersion || 'Headless Chrome')}</td></tr>
+                  </tbody>
+                </table>
+              </div>`
+            : `<p class="panel-sub">Run <code>npm run canary</code> or an audit pass to record host hardware calibration.</p>`
+        }
+        <pre class="code-viewer" style="max-height:115px"># Stage 1 (Cheap parallel cloud workers, secrets scoped per provider, zero Chrome):
+npm run bench:generate -- --pilot --mode=agent
+
+# Stage 2 (Dedicated runner, ZERO LLM secrets, Canary + Median-of-3 browser audits):
+npm run bench:audit -- --pilot --audit-runs=3 --markdown-summary=summary.md</pre>
       </article>
     </div>
   `;
@@ -1515,7 +1615,9 @@ async function launchSelectiveRun(payload) {
   es.onmessage = async (evt) => {
     const item = JSON.parse(evt.data);
     if (item.type === 'job:start') {
-      logEl.textContent += `Started ${item.jobId}: ${item.totalCells} cells (${item.models.join(', ')})\n`;
+      logEl.textContent += `Started ${item.jobId} (stage=${item.stage || 'all'}, auditRuns=${item.auditRuns || 1}): ${item.totalCells} cells (${item.models.join(', ')})\n`;
+    } else if (item.type === 'job:canary-done') {
+      logEl.textContent += `  [canary] ${String(item.canary?.status || '').toUpperCase()} — Node ${item.canary?.nodeCpuComputeMs}ms · Chrome ${item.canary?.browserMainThreadComputeMs ?? '—'}ms\n`;
     } else if (item.type === 'cell:stage') {
       logEl.textContent += `  [${item.cellId}] (${item.stage}) ${item.detail}\n`;
     } else if (item.type === 'cell:done') {
@@ -2057,6 +2159,61 @@ function renderCellTranscriptTab(detail) {
   });
 }
 
+const KNOWN_LH_CATEGORIES = {
+  'errors-in-console': ['best-practices'],
+  'inspector-issues': ['best-practices'],
+  'deprecations': ['best-practices'],
+  'doctype': ['best-practices'],
+  'charset': ['best-practices'],
+  'is-on-https': ['best-practices'],
+  'third-party-cookies': ['best-practices'],
+  'valid-source-maps': ['best-practices'],
+  'paste-preventing-inputs': ['best-practices'],
+  'image-aspect-ratio': ['best-practices'],
+  'image-size-responsive': ['best-practices'],
+  'font-size': ['seo'],
+  'meta-description': ['seo'],
+  'document-title': ['accessibility', 'seo'],
+  'robots-txt': ['seo'],
+  'crawlable-anchors': ['seo'],
+  'link-text': ['seo'],
+  'http-status-code': ['seo'],
+  'is-crawlable': ['seo'],
+  'label': ['accessibility'],
+  'color-contrast': ['accessibility'],
+  'heading-order': ['accessibility'],
+  'button-name': ['accessibility'],
+  'link-name': ['accessibility'],
+  'html-has-lang': ['accessibility'],
+  'html-lang-valid': ['accessibility'],
+  'image-alt': ['accessibility', 'seo'],
+  'target-size': ['accessibility'],
+  'meta-viewport': ['accessibility', 'best-practices'],
+  'uses-text-compression': ['performance'],
+  'unminified-javascript': ['performance'],
+  'unminified-css': ['performance'],
+  'unused-javascript': ['performance'],
+  'unused-css-rules': ['performance'],
+  'render-blocking-resources': ['performance'],
+  'largest-contentful-paint': ['performance'],
+  'first-contentful-paint': ['performance'],
+  'total-blocking-time': ['performance'],
+  'cumulative-layout-shift': ['performance'],
+  'speed-index': ['performance'],
+  'interactive': ['performance'],
+  'bf-cache': ['performance'],
+};
+
+function getAuditCategories(a) {
+  if (Array.isArray(a.categories) && a.categories.length > 0 && a.categories[0] !== 'other') {
+    return a.categories;
+  }
+  if (a.category && a.category !== 'other' && a.category !== 'general') {
+    return [a.category];
+  }
+  return KNOWN_LH_CATEGORIES[a.id] || ['performance'];
+}
+
 function renderCellLighthouseTab(detail) {
   const body = document.getElementById('cell-dialog-body');
   const lhu = detail.benchmarks?.['lighthouse-uplift']?.lighthouse;
@@ -2068,46 +2225,54 @@ function renderCellLighthouseTab(detail) {
     return;
   }
 
-  const failing = mob.failingAudits || [];
-  const passing = mob.passedAudits || [];
+  const failing = (mob.failingAudits || []).map((a) => {
+    const cats = getAuditCategories(a);
+    return { ...a, category: cats[0], categories: cats, status: 'FAIL' };
+  });
+  const passing = (mob.passedAudits || []).map((a) => {
+    const cats = getAuditCategories(a);
+    return { ...a, category: cats[0], categories: cats, status: 'PASS' };
+  });
   const mobScores = mob.scores || {};
   const deskScores = desk?.scores || {};
+
+  const matchesCat = (a, cat) => (a.categories || [a.category]).includes(cat);
+  const countCat = (cat) => ({
+    f: failing.filter((a) => matchesCat(a, cat)).length,
+    p: passing.filter((a) => matchesCat(a, cat)).length,
+  });
 
   const renderAuditTable = () => {
     const f = state.lhCellFilter;
     let items = [];
-    if (f === 'failed') items = failing.map((a) => ({ ...a, status: 'FAIL' }));
-    else if (f === 'passed') items = passing.map((a) => ({ ...a, status: 'PASS' }));
-    else if (f === 'all') {
+    if (f === 'failed') items = failing;
+    else if (f === 'passed') items = passing;
+    else if (f === 'all') items = [...failing, ...passing];
+    else {
       items = [
-        ...failing.map((a) => ({ ...a, status: 'FAIL' })),
-        ...passing.map((a) => ({ ...a, status: 'PASS' })),
-      ];
-    } else {
-      items = [
-        ...failing.filter((a) => a.category === f).map((a) => ({ ...a, status: 'FAIL' })),
-        ...passing.filter((a) => a.category === f).map((a) => ({ ...a, status: 'PASS' })),
+        ...failing.filter((a) => matchesCat(a, f)),
+        ...passing.filter((a) => matchesCat(a, f)),
       ];
     }
 
     const slot = document.getElementById('cell-lh-table-slot');
     if (!slot) return;
     if (items.length === 0) {
-      slot.innerHTML = `<div class="panel-card"><p class="panel-sub" style="margin:0">No audits match this filter (${passing.length === 0 && f === 'passed' ? 're-run lighthouse-uplift to backfill passed audit list' : '0 items'}).</p></div>`;
+      slot.innerHTML = `<div class="panel-card"><p class="panel-sub" style="margin:0">No audits match this filter.</p></div>`;
       return;
     }
 
     slot.innerHTML = `
       <div class="table-surface">
-        <table class="data-table">
+        <table class="data-table lh-wrap-table">
           <thead>
             <tr>
               <th>Status</th>
               <th>Category</th>
               <th>Audit ID</th>
-              <th>Lighthouse Audit Title</th>
-              <th class="num">Audit Score</th>
-              <th>Measured Value</th>
+              <th class="col-wrap">Lighthouse Audit Title</th>
+              <th class="num">Score</th>
+              <th class="col-wrap">Measured Value</th>
             </tr>
           </thead>
           <tbody>
@@ -2115,14 +2280,17 @@ function renderCellLighthouseTab(detail) {
               .map((a) => {
                 const badgeCls =
                   a.status === 'PASS' ? 'score-good' : (a.score ?? 0) >= 50 ? 'score-warn' : 'score-bad';
+                const catBadges = (a.categories || [a.category])
+                  .map((c) => `<span class="lh-audit-cat">${escapeHtml(c)}</span>`)
+                  .join(' ');
                 return `
                   <tr>
                     <td><span class="score-badge ${badgeCls}">${a.status}</span></td>
-                    <td><span class="lh-audit-cat">${escapeHtml(a.category || 'general')}</span></td>
+                    <td>${catBadges}</td>
                     <td class="mono">${escapeHtml(a.id)}</td>
-                    <td><strong>${escapeHtml(a.title)}</strong></td>
+                    <td class="col-wrap"><strong>${escapeHtml(a.title)}</strong></td>
                     <td class="num mono">${a.score ?? (a.status === 'PASS' ? 100 : 0)}</td>
-                    <td class="mono">${escapeHtml(a.displayValue || '—')}</td>
+                    <td class="mono col-wrap">${escapeHtml(a.displayValue || '—')}</td>
                   </tr>
                 `;
               })
@@ -2133,14 +2301,19 @@ function renderCellLighthouseTab(detail) {
     `;
   };
 
+  const cPerf = countCat('performance');
+  const cA11y = countCat('accessibility');
+  const cBp = countCat('best-practices');
+  const cSeo = countCat('seo');
+
   const filterButtons = [
-    { id: 'failed', label: `Failed Audits (${failing.length})` },
-    { id: 'passed', label: `Passed Audits (${passing.length})` },
-    { id: 'all', label: `All (${failing.length + passing.length})` },
-    { id: 'performance', label: 'Performance' },
-    { id: 'accessibility', label: 'Accessibility' },
-    { id: 'best-practices', label: 'Best Practices' },
-    { id: 'seo', label: 'SEO' },
+    { id: 'all', label: `All (${failing.length + passing.length}: ${failing.length}F · ${passing.length}P)` },
+    { id: 'failed', label: `Failed (${failing.length})` },
+    { id: 'passed', label: `Passed (${passing.length})` },
+    { id: 'performance', label: `Performance (${cPerf.f}F · ${cPerf.p}P)` },
+    { id: 'accessibility', label: `Accessibility (${cA11y.f}F · ${cA11y.p}P)` },
+    { id: 'best-practices', label: `Best Practices (${cBp.f}F · ${cBp.p}P)` },
+    { id: 'seo', label: `SEO (${cSeo.f}F · ${cSeo.p}P)` },
   ];
 
   body.innerHTML = `
@@ -2494,6 +2667,8 @@ async function init() {
       force: document.getElementById('opt-force-rerun').checked,
       skipJudge: document.getElementById('opt-skip-judge').checked,
       mode: document.getElementById('opt-gen-mode').value,
+      stage: document.getElementById('opt-run-stage')?.value || 'all',
+      auditRuns: Number(document.getElementById('opt-audit-runs')?.value || 1),
     });
   });
 

@@ -1,0 +1,211 @@
+name: Multi-Model Web Generation & Performance Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: 'Comma-separated model keys (e.g. deepseek-flash,gemini-4-argon,claude-sonnet-5-5)'
+        required: true
+        default: 'deepseek-flash'
+        type: string
+      prompts:
+        description: 'Optional comma-separated prompt IDs (leave empty to use pilot/category filter)'
+        required: false
+        default: 'plumbing-appointment'
+        type: string
+      mode:
+        description: 'Harness mode'
+        required: true
+        default: 'agent'
+        type: choice
+        options:
+          - agent
+          - oneshot
+          - both
+      pilot:
+        description: 'Run all 10 pilot category prompts (ignored if prompts input is non-empty)'
+        required: false
+        default: false
+        type: boolean
+      bridges:
+        description: 'Optional clean-room provider bridges to install (e.g. antigravity)'
+        required: false
+        default: ''
+        type: string
+      audit_runs:
+        description: 'Browser audit passes per cell (median selected to eliminate VM jitter)'
+        required: true
+        default: '3'
+        type: choice
+        options:
+          - '1'
+          - '3'
+          - '5'
+      audit_runner:
+        description: 'Runner label for Stage 2 Chrome/MemLab audits (use self-hosted for bare-metal stability)'
+        required: true
+        default: 'ubuntu-latest'
+        type: string
+      deploy_pages:
+        description: 'Deploy static Benchmark Studio report to GitHub Pages'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  prepare-matrix:
+    name: Prepare Model Shards
+    runs-on: ubuntu-latest
+    outputs:
+      models_json: ${{ steps.split.outputs.models_json }}
+    steps:
+      - id: split
+        run: |
+          MODELS_JSON=$(node -e '
+            const raw = process.argv[1] || "";
+            const arr = raw.split(",").map(s => s.trim()).filter(Boolean);
+            console.log(JSON.stringify(arr));
+          ' "${{ inputs.models }}")
+          echo "models_json=$MODELS_JSON" >> "$GITHUB_OUTPUT"
+
+  # Stage 1: Parallel CPU-light LLM / pi Agent Generation (Zero Chrome needed)
+  generate:
+    name: Generate (${{ matrix.model }})
+    needs: prepare-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        model: ${{ fromJson(needs.prepare-matrix.outputs.models_json) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install benchmark dependencies
+        run: npm install --no-package-lock --no-audit --no-fund --registry=https://registry.npmjs.org
+
+      - name: Bootstrap portable pi runtime & optional provider bridges
+        run: |
+          if [ -n "${{ inputs.bridges }}" ]; then
+            node scripts/setup-vm.mjs --bridges="${{ inputs.bridges }}"
+          else
+            node scripts/setup-vm.mjs
+          fi
+
+      - name: Run clean-room generation stage (${{ matrix.model }})
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          QWEN_TOKEN_PLAN_API_KEY: ${{ secrets.QWEN_TOKEN_PLAN_API_KEY }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          PI_AUTH_JSON_B64: ${{ secrets.PI_AUTH_JSON_B64 }}
+        run: |
+          ARGS="--stage=generate --force --mode=${{ inputs.mode }} --models=${{ matrix.model }}"
+          if [ -n "${{ inputs.prompts }}" ]; then
+            ARGS="$ARGS --prompts=${{ inputs.prompts }}"
+          elif [ "${{ inputs.pilot }}" = "true" ]; then
+            ARGS="$ARGS --pilot"
+          fi
+          node bin/bench.mjs $ARGS
+
+      - name: Upload generated workspace & pi session artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-cells-${{ matrix.model }}
+          path: runs/cells/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # Stage 2: Airgapped-Secrets Serialized Performance, INP & Memory Audit (Concurrency = 1)
+  audit:
+    name: Deterministic Performance & Memory Audit
+    needs: generate
+    runs-on: ${{ inputs.audit_runner }}
+    timeout-minutes: 90
+    concurrency:
+      group: benchmark-hardware-audit-${{ inputs.audit_runner }}
+      cancel-in-progress: false
+    env:
+      WEB_UPLIFT_NO_SANDBOX: '1'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install benchmark dependencies
+        run: npm install --no-package-lock --no-audit --no-fund --registry=https://registry.npmjs.org
+
+      - name: Bootstrap portable pi & pinned Chrome for Testing
+        run: node scripts/setup-vm.mjs --with-chrome
+
+      - name: Download all generated cell workspaces
+        uses: actions/download-artifact@v4
+        with:
+          pattern: generated-cells-*
+          path: runs/cells/
+          merge-multiple: true
+
+      - name: Run Host Canary + Median-of-${{ inputs.audit_runs }} Browser & Memory Audits
+        # Notice: ZERO LLM API keys are passed into this step while executing generated $PORT servers!
+        run: |
+          ARGS="--stage=audit --force --skip-judge --audit-runs=${{ inputs.audit_runs }} --mode=${{ inputs.mode }} --models=${{ inputs.models }}"
+          if [ -n "${{ inputs.prompts }}" ]; then
+            ARGS="$ARGS --prompts=${{ inputs.prompts }}"
+          elif [ "${{ inputs.pilot }}" = "true" ]; then
+            ARGS="$ARGS --pilot"
+          fi
+          node bin/bench.mjs $ARGS --markdown-summary="$GITHUB_STEP_SUMMARY"
+
+      - name: Export static Benchmark Studio report (dist-report/)
+        run: npm run export
+
+      - name: Upload static Studio report & raw scored artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-studio-report
+          path: |
+            dist-report/
+            data/summary.json
+            data/canary-latest.json
+          retention-days: 30
+
+      - name: Upload GitHub Pages artifact
+        if: ${{ inputs.deploy_pages == true }}
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-report
+
+  deploy-pages:
+    name: Publish Benchmark Studio to GitHub Pages
+    if: ${{ inputs.deploy_pages == true }}
+    needs: audit
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

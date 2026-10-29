@@ -133,6 +133,7 @@
               <th class="num" data-th-col="inpMs"><button type="button" class="th-sort-btn num" data-sort-col="inpMs">W3C INP <span class="sort-glyph">↕</span></button></th>
               <th class="num" data-th-col="burstP95TtfbMs"><button type="button" class="th-sort-btn num" data-sort-col="burstP95TtfbMs">P95 TTFB <span class="sort-glyph">↕</span></button></th>
               <th class="num" data-th-col="baselineHeapMb"><button type="button" class="th-sort-btn num" data-sort-col="baselineHeapMb">Heap <span class="sort-glyph">↕</span></button></th>
+              <th class="num" data-th-col="generationMs"><button type="button" class="th-sort-btn num" data-sort-col="generationMs">Gen Time <span class="sort-glyph">↕</span></button></th>
               <th data-th-col="dominantStack"><button type="button" class="th-sort-btn" data-sort-col="dominantStack">Default Stack <span class="sort-glyph">↕</span></button></th>
             </tr>
           </thead>
@@ -376,6 +377,22 @@
                   <option value="agent" selected>Clean-Room pi Agent Loop + Real $PORT Server (Default)</option>
                   <option value="oneshot">Self-Contained 1-Shot HTML Stream</option>
                   <option value="both">Both Side-by-Side (Agent + 1-Shot)</option>
+                </select>
+              </label>
+              <label class="inline-select" for="opt-run-stage">
+                <span>Pipeline Stage</span>
+                <select id="opt-run-stage">
+                  <option value="all" selected>All (Generate + Canary + Audit)</option>
+                  <option value="generate">Stage 1 Only: Generate (No Chrome)</option>
+                  <option value="audit">Stage 2 Only: Audit Cached Cells</option>
+                </select>
+              </label>
+              <label class="inline-select" for="opt-audit-runs">
+                <span>Audit Passes</span>
+                <select id="opt-audit-runs">
+                  <option value="1" selected>1× Single Pass</option>
+                  <option value="3">3× Median-of-3 (Recommended for VMs)</option>
+                  <option value="5">5× Median-of-5</option>
                 </select>
               </label>
             </div>

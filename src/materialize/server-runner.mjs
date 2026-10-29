@@ -18,6 +18,26 @@ const execFileAsync = promisify(execFile);
 
 const SKIP_SIZE_DIRS = new Set(['node_modules', '.git', '.venv', 'venv', '__pycache__', 'target']);
 
+const SERVER_SECRET_ENV_RE =
+  /(?:_API_KEY|_SECRET|_TOKEN|_PASSWORD|^PI_AUTH_JSON_B64$|^PI_CODING_AGENT_DIR$|^GITHUB_TOKEN$|^GH_TOKEN$|^GOOGLE_APPLICATION_CREDENTIALS$|^AWS_)/i;
+
+/**
+ * Scrubs all LLM API keys, OAuth tokens, and CI secrets before spawning untrusted
+ * model-generated build scripts or `$PORT` servers during materialization, auditing, or preview.
+ */
+export function buildSanitizedServerEnv(extraEnv = {}, baseEnv = process.env) {
+  const sanitized = {};
+  for (const [k, v] of Object.entries(baseEnv || {})) {
+    if (v === undefined) continue;
+    if (SERVER_SECRET_ENV_RE.test(k)) continue;
+    sanitized[k] = v;
+  }
+  return {
+    ...sanitized,
+    ...extraEnv,
+  };
+}
+
 function workspaceByteSize(dir) {
   if (!existsSync(dir)) return 0;
   let total = 0;
@@ -183,7 +203,7 @@ function runShellCommand(command, cwd, timeoutMs = 150000) {
       cwd,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, CI: 'true', NODE_ENV: 'production' },
+      env: buildSanitizedServerEnv({ CI: 'true', NODE_ENV: 'production' }),
     });
 
     let stdout = '';
@@ -406,13 +426,12 @@ async function bootProductionWorkspaceServer({ workspaceDir, contract, timeoutMs
     cwd: workspaceDir,
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
+    env: buildSanitizedServerEnv({
       PORT: String(port),
       HOST: '127.0.0.1',
       HOSTNAME: '127.0.0.1',
       NODE_ENV: 'production',
-    },
+    }),
   });
 
   child.stderr.on('data', (d) => {

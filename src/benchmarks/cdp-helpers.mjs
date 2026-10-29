@@ -1,12 +1,18 @@
 import * as chromeLauncher from 'chrome-launcher';
 import CDP from 'chrome-remote-interface';
-import { writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { sleep } from '../util/env.mjs';
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { PROJECT_ROOT, sleep } from '../util/env.mjs';
+
+export const PINNED_CHROME_POINTER = join(PROJECT_ROOT, '.browsers', 'chrome-path.txt');
 
 export function resolveStableChromePath() {
-  if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
-  if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
+  if (process.env.CHROME_BIN && existsSync(process.env.CHROME_BIN)) return process.env.CHROME_BIN;
+  if (process.env.CHROME_PATH && existsSync(process.env.CHROME_PATH)) return process.env.CHROME_PATH;
+  if (existsSync(PINNED_CHROME_POINTER)) {
+    const pinned = readFileSync(PINNED_CHROME_POINTER, 'utf8').trim();
+    if (pinned && existsSync(pinned)) return pinned;
+  }
   const installs = chromeLauncher.Launcher.getInstallations();
   return installs.find((p) => !p.includes('Canary')) || installs[0] || undefined;
 }

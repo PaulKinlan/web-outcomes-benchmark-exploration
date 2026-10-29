@@ -1,23 +1,18 @@
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync, rmSync, cpSync } from 'node:fs';
 import { join, basename, extname } from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
-import { resolvePiBin } from './pi-loader.mjs';
+import { spawn } from 'node:child_process';
+import { resolvePiBin, getPiRuntimeInfo } from './pi-loader.mjs';
 import { buildPiCliEnv } from './pi-auth-bridge.mjs';
+import { resolveBridgeForProvider } from './provider-bridges.mjs';
 import { exportPiTranscriptHtml, saveTrajectorySummary } from './pi-transcript.mjs';
 import { PROJECT_ROOT, sleep } from '../util/env.mjs';
 
 let cachedPiVersion = null;
 export function detectPiVersion() {
   if (cachedPiVersion !== null) return cachedPiVersion;
-  try {
-    const piBin = resolvePiBin();
-    if (!piBin) return 'unavailable';
-    cachedPiVersion = execFileSync(piBin, ['--version'], { encoding: 'utf8', timeout: 4000 }).trim();
-    return cachedPiVersion;
-  } catch {
-    cachedPiVersion = 'unknown';
-    return cachedPiVersion;
-  }
+  const info = getPiRuntimeInfo();
+  cachedPiVersion = info.version || 'unavailable';
+  return cachedPiVersion;
 }
 
 export const AGENT_CLEAN_ROOM_FLAGS = [
@@ -327,10 +322,12 @@ export async function generateWebsite({
 
     const thinkingLevel = config.generation.thinkingLevel || 'low';
     const childEnv = await buildPiCliEnv(runtime, route.provider);
+    const activeBridge = resolveBridgeForProvider(route.provider);
+    const piInfo = getPiRuntimeInfo();
 
     onProgress({
       stage: 'generating',
-      detail: `Running clean-room pi agent loop (${route.provider}/${route.modelId}, thinking=${thinkingLevel}, 0 skills/extensions)`,
+      detail: `Running clean-room pi agent loop (${route.provider}/${route.modelId}, thinking=${thinkingLevel}${activeBridge ? `, bridge=${activeBridge.id}` : ', 0 skills/extensions'})`,
     });
 
     const contract = config.generation.agentWorkspaceContract || '';
@@ -342,6 +339,7 @@ export async function generateWebsite({
       '--session',
       sessionPath,
       ...AGENT_CLEAN_ROOM_FLAGS,
+      ...(activeBridge ? activeBridge.cliFlags : []),
       '--thinking',
       thinkingLevel,
       '--provider',
@@ -364,15 +362,34 @@ export async function generateWebsite({
 
     const harnessEnvironment = {
       mode: 'agent',
-      piVersion: detectPiVersion(),
-      isolationFlags: ['-p', '-a', ...AGENT_CLEAN_ROOM_FLAGS, '--thinking', thinkingLevel],
+      piVersion: piInfo.version || detectPiVersion(),
+      piSource: piInfo.source,
+      piPortable: piInfo.portable,
+      isolationFlags: [
+        '-p',
+        '-a',
+        ...AGENT_CLEAN_ROOM_FLAGS,
+        ...(activeBridge ? ['-e', `<bridge:${activeBridge.id}>`] : []),
+        '--thinking',
+        thinkingLevel,
+      ],
       skillsLoaded: 0,
-      extensionsLoaded: 0,
+      ambientExtensionsLoaded: 0,
+      extensionsLoaded: activeBridge ? activeBridge.entrypoints.length : 0,
+      providerBridge: activeBridge
+        ? {
+            id: activeBridge.id,
+            packageName: activeBridge.packageName,
+            version: activeBridge.version,
+            source: activeBridge.source,
+          }
+        : null,
       promptTemplatesLoaded: 0,
       themesLoaded: 0,
       contextFilesLoaded: 0,
       mcpServersLoaded: 0,
       enabledTools: ['read', 'bash', 'edit', 'write'],
+      secretScrubbed: true,
       cleanRoomVerified: true,
     };
 
@@ -473,17 +490,34 @@ export async function generateWebsite({
     fullDispatchedPrompt: dispatchedUserText,
     referenceImages: resolvedRefImages.map(({ path, label, caption }) => ({ path, label, caption })),
   };
+  const piInfo = getPiRuntimeInfo();
+  const activeBridge = route.transport === 'pi-cli' ? resolveBridgeForProvider(route.provider) : null;
   const harnessEnvironment = {
     mode: 'oneshot',
-    piVersion: detectPiVersion(),
-    isolationFlags: ONESHOT_CLI_CLEAN_ROOM_FLAGS,
+    piVersion: piInfo.version || detectPiVersion(),
+    piSource: piInfo.source,
+    piPortable: piInfo.portable,
+    isolationFlags: [
+      ...ONESHOT_CLI_CLEAN_ROOM_FLAGS,
+      ...(activeBridge ? ['-e', `<bridge:${activeBridge.id}>`] : []),
+    ],
     skillsLoaded: 0,
-    extensionsLoaded: 0,
+    ambientExtensionsLoaded: 0,
+    extensionsLoaded: activeBridge ? activeBridge.entrypoints.length : 0,
+    providerBridge: activeBridge
+      ? {
+          id: activeBridge.id,
+          packageName: activeBridge.packageName,
+          version: activeBridge.version,
+          source: activeBridge.source,
+        }
+      : null,
     promptTemplatesLoaded: 0,
     themesLoaded: 0,
     contextFilesLoaded: 0,
     mcpServersLoaded: 0,
     enabledTools: [],
+    secretScrubbed: true,
     cleanRoomVerified: true,
   };
 
@@ -495,6 +529,7 @@ export async function generateWebsite({
       [
         '-p',
         ...ONESHOT_CLI_CLEAN_ROOM_FLAGS,
+        ...(activeBridge ? activeBridge.cliFlags : []),
         '--mode',
         'json',
         '--provider',

@@ -250,7 +250,20 @@ export async function startStudioServer({ port = null } = {}) {
 
         sendJson(res, 200, {
           staticMode: false,
-          piVersion: detectPiVersion(),
+          piVersion: runtime.piRuntime?.version || detectPiVersion(),
+          piRuntime: runtime.piRuntime || null,
+          providerBridges: (runtime.providerBridges || []).map((b) => ({
+            id: b.id,
+            label: b.label,
+            providers: b.providers,
+            packageName: b.packageName,
+            installed: b.installed,
+            portable: b.portable,
+            source: b.source,
+            version: b.version,
+            builtInAuthSupported: Boolean(b.builtInAuthSupported),
+            envOverrideVar: b.envOverrideVar,
+          })),
           nodeVersion: process.version,
           config: loadBenchmarkConfig(),
           models: runtime.models.map((m) => ({
@@ -393,6 +406,7 @@ export async function startStudioServer({ port = null } = {}) {
         };
 
         emitter.on('job:start', (d) => pushEvent('job:start', d));
+        emitter.on('job:canary-done', (d) => pushEvent('job:canary-done', d));
         emitter.on('cell:start', (d) => pushEvent('cell:start', d));
         emitter.on('cell:stage', (d) => pushEvent('cell:stage', d));
         emitter.on('cell:done', (d) => pushEvent('cell:done', d));

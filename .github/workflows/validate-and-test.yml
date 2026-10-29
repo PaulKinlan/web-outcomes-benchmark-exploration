@@ -1,0 +1,36 @@
+name: Validate Registry & Unit Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-test:
+    name: Zero-Bias Validation & Harness Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install benchmark dependencies from public npm
+        run: npm install --no-package-lock --no-audit --no-fund --registry=https://registry.npmjs.org
+
+      - name: Bootstrap portable clean-room pi runtime & pinned Chrome
+        run: node scripts/setup-vm.mjs --with-chrome
+
+      - name: Validate prompt neutrality, journeys & model routes
+        run: npm run validate
+
+      - name: Run unit & integration test suite
+        run: npm test

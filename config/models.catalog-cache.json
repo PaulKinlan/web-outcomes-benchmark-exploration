@@ -1,5 +1,5 @@
 {
-  "syncedAt": "2026-10-28T22:37:57.713Z",
+  "syncedAt": "2026-10-29T18:00:10.886Z",
   "source": "https://openrouter.ai/api/v1/models",
   "discoveredCount": 31,
   "discoveredModels": [
@@ -415,7 +415,7 @@
         }
       ],
       "contextWindow": 1048576,
-      "maxTokens": 131072
+      "maxTokens": 943717
     },
     {
       "key": "glm-5-3",
