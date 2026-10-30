@@ -4,6 +4,7 @@ import { writeFileSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runBenchmarkJob } from '../src/runner/orchestrator.mjs';
+import { killAllActiveChromes } from '../src/benchmarks/cdp-helpers.mjs';
 import { aggregateAllResults } from '../src/scoring/aggregate.mjs';
 
 export function parseCliArgs(argv) {
@@ -346,8 +347,14 @@ async function main() {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
-  main().catch((err) => {
-    console.error(`[bench] Fatal: ${err.stack || err.message}`);
-    process.exit(1);
-  });
+  main()
+    .then(async () => {
+      await killAllActiveChromes().catch(() => {});
+      process.exit(0);
+    })
+    .catch(async (err) => {
+      console.error(`[bench] Fatal: ${err.stack || err.message}`);
+      await killAllActiveChromes().catch(() => {});
+      process.exit(1);
+    });
 }

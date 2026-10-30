@@ -9,7 +9,7 @@ import { extractGeneratedFiles } from '../materialize/extract-files.mjs';
 import { prepareCellRuntime, startCellServer } from '../materialize/server-runner.mjs';
 import { compileCanonicalFlow } from '../flows/compile-flow.mjs';
 import { selectBenchmarks } from '../benchmarks/registry.mjs';
-import { withTimeout } from '../benchmarks/cdp-helpers.mjs';
+import { withTimeout, killAllActiveChromes } from '../benchmarks/cdp-helpers.mjs';
 import { runHostCanaryCalibration } from '../benchmarks/canary.mjs';
 import { aggregateAllResults, CELLS_ROOT } from '../scoring/aggregate.mjs';
 
@@ -495,8 +495,9 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
         telemetry,
       });
     } finally {
+      await killAllActiveChromes().catch(() => {});
       if (serverHandle) {
-        await serverHandle.close().catch(() => {});
+        await withTimeout(serverHandle.close(), 3000, 'serverHandle.close').catch(() => {});
       }
     }
   }

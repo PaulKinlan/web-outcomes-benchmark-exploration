@@ -1,4 +1,5 @@
 import {
+  withTimeout,
   dispatchRealClick,
   dispatchRealType,
   dispatchNamedKey,
@@ -23,46 +24,66 @@ export async function replayCompiledJourney(client, compiledFlow, promptEntry) {
     const t0 = performance.now();
     let executedOps = 0;
 
-    if (compiledStep.resolvedOps && compiledStep.resolvedOps.length > 0) {
-      for (const op of compiledStep.resolvedOps) {
-        if (op.op === 'click') {
-          const freshPos = await scrollSelectorIntoCenter(client, op.selector);
-          const x = freshPos?.x ?? op.x;
-          const y = freshPos?.y ?? op.y;
-          await sleep(25);
-          await dispatchRealClick(client, x, y);
-          executedOps++;
-          await sleep(220);
-        } else if (op.op === 'type') {
-          const freshPos = await scrollSelectorIntoCenter(client, op.selector);
-          if (freshPos) {
-            await dispatchRealClick(client, freshPos.x, freshPos.y);
-            await client.Runtime.evaluate({
-              expression: `(() => {
-                const el = document.querySelector(${JSON.stringify(op.selector)});
-                if (el && ('value' in el)) el.value = '';
-              })()`,
-            });
-            await dispatchRealType(client, op.value);
-            executedOps++;
-            await sleep(160);
+    try {
+      await withTimeout(
+        (async () => {
+          if (compiledStep.resolvedOps && compiledStep.resolvedOps.length > 0) {
+            for (const op of compiledStep.resolvedOps) {
+              if (op.op === 'click') {
+                const freshPos = await scrollSelectorIntoCenter(client, op.selector);
+                const x = freshPos?.x ?? op.x;
+                const y = freshPos?.y ?? op.y;
+                await sleep(25);
+                await dispatchRealClick(client, x, y);
+                executedOps++;
+                await sleep(220);
+              } else if (op.op === 'type') {
+                const freshPos = await scrollSelectorIntoCenter(client, op.selector);
+                if (freshPos) {
+                  await dispatchRealClick(client, freshPos.x, freshPos.y);
+                  await withTimeout(
+                    client.Runtime.evaluate({
+                      expression: `(() => {
+                        const el = document.querySelector(${JSON.stringify(op.selector)});
+                        if (el && ('value' in el)) el.value = '';
+                      })()`,
+                      timeout: 2000,
+                    }),
+                    2500,
+                    'replay clear input'
+                  ).catch(() => {});
+                  await dispatchRealType(client, op.value);
+                  executedOps++;
+                  await sleep(160);
+                }
+              } else if (op.op === 'key') {
+                await dispatchNamedKey(client, op.key);
+                executedOps++;
+                await sleep(100);
+              }
+            }
+          } else if (semanticStep && !compiledStep.timedOut) {
+            const fallbackRes = await executeSemanticStep(client, semanticStep);
+            executedOps = fallbackRes.resolvedOps.length;
           }
-        } else if (op.op === 'key') {
-          await dispatchNamedKey(client, op.key);
-          executedOps++;
-          await sleep(100);
-        }
-      }
-    } else if (semanticStep) {
-      const fallbackRes = await executeSemanticStep(client, semanticStep);
-      executedOps = fallbackRes.resolvedOps.length;
-    }
 
-    // Wait for next animation frame so presentation completes inside step window
-    await client.Runtime.evaluate({
-      expression: `new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))`,
-      awaitPromise: true,
-    });
+          // Bounded animation-frame settle so presentation completes without hanging if main thread stalls
+          await withTimeout(
+            client.Runtime.evaluate({
+              expression: `new Promise(r => { const t = setTimeout(r, 350); requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(t); r(); })); })`,
+              awaitPromise: true,
+              timeout: 2000,
+            }),
+            2500,
+            'replay rAF settle'
+          ).catch(() => {});
+        })(),
+        8000,
+        `replay step "${compiledStep.stepId}"`
+      );
+    } catch {
+      // Continue or finish step timing cleanly even if an event handler blocked
+    }
 
     const stepDurationMs = Math.round(performance.now() - t0);
     stepTimings.push({

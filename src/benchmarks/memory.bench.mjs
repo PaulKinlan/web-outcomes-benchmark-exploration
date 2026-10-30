@@ -273,7 +273,7 @@ export default {
 
     try {
       const result = await withIsolatedChrome(
-        { viewport: config.browser.viewportDesktop },
+        { viewport: config.browser.viewportDesktop, timeoutMs: 80000, label: 'memory' },
         async ({ client }) => {
           await client.Memory.enable?.().catch(() => {});
           await navigateAndSettle(client, url, config.browser.settleWaitMs || 1000);

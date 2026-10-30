@@ -36,10 +36,78 @@ export function withTimeout(promise, timeoutMs, label = 'CDP operation') {
   });
 }
 
+const ACTIVE_BROWSERS = new Set();
+
+export function forceKillChromeInstance(chrome) {
+  if (!chrome) return;
+  const pid = chrome.pid || chrome.process?.pid;
+  if (!pid) return;
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch {
+    // not a process group leader
+  }
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    // already exited
+  }
+}
+
+async function cleanupBrowserRecord(record) {
+  if (!record || record.cleaned) return;
+  record.cleaned = true;
+  ACTIVE_BROWSERS.delete(record);
+
+  const { client, chrome } = record;
+  if (client) {
+    try {
+      client._ws?.terminate?.();
+    } catch {
+      // ignore
+    }
+    await withTimeout(client.close(), 1200, 'CDP client.close').catch(() => {});
+  }
+  if (chrome) {
+    await withTimeout(chrome.kill(), 2000, 'chrome.kill').catch(() => {});
+    forceKillChromeInstance(chrome);
+  }
+}
+
+export async function killAllActiveChromes() {
+  const pending = Array.from(ACTIVE_BROWSERS);
+  await Promise.allSettled(pending.map((rec) => cleanupBrowserRecord(rec)));
+}
+
+const HEADLESS_DIALOG_GUARD_SCRIPT = `(() => {
+  try {
+    window.print = function () {};
+    window.alert = function () {};
+    window.confirm = function () { return true; };
+    window.prompt = function (_msg, defaultVal) { return defaultVal || 'Sample Item'; };
+    window.onbeforeunload = null;
+    if (typeof HTMLInputElement !== 'undefined' && HTMLInputElement.prototype.click) {
+      const origClick = HTMLInputElement.prototype.click;
+      HTMLInputElement.prototype.click = function (...args) {
+        if (String(this.type || '').toLowerCase() === 'file') return;
+        return origClick.apply(this, args);
+      };
+    }
+    if (typeof window.showOpenFilePicker === 'function') {
+      window.showOpenFilePicker = async function () { return []; };
+    }
+    if (typeof window.showSaveFilePicker === 'function') {
+      window.showSaveFilePicker = async function () { throw new DOMException('Aborted', 'AbortError'); };
+    }
+  } catch {}
+})();`;
+
 export async function withIsolatedChrome(options = {}, fn) {
   const {
     headless = true,
     viewport = { width: 1440, height: 900, mobile: false, deviceScaleFactor: 1 },
+    timeoutMs = 65000,
+    label = 'withIsolatedChrome',
   } = options;
 
   const chromeFlags = [
@@ -49,6 +117,11 @@ export async function withIsolatedChrome(options = {}, fn) {
     '--disable-background-timer-throttling',
     '--disable-backgrounding-occluded-windows',
     '--disable-renderer-backgrounding',
+    '--disable-popup-blocking',
+    '--disable-print-preview',
+    '--disable-hang-monitor',
+    '--disable-prompt-on-repost',
+    '--mute-audio',
     '--no-first-run',
     '--no-default-browser-check',
     '--enable-precise-memory-info',
@@ -60,45 +133,66 @@ export async function withIsolatedChrome(options = {}, fn) {
     chromeFlags.push('--no-sandbox');
   }
 
-  const chrome = await chromeLauncher.launch({
-    chromePath: resolveStableChromePath(),
-    chromeFlags,
-    logLevel: 'silent',
-  });
+  const chrome = await withTimeout(
+    chromeLauncher.launch({
+      chromePath: resolveStableChromePath(),
+      chromeFlags,
+      logLevel: 'silent',
+    }),
+    25000,
+    `${label}: chromeLauncher.launch`
+  );
 
-  let client = null;
+  const record = { chrome, client: null, cleaned: false };
+  ACTIVE_BROWSERS.add(record);
+
   try {
-    client = await CDP({ port: chrome.port });
+    const client = await withTimeout(CDP({ port: chrome.port }), 10000, `${label}: CDP connect`);
+    record.client = client;
+
     const { Page, Runtime, DOM, Network, Emulation, Performance } = client;
-    await Promise.all([
-      Page.enable(),
-      Runtime.enable(),
-      DOM.enable(),
-      Network.enable(),
-      Performance.enable(),
-    ]);
+    await withTimeout(
+      Promise.all([
+        Page.enable(),
+        Runtime.enable(),
+        DOM.enable(),
+        Network.enable(),
+        Performance.enable(),
+      ]),
+      10000,
+      `${label}: CDP domain enable`
+    );
 
-    await Emulation.setDeviceMetricsOverride({
-      width: viewport.width,
-      height: viewport.height,
-      deviceScaleFactor: viewport.deviceScaleFactor || (viewport.mobile ? 2 : 1),
-      mobile: Boolean(viewport.mobile),
+    // Auto-dismiss any native browser dialogs (alert / confirm / prompt / beforeunload)
+    // and intercept native OS file choosers so generated apps never block headless Chrome!
+    Page.javascriptDialogOpening(({ type, defaultPrompt }) => {
+      Page.handleJavaScriptDialog({
+        accept: true,
+        promptText: type === 'prompt' ? defaultPrompt || 'Sample Item' : undefined,
+      }).catch(() => {});
     });
+    Page.setInterceptFileChooserDialog?.({ enabled: true }).catch(() => {});
 
-    return await fn({ chrome, client, port: chrome.port });
+    await withTimeout(
+      Page.addScriptToEvaluateOnNewDocument({ source: HEADLESS_DIALOG_GUARD_SCRIPT }),
+      5000,
+      `${label}: dialog guard init`
+    ).catch(() => {});
+
+    await withTimeout(
+      Emulation.setDeviceMetricsOverride({
+        width: viewport.width,
+        height: viewport.height,
+        deviceScaleFactor: viewport.deviceScaleFactor || (viewport.mobile ? 2 : 1),
+        mobile: Boolean(viewport.mobile),
+      }),
+      5000,
+      `${label}: setDeviceMetricsOverride`
+    );
+
+    return await withTimeout(fn({ chrome, client, port: chrome.port }), timeoutMs, label);
   } finally {
-    if (client) {
-      try {
-        await client.close();
-      } catch {
-        // ignore close error
-      }
-    }
-    try {
-      await chrome.kill();
-    } catch {
-      // ignore kill error
-    }
+    await cleanupBrowserRecord(record);
   }
 }
 
@@ -188,42 +282,62 @@ export async function capturePngScreenshot(client, outPath, { fullPage = false }
 
 export async function dispatchRealClick(client, x, y) {
   const { Input } = client;
-  await Input.dispatchMouseEvent({
-    type: 'mouseMoved',
-    x,
-    y,
-    button: 'none',
-  });
-  await Input.dispatchMouseEvent({
-    type: 'mousePressed',
-    x,
-    y,
-    button: 'left',
-    clickCount: 1,
-  });
+  await withTimeout(
+    Input.dispatchMouseEvent({
+      type: 'mouseMoved',
+      x,
+      y,
+      button: 'none',
+    }),
+    3500,
+    'Input.dispatchMouseEvent(mouseMoved)'
+  );
+  await withTimeout(
+    Input.dispatchMouseEvent({
+      type: 'mousePressed',
+      x,
+      y,
+      button: 'left',
+      clickCount: 1,
+    }),
+    3500,
+    'Input.dispatchMouseEvent(mousePressed)'
+  );
   await sleep(25);
-  await Input.dispatchMouseEvent({
-    type: 'mouseReleased',
-    x,
-    y,
-    button: 'left',
-    clickCount: 1,
-  });
+  await withTimeout(
+    Input.dispatchMouseEvent({
+      type: 'mouseReleased',
+      x,
+      y,
+      button: 'left',
+      clickCount: 1,
+    }),
+    3500,
+    'Input.dispatchMouseEvent(mouseReleased)'
+  );
 }
 
 export async function dispatchRealType(client, text) {
   const { Input } = client;
   for (const ch of String(text)) {
-    await Input.dispatchKeyEvent({
-      type: 'keyDown',
-      text: ch,
-      unmodifiedText: ch,
-      key: ch,
-    });
-    await Input.dispatchKeyEvent({
-      type: 'keyUp',
-      key: ch,
-    });
+    await withTimeout(
+      Input.dispatchKeyEvent({
+        type: 'keyDown',
+        text: ch,
+        unmodifiedText: ch,
+        key: ch,
+      }),
+      3000,
+      'Input.dispatchKeyEvent(keyDown)'
+    );
+    await withTimeout(
+      Input.dispatchKeyEvent({
+        type: 'keyUp',
+        key: ch,
+      }),
+      3000,
+      'Input.dispatchKeyEvent(keyUp)'
+    );
     await sleep(12);
   }
 }
@@ -246,7 +360,7 @@ export async function dispatchNamedKey(client, keyName) {
     Digit3: { key: '3', code: 'Digit3', windowsVirtualKeyCode: 51 },
   };
   const def = KEY_DEFS[keyName] || { key: keyName, code: keyName, windowsVirtualKeyCode: 0 };
-  await Input.dispatchKeyEvent({ type: 'rawKeyDown', ...def });
+  await withTimeout(Input.dispatchKeyEvent({ type: 'rawKeyDown', ...def }), 3000, 'Input.dispatchKeyEvent(rawKeyDown)');
   await sleep(30);
-  await Input.dispatchKeyEvent({ type: 'keyUp', ...def });
+  await withTimeout(Input.dispatchKeyEvent({ type: 'keyUp', ...def }), 3000, 'Input.dispatchKeyEvent(keyUp)');
 }

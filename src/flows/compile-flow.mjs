@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   withIsolatedChrome,
+  withTimeout,
   navigateAndSettle,
   dispatchRealClick,
   dispatchRealType,
@@ -93,26 +94,44 @@ const PAGE_INTERACTIVES_SCRIPT = `(() => {
 })()`;
 
 export async function inspectPageInteractives(client) {
-  const { result } = await client.Runtime.evaluate({
-    expression: PAGE_INTERACTIVES_SCRIPT,
-    returnByValue: true,
-  });
-  return result?.value || { items: [], textSignature: '0:0' };
+  try {
+    const { result } = await withTimeout(
+      client.Runtime.evaluate({
+        expression: PAGE_INTERACTIVES_SCRIPT,
+        returnByValue: true,
+        timeout: 3500,
+      }),
+      4500,
+      'inspectPageInteractives'
+    );
+    return result?.value || { items: [], textSignature: '0:0' };
+  } catch {
+    return { items: [], textSignature: '0:0' };
+  }
 }
 
 export async function scrollSelectorIntoCenter(client, selector) {
   if (!selector) return null;
-  const { result } = await client.Runtime.evaluate({
-    expression: `(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return null;
-      el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-      const r = el.getBoundingClientRect();
-      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), tag: el.tagName.toLowerCase() };
-    })()`,
-    returnByValue: true,
-  });
-  return result?.value || null;
+  try {
+    const { result } = await withTimeout(
+      client.Runtime.evaluate({
+        expression: `(() => {
+          const el = document.querySelector(${JSON.stringify(selector)});
+          if (!el) return null;
+          el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+          const r = el.getBoundingClientRect();
+          return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), tag: el.tagName.toLowerCase() };
+        })()`,
+        returnByValue: true,
+        timeout: 2500,
+      }),
+      3500,
+      'scrollSelectorIntoCenter'
+    );
+    return result?.value || null;
+  } catch {
+    return null;
+  }
 }
 
 function matchBestElement(items, patterns = [], { preferInputs = false, excludeInputs = false } = {}) {
@@ -168,16 +187,37 @@ export async function executeSemanticStep(client, step) {
     await sleep(30);
     await dispatchRealClick(client, pos.x, pos.y);
     // Clear existing text safely via JS value + input event if needed, then type real keys for INP
-    await client.Runtime.evaluate({
-      expression: `(() => {
-        const el = document.querySelector(${JSON.stringify(target.selector)});
-        if (el && ('value' in el)) { el.value = ''; }
-      })()`,
-    });
+    await withTimeout(
+      client.Runtime.evaluate({
+        expression: `(() => {
+          const el = document.querySelector(${JSON.stringify(target.selector)});
+          if (el && ('value' in el)) { el.value = ''; }
+        })()`,
+        timeout: 2000,
+      }),
+      3000,
+      'fillInput clear'
+    ).catch(() => {});
     await dispatchRealType(client, String(value));
     ops.push({ op: 'type', selector: target.selector, value: String(value) });
     await sleep(180);
   }
+
+  const NON_TEXT_INPUT_TYPES = [
+    'checkbox',
+    'radio',
+    'submit',
+    'button',
+    'range',
+    'color',
+    'file',
+    'date',
+    'time',
+    'datetime-local',
+    'month',
+    'week',
+    'hidden',
+  ];
 
   if (step.action === 'click') {
     let target = matchBestElement(before.items, step.patterns || [], { excludeInputs: true });
@@ -191,8 +231,12 @@ export async function executeSemanticStep(client, step) {
     if (target) await clickTarget(target);
   } else if (step.action === 'type') {
     let input =
-      matchBestElement(before.items, step.inputPatterns || ['search', 'filter'], { preferInputs: true }) ||
-      before.items.find((i) => i.tag === 'input' && !['checkbox', 'radio', 'submit', 'button'].includes(i.type));
+      matchBestElement(
+        before.items.filter((i) => !NON_TEXT_INPUT_TYPES.includes(i.type)),
+        step.inputPatterns || ['search', 'filter'],
+        { preferInputs: true }
+      ) ||
+      before.items.find((i) => i.tag === 'input' && !NON_TEXT_INPUT_TYPES.includes(i.type));
     if (input) {
       await fillInput(input, step.value || 'test');
       await dispatchNamedKey(client, 'Enter');
@@ -239,13 +283,13 @@ export async function executeSemanticStep(client, step) {
   } else if (step.action === 'form-submit') {
     const fields = step.fields || {};
     let state = before;
+    const textCapableItems = state.items.filter((i) => !NON_TEXT_INPUT_TYPES.includes(i.type));
     for (const [fieldKey, val] of Object.entries(fields)) {
       const fieldTarget =
-        matchBestElement(state.items, [fieldKey], { preferInputs: true }) ||
-        state.items.find(
+        matchBestElement(textCapableItems, [fieldKey], { preferInputs: true }) ||
+        textCapableItems.find(
           (i) =>
             (i.tag === 'input' || i.tag === 'textarea') &&
-            !['checkbox', 'radio', 'submit', 'button', 'range', 'color'].includes(i.type) &&
             !ops.some((o) => o.selector === i.selector)
         );
       if (fieldTarget) {
@@ -329,36 +373,84 @@ export async function executeSemanticStep(client, step) {
  * have a verified, deterministic multi-step interaction plan.
  */
 export async function compileCanonicalFlow({ url, promptEntry, cellDir, config }) {
-  const compiled = await withIsolatedChrome(
-    { viewport: config.browser.viewportDesktop },
-    async ({ client }) => {
-      await navigateAndSettle(client, url, config.browser.settleWaitMs || 1200);
-      const initialSurface = await inspectPageInteractives(client);
-      const stepResults = [];
+  const stepTimeoutMs = Math.max(4000, Number(config.browser?.journeyStepTimeoutMs || 7000));
+  const journeySteps = promptEntry.canonicalJourney || [];
+  const stepResults = [];
+  let initialInteractiveCount = 0;
+  let compiled;
 
-      for (const step of promptEntry.canonicalJourney || []) {
-        const res = await executeSemanticStep(client, step);
-        stepResults.push(res);
+  try {
+    compiled = await withIsolatedChrome(
+      {
+        viewport: config.browser.viewportDesktop,
+        timeoutMs: Math.max(25000, journeySteps.length * stepTimeoutMs + 15000),
+        label: `flow-compile (${promptEntry.id})`,
+      },
+      async ({ client }) => {
+        await navigateAndSettle(client, url, config.browser.settleWaitMs || 1000);
+        const initialSurface = await inspectPageInteractives(client);
+        initialInteractiveCount = initialSurface.items.length;
+
+        for (const step of journeySteps) {
+          try {
+            const res = await withTimeout(
+              executeSemanticStep(client, step),
+              stepTimeoutMs,
+              `flow-compile step "${step.id}"`
+            );
+            stepResults.push(res);
+          } catch (stepErr) {
+            stepResults.push({
+              stepId: step.id,
+              label: step.label,
+              action: step.action,
+              resolvedOps: [],
+              mutated: false,
+              succeeded: false,
+              timedOut: true,
+              error: (stepErr.message || String(stepErr)).slice(0, 160),
+            });
+            // If the renderer wedged on a synchronous infinite loop in this step, stop trying further steps
+            break;
+          }
+        }
+
+        const completedSteps = stepResults.filter((s) => s.succeeded).length;
+        const mutatedSteps = stepResults.filter((s) => s.mutated).length;
+        const totalSteps = journeySteps.length || 1;
+
+        return {
+          promptId: promptEntry.id,
+          category: promptEntry.category,
+          compiledAt: new Date().toISOString(),
+          initialInteractiveCount,
+          totalSteps: journeySteps.length,
+          resolvedSteps: completedSteps,
+          mutatedSteps,
+          flowCompletionPct: Math.round(((completedSteps * 0.5 + mutatedSteps * 0.5) / totalSteps) * 100),
+          steps: stepResults,
+          leakLoop: promptEntry.leakLoop || null,
+        };
       }
-
-      const completedSteps = stepResults.filter((s) => s.succeeded).length;
-      const mutatedSteps = stepResults.filter((s) => s.mutated).length;
-      const totalSteps = stepResults.length || 1;
-
-      return {
-        promptId: promptEntry.id,
-        category: promptEntry.category,
-        compiledAt: new Date().toISOString(),
-        initialInteractiveCount: initialSurface.items.length,
-        totalSteps: stepResults.length,
-        resolvedSteps: completedSteps,
-        mutatedSteps,
-        flowCompletionPct: Math.round(((completedSteps * 0.5 + mutatedSteps * 0.5) / totalSteps) * 100),
-        steps: stepResults,
-        leakLoop: promptEntry.leakLoop || null,
-      };
-    }
-  );
+    );
+  } catch (err) {
+    const completedSteps = stepResults.filter((s) => s.succeeded).length;
+    const mutatedSteps = stepResults.filter((s) => s.mutated).length;
+    const totalSteps = journeySteps.length || 1;
+    compiled = {
+      promptId: promptEntry.id,
+      category: promptEntry.category,
+      compiledAt: new Date().toISOString(),
+      initialInteractiveCount,
+      totalSteps: journeySteps.length,
+      resolvedSteps: completedSteps,
+      mutatedSteps,
+      flowCompletionPct: Math.round(((completedSteps * 0.5 + mutatedSteps * 0.5) / totalSteps) * 100),
+      steps: stepResults,
+      leakLoop: promptEntry.leakLoop || null,
+      compileError: (err.message || String(err)).slice(0, 200),
+    };
+  }
 
   mkdirSync(cellDir, { recursive: true });
   const flowPath = join(cellDir, 'compiled-flow.json');

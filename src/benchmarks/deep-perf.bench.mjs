@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   withIsolatedChrome,
+  withTimeout,
   applyDesktopBroadbandShaping,
   applyMobileThrottling,
   navigateAndSettle,
@@ -194,7 +195,13 @@ async function runColdLoadProfile(url, config, throttled = true) {
     ? { ...config.browser.viewportMobile, mobile: true, deviceScaleFactor: 2 }
     : { ...config.browser.viewportDesktop, mobile: false, deviceScaleFactor: 1 };
 
-  return withIsolatedChrome({ viewport }, async ({ client }) => {
+  return withIsolatedChrome(
+    {
+      viewport,
+      timeoutMs: 38000,
+      label: throttled ? 'deep-perf-mobile' : 'deep-perf-desktop',
+    },
+    async ({ client }) => {
     const { Page, Profiler, CSS, Network, Performance, Runtime } = client;
     await Promise.all([Profiler.enable(), CSS.enable()]);
     await Profiler.startPreciseCoverage({ callCount: false, detailed: true });
@@ -267,34 +274,39 @@ async function runColdLoadProfile(url, config, throttled = true) {
     });
 
     await Page.addScriptToEvaluateOnNewDocument({ source: PERF_OBSERVERS_INIT_SCRIPT });
-    await navigateAndSettle(client, url, config.browser.settleWaitMs || 1200);
+    await navigateAndSettle(client, url, config.browser.settleWaitMs || 1000);
 
     const [jsCov, cssCov, cdpMetricsRes, inPageRes] = await Promise.all([
-      Profiler.takePreciseCoverage(),
-      CSS.stopRuleUsageTracking(),
-      Performance.getMetrics(),
-      Runtime.evaluate({
-        expression: `(() => {
-          const nav = performance.getEntriesByType('navigation')[0];
-          const p = window.__benchPerf || {};
-          const tbtMs = (p.longTasks || []).reduce((acc, t) => acc + Math.max(0, t.durationMs - 50), 0);
-          return {
-            ttfbMs: nav ? Math.round(nav.responseStart) : 0,
-            domContentLoadedMs: nav ? Math.round(nav.domContentLoadedEventEnd) : 0,
-            loadEventMs: nav ? Math.round(nav.loadEventEnd) : 0,
-            fcpMs: Math.round(p.fcpMs || 0),
-            lcpMs: Math.round(p.lcpMs || p.fcpMs || 0),
-            cls: Number((p.clsLoad || 0).toFixed(4)),
-            tbtMs: Math.round(tbtMs),
-            longTaskCount: (p.longTasks || []).length,
-            maxLongTaskMs: (p.longTasks || []).reduce((m, t) => Math.max(m, t.durationMs), 0),
-          };
-        })()`,
-        returnByValue: true,
-      }),
+      withTimeout(Profiler.takePreciseCoverage(), 6000, 'takePreciseCoverage').catch(() => ({ result: [] })),
+      withTimeout(CSS.stopRuleUsageTracking(), 6000, 'stopRuleUsageTracking').catch(() => ({ ruleUsage: [] })),
+      withTimeout(Performance.getMetrics(), 5000, 'Performance.getMetrics').catch(() => ({ metrics: [] })),
+      withTimeout(
+        Runtime.evaluate({
+          expression: `(() => {
+            const nav = performance.getEntriesByType('navigation')[0];
+            const p = window.__benchPerf || {};
+            const tbtMs = (p.longTasks || []).reduce((acc, t) => acc + Math.max(0, t.durationMs - 50), 0);
+            return {
+              ttfbMs: nav ? Math.round(nav.responseStart) : 0,
+              domContentLoadedMs: nav ? Math.round(nav.domContentLoadedEventEnd) : 0,
+              loadEventMs: nav ? Math.round(nav.loadEventEnd) : 0,
+              fcpMs: Math.round(p.fcpMs || 0),
+              lcpMs: Math.round(p.lcpMs || p.fcpMs || 0),
+              cls: Number((p.clsLoad || 0).toFixed(4)),
+              tbtMs: Math.round(tbtMs),
+              longTaskCount: (p.longTasks || []).length,
+              maxLongTaskMs: (p.longTasks || []).reduce((m, t) => Math.max(m, t.durationMs), 0),
+            };
+          })()`,
+          returnByValue: true,
+          timeout: 4000,
+        }),
+        5000,
+        'deep-perf load evaluate'
+      ).catch(() => ({ result: { value: {} } })),
     ]);
 
-    await Profiler.stopPreciseCoverage();
+    await withTimeout(Profiler.stopPreciseCoverage(), 3000, 'stopPreciseCoverage').catch(() => {});
 
     const jsSummary = computeJsCoverageSummary(jsCov.result || []);
     const cssRules = cssCov.ruleUsage || [];
@@ -343,12 +355,16 @@ async function runColdLoadProfile(url, config, throttled = true) {
 
 async function runJourneyInteractionPass(url, compiledFlow, promptEntry, config) {
   return withIsolatedChrome(
-    { viewport: { ...config.browser.viewportDesktop, mobile: false, deviceScaleFactor: 1 } },
+    {
+      viewport: { ...config.browser.viewportDesktop, mobile: false, deviceScaleFactor: 1 },
+      timeoutMs: 45000,
+      label: 'deep-perf-journey',
+    },
     async ({ client }) => {
       const { Page, Emulation, Network, Runtime } = client;
       await Page.addScriptToEvaluateOnNewDocument({ source: PERF_OBSERVERS_INIT_SCRIPT });
       await applyDesktopBroadbandShaping(client, config.browser.desktopThrottle);
-      await navigateAndSettle(client, url, config.browser.settleWaitMs || 1200);
+      await navigateAndSettle(client, url, config.browser.settleWaitMs || 1000);
 
       // Apply 4x CPU throttling + broadband WAN RTT during journey interaction so INP, LoAF & /api fetches reflect real conditions
       await Emulation.setCPUThrottlingRate({
@@ -377,62 +393,80 @@ async function runJourneyInteractionPass(url, compiledFlow, promptEntry, config)
         }
       });
 
-      await Runtime.evaluate({ expression: `window.__startBenchRafSampler && window.__startBenchRafSampler()` });
+      await withTimeout(
+        Runtime.evaluate({ expression: `window.__startBenchRafSampler && window.__startBenchRafSampler()`, timeout: 2500 }),
+        3500,
+        'startBenchRafSampler'
+      ).catch(() => {});
       const stepTimings = await replayCompiledJourney(client, compiledFlow, promptEntry);
       await sleep(300);
-      await Runtime.evaluate({ expression: `window.__stopBenchRafSampler && window.__stopBenchRafSampler()` });
+      await withTimeout(
+        Runtime.evaluate({ expression: `window.__stopBenchRafSampler && window.__stopBenchRafSampler()`, timeout: 2500 }),
+        3500,
+        'stopBenchRafSampler'
+      ).catch(() => {});
 
-      const finalLocRes = await Runtime.evaluate({
-        expression: `location.pathname + location.search + location.hash`,
-        returnByValue: true,
-      });
+      const finalLocRes = await withTimeout(
+        Runtime.evaluate({
+          expression: `location.pathname + location.search + location.hash`,
+          returnByValue: true,
+          timeout: 2500,
+        }),
+        3500,
+        'finalLoc evaluate'
+      ).catch(() => ({ result: { value: null } }));
       if (finalLocRes.result?.value) visitedPaths.add(finalLocRes.result.value);
 
-      const { result } = await Runtime.evaluate({
-        expression: `(() => {
-          const p = window.__benchPerf || {};
-          const interactions = Array.from((p.interactions || new Map()).values())
-            .sort((a, b) => b.duration - a.duration);
+      const evalMetrics = await withTimeout(
+        Runtime.evaluate({
+          expression: `(() => {
+            const p = window.__benchPerf || {};
+            const interactions = Array.from((p.interactions || new Map()).values())
+              .sort((a, b) => b.duration - a.duration);
 
-          // W3C INP: for <50 interactions, worst interaction; for >=50, 98th percentile
-          let inpEntry = null;
-          if (interactions.length > 0) {
-            const idx = interactions.length >= 50 ? Math.floor(interactions.length * 0.02) : 0;
-            inpEntry = interactions[idx];
-          }
+            // W3C INP: for <50 interactions, worst interaction; for >=50, 98th percentile
+            let inpEntry = null;
+            if (interactions.length > 0) {
+              const idx = interactions.length >= 50 ? Math.floor(interactions.length * 0.02) : 0;
+              inpEntry = interactions[idx];
+            }
 
-          const deltas = (p.rafDeltas || []).filter(d => d > 0 && d < 5000).sort((a, b) => a - b);
-          const totalRafMs = deltas.reduce((a, b) => a + b, 0);
-          const avgFps = totalRafMs > 0 ? Math.round((deltas.length / (totalRafMs / 1000)) * 10) / 10 : 60;
-          const p95FrameMs = deltas.length > 0 ? Math.round(deltas[Math.min(deltas.length - 1, Math.floor(deltas.length * 0.95))] * 10) / 10 : 16.7;
-          const jankFramesOver50Ms = deltas.filter(d => d > 50).length;
-          const droppedFramePct = deltas.length > 0 ? Math.round((deltas.filter(d => d > 25).length / deltas.length) * 1000) / 10 : 0;
+            const deltas = (p.rafDeltas || []).filter(d => d > 0 && d < 5000).sort((a, b) => a - b);
+            const totalRafMs = deltas.reduce((a, b) => a + b, 0);
+            const avgFps = totalRafMs > 0 ? Math.round((deltas.length / (totalRafMs / 1000)) * 10) / 10 : 60;
+            const p95FrameMs = deltas.length > 0 ? Math.round(deltas[Math.min(deltas.length - 1, Math.floor(deltas.length * 0.95))] * 10) / 10 : 16.7;
+            const jankFramesOver50Ms = deltas.filter(d => d > 50).length;
+            const droppedFramePct = deltas.length > 0 ? Math.round((deltas.filter(d => d > 25).length / deltas.length) * 1000) / 10 : 0;
 
-          const loafs = p.loafs || [];
-          const totalLoafBlockingMs = loafs.reduce((acc, l) => acc + (l.blockingDurationMs || 0), 0);
-          const worstLoafMs = loafs.reduce((m, l) => Math.max(m, l.durationMs || 0), 0);
+            const loafs = p.loafs || [];
+            const totalLoafBlockingMs = loafs.reduce((acc, l) => acc + (l.blockingDurationMs || 0), 0);
+            const worstLoafMs = loafs.reduce((m, l) => Math.max(m, l.durationMs || 0), 0);
 
-          return {
-            interactionCount: interactions.length,
-            inpMs: inpEntry ? inpEntry.duration : 0,
-            inpBreakdown: inpEntry || null,
-            allInteractions: interactions.slice(0, 12),
-            loafCount: loafs.length,
-            totalLoafBlockingMs,
-            worstLoafMs,
-            topLoafs: loafs.sort((a, b) => b.durationMs - a.durationMs).slice(0, 5),
-            clsInteractive: Number((p.clsInteractive || 0).toFixed(4)),
-            framePacing: {
-              sampledFrames: deltas.length,
-              avgFps,
-              p95FrameMs,
-              jankFramesOver50Ms,
-              droppedFramePct,
-            },
-          };
-        })()`,
-        returnByValue: true,
-      });
+            return {
+              interactionCount: interactions.length,
+              inpMs: inpEntry ? inpEntry.duration : 0,
+              inpBreakdown: inpEntry || null,
+              allInteractions: interactions.slice(0, 12),
+              loafCount: loafs.length,
+              totalLoafBlockingMs,
+              worstLoafMs,
+              topLoafs: loafs.sort((a, b) => b.durationMs - a.durationMs).slice(0, 5),
+              clsInteractive: Number((p.clsInteractive || 0).toFixed(4)),
+              framePacing: {
+                sampledFrames: deltas.length,
+                avgFps,
+                p95FrameMs,
+                jankFramesOver50Ms,
+                droppedFramePct,
+              },
+            };
+          })()`,
+          returnByValue: true,
+          timeout: 4000,
+        }),
+        5000,
+        'journey metrics evaluate'
+      ).catch(() => ({ result: { value: {} } }));
 
       return {
         cpuThrottleMultiplier: config.browser.mobileThrottle?.cpuSlowdownMultiplier || 4,
@@ -440,7 +474,7 @@ async function runJourneyInteractionPass(url, compiledFlow, promptEntry, config)
         journeyApiRequestCount,
         visitedRoutes: Array.from(visitedPaths),
         stepTimings,
-        ...(result?.value || {}),
+        ...(evalMetrics?.result?.value || {}),
       };
     }
   );

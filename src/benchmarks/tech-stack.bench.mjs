@@ -2,6 +2,7 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   withIsolatedChrome,
+  withTimeout,
   navigateAndSettle,
   capturePngScreenshot,
 } from './cdp-helpers.mjs';
@@ -175,7 +176,7 @@ export default {
     const externalRequests = [];
 
     const runtimeInfo = await withIsolatedChrome(
-      { viewport: config.browser.viewportDesktop },
+      { viewport: config.browser.viewportDesktop, timeoutMs: 25000, label: 'tech-stack' },
       async ({ client }) => {
         client.Runtime.consoleAPICalled((evt) => {
           if (evt.type === 'error') {
@@ -200,46 +201,55 @@ export default {
           }
         });
 
-        await navigateAndSettle(client, url, config.browser.settleWaitMs || 1200);
-        await capturePngScreenshot(client, join(screenshotsDir, 'desktop.png'));
+        await navigateAndSettle(client, url, config.browser.settleWaitMs || 1000);
+        await capturePngScreenshot(client, join(screenshotsDir, 'desktop.png')).catch(() => {});
 
-        const { result } = await client.Runtime.evaluate({
-          expression: `(() => {
-            const globals = [];
-            if (window.React || document.querySelector('[data-reactroot]') || Object.keys(document.getElementById('root') || {}).some(k => k.startsWith('__reactContainer'))) globals.push('react');
-            if (window.__VUE__ || document.querySelector('[data-v-app]')) globals.push('vue');
-            if (window.__svelte) globals.push('svelte');
-            if (window.THREE) globals.push('three');
-            if (window.tailwind) globals.push('tailwind-play-jit');
-            if (window.Babel) globals.push('babel-standalone-jit');
-            if (window.jQuery) globals.push('jquery');
-            if (window.lucide) globals.push('lucide');
+        const evalRes = await withTimeout(
+          client.Runtime.evaluate({
+            expression: `(() => {
+              const globals = [];
+              if (window.React || document.querySelector('[data-reactroot]') || Object.keys(document.getElementById('root') || {}).some(k => k.startsWith('__reactContainer'))) globals.push('react');
+              if (window.__VUE__ || document.querySelector('[data-v-app]')) globals.push('vue');
+              if (window.__svelte) globals.push('svelte');
+              if (window.THREE) globals.push('three');
+              if (window.tailwind) globals.push('tailwind-play-jit');
+              if (window.Babel) globals.push('babel-standalone-jit');
+              if (window.jQuery) globals.push('jquery');
+              if (window.lucide) globals.push('lucide');
 
-            return {
-              globals,
-              domElementCount: document.querySelectorAll('*').length,
-              visibleTextLength: (document.body?.innerText || '').trim().length,
-              canvasCount: document.querySelectorAll('canvas').length,
-              svgCount: document.querySelectorAll('svg').length,
-              formCount: document.querySelectorAll('form').length,
-              buttonCount: document.querySelectorAll('button, [role="button"]').length,
-              inputCount: document.querySelectorAll('input, select, textarea').length,
-              dialogCount: document.querySelectorAll('dialog').length,
-            };
-          })()`,
-          returnByValue: true,
-        });
+              return {
+                globals,
+                domElementCount: document.querySelectorAll('*').length,
+                visibleTextLength: (document.body?.innerText || '').trim().length,
+                canvasCount: document.querySelectorAll('canvas').length,
+                svgCount: document.querySelectorAll('svg').length,
+                formCount: document.querySelectorAll('form').length,
+                buttonCount: document.querySelectorAll('button, [role="button"]').length,
+                inputCount: document.querySelectorAll('input, select, textarea').length,
+                dialogCount: document.querySelectorAll('dialog').length,
+              };
+            })()`,
+            returnByValue: true,
+            timeout: 4000,
+          }),
+          5000,
+          'tech-stack Runtime.evaluate'
+        ).catch(() => ({ result: { value: {} } }));
 
         // Also capture mobile viewport screenshot for Studio inspection
-        await client.Emulation.setDeviceMetricsOverride({
-          width: config.browser.viewportMobile.width,
-          height: config.browser.viewportMobile.height,
-          deviceScaleFactor: 2,
-          mobile: true,
-        });
-        await capturePngScreenshot(client, join(screenshotsDir, 'mobile.png'));
+        await withTimeout(
+          client.Emulation.setDeviceMetricsOverride({
+            width: config.browser.viewportMobile.width,
+            height: config.browser.viewportMobile.height,
+            deviceScaleFactor: 2,
+            mobile: true,
+          }),
+          4000,
+          'tech-stack mobile viewport'
+        ).catch(() => {});
+        await capturePngScreenshot(client, join(screenshotsDir, 'mobile.png')).catch(() => {});
 
-        return result?.value || {};
+        return evalRes?.result?.value || {};
       }
     );
 

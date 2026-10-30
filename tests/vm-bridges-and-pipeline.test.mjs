@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -22,7 +23,8 @@ import {
 import { buildSanitizedServerEnv, hasBrokenNodeModules } from '../src/materialize/server-runner.mjs';
 import { normalizePipelineStage } from '../src/runner/orchestrator.mjs';
 import { planWorkflowShards } from '../src/runner/shard-planner.mjs';
-import { withTimeout } from '../src/benchmarks/cdp-helpers.mjs';
+import { withTimeout, resolveStableChromePath } from '../src/benchmarks/cdp-helpers.mjs';
+import { compileCanonicalFlow } from '../src/flows/compile-flow.mjs';
 import { matchesModelSelector } from '../src/harness/model-registry.mjs';
 import { parseCliArgs, formatMarkdownSummary, formatPhaseBreakdownLine } from '../bin/bench.mjs';
 import { measureNodeCpuBaselineMs } from '../src/benchmarks/canary.mjs';
@@ -340,5 +342,75 @@ describe('Portable pi Runtime, Clean-Room Provider Bridges & Split VM Pipeline',
     assert.match(md, /Execution Timing & Pipeline Observability/);
     assert.match(md, /Slowest Audited Cells/);
     assert.match(md, /Failed \/ Timed-Out Cells \(1\)/);
+  });
+
+  it('compileCanonicalFlow survives alert/confirm/prompt/print modals and synchronous while(true) hangs without leaking Chrome', async (t) => {
+    if (!resolveStableChromePath()) {
+      t.skip('No Chrome binary available on this machine');
+      return;
+    }
+
+    const html = `<!doctype html>
+      <html>
+        <body>
+          <h1>Flight & Kanban Test</h1>
+          <input id="f" type="file" />
+          <input id="due" type="date" />
+          <div id="board"></div>
+          <button id="book-btn" onclick="
+            alert('Flight selected!');
+            if (confirm('Book this flight?')) {
+              const name = prompt('Passenger / Card Title:');
+              window.print();
+              document.getElementById('f').click();
+              const d = document.createElement('div');
+              d.textContent = 'Booked: ' + name;
+              document.getElementById('board').appendChild(d);
+            }
+          ">Book Flight</button>
+          <button id="hang-btn" onclick="while(true){}">Freeze Renderer</button>
+        </body>
+      </html>`;
+
+    const srv = createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+    });
+    await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+    const port = srv.address().port;
+    const tmpCell = mkdtempSync(join(tmpdir(), 'flow-hang-test-'));
+
+    const t0 = performance.now();
+    try {
+      const { compiled } = await compileCanonicalFlow({
+        url: `http://127.0.0.1:${port}/`,
+        cellDir: tmpCell,
+        config: {
+          browser: {
+            viewportDesktop: { width: 1280, height: 800 },
+            settleWaitMs: 200,
+            journeyStepTimeoutMs: 4000,
+          },
+        },
+        promptEntry: {
+          id: 'flight-kanban-modal-hang',
+          category: 'saas',
+          canonicalJourney: [
+            { id: 'book', label: 'Book flight via modal dialogs', action: 'click', patterns: ['book flight'] },
+            { id: 'freeze', label: 'Click infinite loop button', action: 'click', patterns: ['freeze renderer'] },
+          ],
+        },
+      });
+
+      const elapsedMs = performance.now() - t0;
+      assert.ok(elapsedMs < 25000, `Expected bounded flow compilation (<25s), took ${Math.round(elapsedMs)}ms`);
+      assert.equal(compiled.steps[0].succeeded, true, 'Modal alert/confirm/prompt/print step should succeed');
+      assert.equal(compiled.steps[0].mutated, true, 'prompt() default return should mutate DOM');
+      assert.equal(compiled.steps[1].timedOut, true, 'while(true) step should time out cleanly without hanging');
+    } finally {
+      srv.closeAllConnections?.();
+      await new Promise((r) => srv.close(r));
+      rmSync(tmpCell, { recursive: true, force: true });
+    }
   });
 });

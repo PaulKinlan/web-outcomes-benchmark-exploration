@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { PROJECT_ROOT } from '../util/env.mjs';
 import { resolvePiBin } from '../harness/pi-loader.mjs';
-import { resolveStableChromePath, withTimeout } from './cdp-helpers.mjs';
+import { resolveStableChromePath, withTimeout, forceKillChromeInstance } from './cdp-helpers.mjs';
 
 function findLatestReportJson(rootDir) {
   const direct = join(rootDir, 'report.json');
@@ -33,6 +33,9 @@ function buildLighthouseChromeFlags() {
     '--headless=new',
     '--disable-gpu',
     '--disable-dev-shm-usage',
+    '--disable-popup-blocking',
+    '--disable-print-preview',
+    '--mute-audio',
     '--no-first-run',
     '--no-default-browser-check',
   ];
@@ -169,31 +172,29 @@ export async function runLighthousePass(url, formFactor = 'mobile', sharedPort =
     };
   } finally {
     if (ownedChrome) {
-      try {
-        await ownedChrome.kill();
-      } catch {
-        // ignore
-      }
+      await withTimeout(ownedChrome.kill(), 2000, 'ownedChrome.kill').catch(() => {});
+      forceKillChromeInstance(ownedChrome);
     }
   }
 }
 
 export async function runLighthouseSuite(url) {
-  const chrome = await chromeLauncher.launch({
-    chromePath: resolveStableChromePath(),
-    chromeFlags: buildLighthouseChromeFlags(),
-    logLevel: 'silent',
-  });
+  const chrome = await withTimeout(
+    chromeLauncher.launch({
+      chromePath: resolveStableChromePath(),
+      chromeFlags: buildLighthouseChromeFlags(),
+      logLevel: 'silent',
+    }),
+    15000,
+    'Lighthouse chromeLauncher.launch'
+  );
   try {
     const mobile = await runLighthousePass(url, 'mobile', chrome.port);
     const desktop = await runLighthousePass(url, 'desktop', chrome.port);
     return { mobile, desktop };
   } finally {
-    try {
-      await chrome.kill();
-    } catch {
-      // ignore
-    }
+    await withTimeout(chrome.kill(), 2000, 'Lighthouse chrome.kill').catch(() => {});
+    forceKillChromeInstance(chrome);
   }
 }
 
@@ -309,11 +310,7 @@ async function gatherWebUpliftPrimitives(url, upliftDir) {
     return { available: true, primitives };
   } finally {
     if (sharedBrowser) {
-      try {
-        await sharedBrowser.close();
-      } catch {
-        // ignore
-      }
+      await withTimeout(sharedBrowser.close(), 3000, 'web-uplift sharedBrowser.close').catch(() => {});
     }
   }
 }
