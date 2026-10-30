@@ -63,7 +63,10 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
       if (existsSync(srcDist)) {
         const destPreview = join(outDir, 'preview', cellId);
         mkdirSync(destPreview, { recursive: true });
-        cpSync(srcDist, destPreview, { recursive: true });
+        cpSync(srcDist, destPreview, {
+          recursive: true,
+          filter: (p) => !p.includes('node_modules') && !p.includes('.git'),
+        });
         const shim = `<script>(function(){try{window.localStorage.length}catch(e){var mk=function(){var s=Object.create(null);return{getItem:function(k){return Object.prototype.hasOwnProperty.call(s,k)?s[k]:null},setItem:function(k,v){s[String(k)]=String(v)},removeItem:function(k){delete s[k]},clear:function(){s=Object.create(null)},key:function(i){return Object.keys(s)[i]||null},get length(){return Object.keys(s).length}}};try{Object.defineProperty(window,'localStorage',{value:mk(),configurable:true});Object.defineProperty(window,'sessionStorage',{value:mk(),configurable:true})}catch(_){}}})();</script>`;
         const patchHtmlFiles = (dir) => {
           for (const entry of readdirSync(dir)) {
@@ -158,6 +161,7 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
     }),
     'utf8'
   );
+  writeFileSync(join(outDir, '.nojekyll'), '', 'utf8');
 
   return { outDir, cellCount: summary.totals.cells };
 }

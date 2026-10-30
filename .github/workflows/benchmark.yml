@@ -36,6 +36,11 @@ on:
         required: false
         default: ''
         type: string
+      reuse_audit_run_id:
+        description: 'Optional: Prior workflow Run ID to reuse audited shards from (skips Stage 1 & 2 to re-export & publish Pages in ~30s)'
+        required: false
+        default: ''
+        type: string
       bridges:
         description: 'Optional clean-room provider bridges to install (e.g. antigravity)'
         required: false
@@ -58,7 +63,7 @@ on:
       deploy_pages:
         description: 'Deploy static Benchmark Studio report to GitHub Pages'
         required: false
-        default: false
+        default: true
         type: boolean
 
 permissions:
@@ -73,6 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       skip_generate: ${{ steps.plan.outputs.skip_generate }}
+      skip_audit: ${{ steps.plan.outputs.skip_audit }}
       generate_shards_json: ${{ steps.plan.outputs.generate_shards_json }}
       audit_shards_json: ${{ steps.plan.outputs.audit_shards_json }}
       total_cells: ${{ steps.plan.outputs.total_cells }}
@@ -93,10 +99,14 @@ jobs:
           INPUT_MODE: ${{ inputs.mode }}
           INPUT_AUDIT_RUNS: ${{ inputs.audit_runs }}
           INPUT_REUSE_RUN_ID: ${{ inputs.reuse_generation_run_id }}
+          INPUT_REUSE_AUDIT_RUN_ID: ${{ inputs.reuse_audit_run_id }}
         run: |
           node --input-type=module -e '
             import { appendFileSync } from "node:fs";
             import { planWorkflowShards } from "./src/runner/shard-planner.mjs";
+
+            const reuseAuditRunId = String(process.env.INPUT_REUSE_AUDIT_RUN_ID || "").trim();
+            const skipAudit = Boolean(reuseAuditRunId);
 
             const plan = planWorkflowShards({
               modelsRaw: process.env.INPUT_MODELS,
@@ -104,22 +114,27 @@ jobs:
               customPromptsRaw: process.env.INPUT_PROMPTS,
               mode: process.env.INPUT_MODE,
               auditRuns: Number(process.env.INPUT_AUDIT_RUNS || 1),
-              reuseGenerationRunId: process.env.INPUT_REUSE_RUN_ID || "",
+              reuseGenerationRunId: process.env.INPUT_REUSE_RUN_ID || reuseAuditRunId,
             });
 
-            const genMatrix = plan.skipGenerate
+            const skipGenerate = plan.skipGenerate || skipAudit;
+            const genMatrix = skipGenerate
               ? [{ shardId: "skipped", label: "reusing-prior-run", model: plan.models[0], mode: plan.modes[0], promptFlag: "" }]
               : plan.generateShards;
+            const auditMatrix = skipAudit
+              ? [{ shardId: "skipped", label: "reusing-prior-audit-run", model: plan.models[0], mode: plan.modes[0], promptFlag: "", artifactPattern: "generated-cells-*" }]
+              : plan.auditShards;
 
-            appendFileSync(process.env.GITHUB_OUTPUT, `skip_generate=${plan.skipGenerate ? "true" : "false"}\n`);
+            appendFileSync(process.env.GITHUB_OUTPUT, `skip_generate=${skipGenerate ? "true" : "false"}\n`);
+            appendFileSync(process.env.GITHUB_OUTPUT, `skip_audit=${skipAudit ? "true" : "false"}\n`);
             appendFileSync(process.env.GITHUB_OUTPUT, `generate_shards_json=${JSON.stringify(genMatrix)}\n`);
-            appendFileSync(process.env.GITHUB_OUTPUT, `audit_shards_json=${JSON.stringify(plan.auditShards)}\n`);
+            appendFileSync(process.env.GITHUB_OUTPUT, `audit_shards_json=${JSON.stringify(auditMatrix)}\n`);
             appendFileSync(process.env.GITHUB_OUTPUT, `total_cells=${plan.totalCells}\n`);
 
             console.log(
               `Planned ${plan.totalCells} cell(s): ` +
-              `${plan.skipGenerate ? `0 generate shards (reusing run ${plan.reuseGenerationRunId})` : `${plan.generateShards.length} parallel generate shard(s)`} -> ` +
-              `${plan.auditShards.length} parallel isolated-VM audit shard(s).`
+              `${skipGenerate ? "0 generate shards (reusing prior run)" : `${plan.generateShards.length} parallel generate shard(s)`} -> ` +
+              `${skipAudit ? `0 audit shards (reusing audit run ${reuseAuditRunId})` : `${plan.auditShards.length} parallel isolated-VM audit shard(s)`}.`
             );
           '
 
@@ -190,7 +205,7 @@ jobs:
   audit:
     name: Audit (${{ matrix.shard.label }})
     needs: [prepare-matrix, generate]
-    if: ${{ !cancelled() && needs.prepare-matrix.result == 'success' && (needs.generate.result == 'success' || needs.generate.result == 'skipped' || needs.generate.result == 'failure') }}
+    if: ${{ !cancelled() && needs.prepare-matrix.result == 'success' && needs.prepare-matrix.outputs.skip_audit != 'true' && (needs.generate.result == 'success' || needs.generate.result == 'skipped' || needs.generate.result == 'failure') }}
     runs-on: ${{ inputs.audit_runner }}
     timeout-minutes: 45
     concurrency:
@@ -323,7 +338,7 @@ jobs:
   aggregate-and-report:
     name: Aggregate All Shards & Export Benchmark Studio
     needs: [prepare-matrix, audit]
-    if: ${{ !cancelled() && needs.prepare-matrix.result == 'success' && (needs.audit.result == 'success' || needs.audit.result == 'failure') }}
+    if: ${{ !cancelled() && needs.prepare-matrix.result == 'success' && (needs.audit.result == 'success' || needs.audit.result == 'failure' || needs.audit.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -338,9 +353,20 @@ jobs:
       - name: Install benchmark dependencies
         run: npm install --no-package-lock --no-audit --no-fund --registry=https://registry.npmjs.org
 
-      - name: Download all audited cell shards
+      - name: Download all audited cell shards from this workflow run
+        if: ${{ inputs.reuse_audit_run_id == '' }}
         uses: actions/download-artifact@v4
         with:
+          pattern: audited-cells-*
+          path: runs/
+          merge-multiple: true
+
+      - name: Download all audited cell shards from prior workflow run (${{ inputs.reuse_audit_run_id }})
+        if: ${{ inputs.reuse_audit_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.reuse_audit_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           pattern: audited-cells-*
           path: runs/
           merge-multiple: true
@@ -374,16 +400,19 @@ jobs:
           retention-days: 30
 
       - name: Upload GitHub Pages artifact
-        if: ${{ inputs.deploy_pages == true }}
+        if: ${{ inputs.deploy_pages == true || inputs.deploy_pages == 'true' || github.event.inputs.deploy_pages == 'true' }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist-report
 
   deploy-pages:
     name: Publish Benchmark Studio to GitHub Pages
-    if: ${{ inputs.deploy_pages == true }}
     needs: aggregate-and-report
+    if: ${{ !cancelled() && needs.aggregate-and-report.result == 'success' && (inputs.deploy_pages == true || inputs.deploy_pages == 'true' || github.event.inputs.deploy_pages == 'true') }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
