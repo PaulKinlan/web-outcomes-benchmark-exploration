@@ -243,6 +243,7 @@ jobs:
 
       - name: Download generated cells from prior workflow run (${{ inputs.reuse_generation_run_id }})
         if: ${{ inputs.reuse_generation_run_id != '' }}
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           run-id: ${{ inputs.reuse_generation_run_id }}
@@ -250,6 +251,45 @@ jobs:
           pattern: generated-cells-*
           path: runs/cells/
           merge-multiple: true
+
+      - name: Fallback to audited-cells-* if prior run was an audit-only run
+        id: check_prior_cells
+        if: ${{ inputs.reuse_generation_run_id != '' }}
+        run: |
+          count=0
+          if [ -d "runs/cells" ]; then
+            count=$(find runs/cells -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+          fi
+          echo "found_cells=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Download cells from prior audit-only run (${{ inputs.reuse_generation_run_id }})
+        if: ${{ inputs.reuse_generation_run_id != '' && steps.check_prior_cells.outputs.found_cells == '0' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.reuse_generation_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pattern: audited-cells-*
+          path: _prior_audit/
+          merge-multiple: true
+
+      - name: Unpack fallback cells & verify non-empty input before auditing
+        if: ${{ inputs.reuse_generation_run_id != '' }}
+        run: |
+          if [ -d "_prior_audit/cells" ]; then
+            mkdir -p runs/cells
+            cp -rn _prior_audit/cells/* runs/cells/ 2>/dev/null || true
+            rm -rf _prior_audit
+          fi
+          count=0
+          if [ -d "runs/cells" ]; then
+            count=$(find runs/cells -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+          fi
+          if [ "$count" -eq 0 ]; then
+            echo "::error::Run ${{ inputs.reuse_generation_run_id }} contained 0 generated or audited cell directories! Pass the original generation Run ID in reuse_generation_run_id."
+            exit 1
+          fi
+          echo "Verified $count cell directory(ies) from run ${{ inputs.reuse_generation_run_id }}."
 
       - name: Run Host Canary + All 4 Benchmark Test Pillars (${{ matrix.shard.label }})
         # Notice: ZERO LLM API keys are passed into this step while executing generated $PORT servers!
@@ -385,6 +425,16 @@ jobs:
             }
           '
           node bin/bench.mjs --score-only --markdown-summary="$GITHUB_STEP_SUMMARY"
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const summary = JSON.parse(readFileSync("data/summary.json", "utf8"));
+            const cells = summary?.totals?.cells || 0;
+            if (cells === 0) {
+              console.error("::error::Aggregated 0 audited cells! Check reuse_audit_run_id / reuse_generation_run_id — refusing to overwrite GitHub Pages with an empty report.");
+              process.exit(1);
+            }
+            console.log(`Verified ${cells} scored cell(s) ready for Benchmark Studio export.`);
+          '
 
       - name: Export static Benchmark Studio report (dist-report/)
         run: npm run export

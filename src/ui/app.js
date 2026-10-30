@@ -339,14 +339,19 @@ function switchView(viewName, { push = true } = {}) {
 }
 
 async function fetchStudioState() {
-  try {
-    const res = await fetch('./api/state');
-    if (res.ok) {
-      state.data = await res.json();
-      return;
+  const isStaticExport =
+    document.documentElement.dataset.staticReport === 'true' ||
+    window.location.hostname.endsWith('.github.io');
+  if (!isStaticExport) {
+    try {
+      const res = await fetch('./api/state');
+      if (res.ok) {
+        state.data = await res.json();
+        return;
+      }
+    } catch {
+      // Fallback to static export JSON
     }
-  } catch {
-    // Fallback to static export JSON
   }
   const staticRes = await fetch('./api-static/state.json');
   state.data = await staticRes.json();

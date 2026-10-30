@@ -22,6 +22,17 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
   mkdirSync(outDir, { recursive: true });
   const uiDir = join(PROJECT_ROOT, 'src', 'ui');
   cpSync(uiDir, outDir, { recursive: true });
+  const outIndexPath = join(outDir, 'index.html');
+  if (existsSync(outIndexPath)) {
+    const rawHtml = readFileSync(outIndexPath, 'utf8');
+    if (!rawHtml.includes('data-static-report=')) {
+      writeFileSync(
+        outIndexPath,
+        rawHtml.replace(/<html([^>]*)>/i, '<html$1 data-static-report="true">'),
+        'utf8'
+      );
+    }
+  }
 
   const config = loadBenchmarkConfig();
   const promptReg = loadPromptRegistry();
