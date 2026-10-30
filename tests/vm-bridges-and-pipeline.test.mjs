@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -19,10 +19,12 @@ import {
   scrubEnvForProvider,
   ensureHeadlessPiAgentDir,
 } from '../src/harness/pi-auth-bridge.mjs';
-import { buildSanitizedServerEnv } from '../src/materialize/server-runner.mjs';
+import { buildSanitizedServerEnv, hasBrokenNodeModules } from '../src/materialize/server-runner.mjs';
 import { normalizePipelineStage } from '../src/runner/orchestrator.mjs';
+import { planWorkflowShards } from '../src/runner/shard-planner.mjs';
+import { withTimeout } from '../src/benchmarks/cdp-helpers.mjs';
 import { matchesModelSelector } from '../src/harness/model-registry.mjs';
-import { parseCliArgs, formatMarkdownSummary } from '../bin/bench.mjs';
+import { parseCliArgs, formatMarkdownSummary, formatPhaseBreakdownLine } from '../bin/bench.mjs';
 import { measureNodeCpuBaselineMs } from '../src/benchmarks/canary.mjs';
 
 describe('Portable pi Runtime, Clean-Room Provider Bridges & Split VM Pipeline', () => {
@@ -202,5 +204,141 @@ describe('Portable pi Runtime, Clean-Room Provider Bridges & Split VM Pipeline',
     assert.match(md, /Clean-Room `pi` Runtime/);
     assert.match(md, /STABLE/);
     assert.match(md, /DeepSeek Flash \(V4\.1\)/);
+  });
+
+  it('dynamically shards 148+ cells across isolated Audit VMs and supports reuse_generation_run_id', () => {
+    const fullPlan = planWorkflowShards({
+      modelsRaw: 'gemini-3.8-flash,deepseek-flash',
+      promptScope: 'all',
+      mode: 'both',
+      auditRuns: 1,
+    });
+    assert.equal(fullPlan.totalCells, 148);
+    assert.equal(fullPlan.skipGenerate, false);
+    assert.equal(fullPlan.auditShards.length, 40); // 2 models × 2 modes × 10 chunks (~3.7 cells/VM shard!)
+    assert.ok(fullPlan.auditShards.every((s) => s.cellCount <= 4));
+    assert.ok(fullPlan.generateShards.length >= 20 && fullPlan.generateShards.length <= 120);
+
+    // Reusing a prior GitHub Actions Run ID skips generation completely while fanning out 40 audit VMs
+    const reusePlan = planWorkflowShards({
+      modelsRaw: 'gemini-3-8-flash,deepseek-flash',
+      promptScope: 'all',
+      mode: 'both',
+      auditRuns: 1,
+      reuseGenerationRunId: '18999888777',
+    });
+    assert.equal(reusePlan.skipGenerate, true);
+    assert.equal(reusePlan.generateShards.length, 0);
+    assert.equal(reusePlan.auditShards.length, 40);
+    assert.ok(reusePlan.auditShards.every((s) => s.artifactPattern === 'generated-cells-*'));
+
+    // Massive 6-model × 37-prompt × 2-mode × 3-auditRuns matrix stays safely below GitHub 256-job cap
+    const massivePlan = planWorkflowShards({
+      modelsRaw: 'm1,m2,m3,m4,m5,m6',
+      promptScope: 'all',
+      mode: 'both',
+      auditRuns: 3,
+    });
+    assert.equal(massivePlan.totalCells, 444);
+    assert.ok(massivePlan.auditShards.length <= 160);
+    assert.ok(massivePlan.generateShards.length <= 120);
+  });
+
+  it('detects broken dereferenced node_modules/.bin artifacts and bounds wedged CDP promises', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'nm-check-'));
+    try {
+      mkdirSync(join(tmpDir, 'node_modules', 'vite', 'bin'), { recursive: true });
+      mkdirSync(join(tmpDir, 'node_modules', '.bin'), { recursive: true });
+      const targetCli = join(tmpDir, 'node_modules', 'vite', 'bin', 'vite.js');
+      writeFileSync(targetCli, '#!/usr/bin/env node\nconsole.log("ok");\n', { mode: 0o755 });
+      symlinkSync('../vite/bin/vite.js', join(tmpDir, 'node_modules', '.bin', 'vite'));
+      assert.equal(hasBrokenNodeModules(tmpDir), false);
+
+      // Simulate actions/upload-artifact@v4 zip/unzip dereferencing symlink & stripping +x mode
+      rmSync(join(tmpDir, 'node_modules', '.bin', 'vite'));
+      writeFileSync(join(tmpDir, 'node_modules', '.bin', 'vite'), '#!/usr/bin/env node\n', { mode: 0o644 });
+      if (process.platform !== 'win32') {
+        assert.equal(hasBrokenNodeModules(tmpDir), true);
+      }
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+
+    await assert.rejects(
+      () => withTimeout(new Promise(() => {}), 40, 'wedged-heap-snapshot'),
+      /wedged-heap-snapshot timed out after 40ms/
+    );
+  });
+
+  it('formats per-phase cell audit timings, VM fleet canary stats, and failure diagnostics', () => {
+    const phaseLine = formatPhaseBreakdownLine({
+      phasesMs: {
+        materializeMs: 1240,
+        flowCompileMs: 1620,
+        benchmarks: {
+          'tech-stack': 1850,
+          'lighthouse-uplift': 8410,
+          'deep-perf': 6120,
+          memory: 5890,
+        },
+      },
+    });
+    assert.match(phaseLine, /mat 1\.2s/);
+    assert.match(phaseLine, /lh\+up 8\.4s/);
+    assert.match(phaseLine, /mem 5\.9s/);
+
+    const md = formatMarkdownSummary({
+      totals: { cells: 148, agentCells: 74, oneshotCells: 74 },
+      environment: { piVersion: '0.85.1', piSource: 'local-npm-runtime' },
+      observability: {
+        vmCanaryFleet: {
+          shardCount: 40,
+          statusCounts: { stable: 39, warning: 1, noisy: 0 },
+          nodeCpuMs: { minMs: 4, medianMs: 5, maxMs: 7 },
+          chromeMainThreadMs: { minMs: 18, medianMs: 21, maxMs: 27 },
+        },
+        generationTiming: { count: 148, medianMs: 14200, p95Ms: 48000, maxMs: 65000, totalMs: 2400000 },
+        auditTiming: {
+          count: 148,
+          medianMs: 25100,
+          p95Ms: 39400,
+          maxMs: 52000,
+          totalMs: 3850000,
+          phaseMediansMs: {
+            materializeMs: 1200,
+            flowCompileMs: 1600,
+            techStackMs: 1800,
+            lighthouseUpliftMs: 8500,
+            deepPerfMs: 6100,
+            memoryMs: 5900,
+          },
+        },
+        slowestCells: [
+          {
+            cellId: 'gemini-3-8-flash__minecraft-clone__agent',
+            serverArchitecture: 'production-server',
+            status: 'ok',
+            totalAuditMs: 52000,
+            slowestPhase: 'lighthouse-uplift',
+            slowestPhaseMs: 16200,
+          },
+        ],
+        failedCells: [
+          {
+            cellId: 'deepseek-flash__pomodoro-study-workspace__agent',
+            status: 'timeout',
+            failedStage: 'memory',
+            durationMs: 180000,
+            error: 'HeapProfiler.takeHeapSnapshot timed out after 20000ms [active stage: memory]',
+          },
+        ],
+      },
+      leaderboard: [],
+    });
+
+    assert.match(md, /Sharded VM Fleet Canary \(40 isolated VMs\)/);
+    assert.match(md, /Execution Timing & Pipeline Observability/);
+    assert.match(md, /Slowest Audited Cells/);
+    assert.match(md, /Failed \/ Timed-Out Cells \(1\)/);
   });
 });

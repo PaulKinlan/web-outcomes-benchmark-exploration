@@ -2,10 +2,11 @@ import lighthouse from 'lighthouse';
 import * as chromeLauncher from 'chrome-launcher';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { PROJECT_ROOT } from '../util/env.mjs';
 import { resolvePiBin } from '../harness/pi-loader.mjs';
-import { resolveStableChromePath } from './cdp-helpers.mjs';
+import { resolveStableChromePath, withTimeout } from './cdp-helpers.mjs';
 
 function findLatestReportJson(rootDir) {
   const direct = join(rootDir, 'report.json');
@@ -27,51 +28,70 @@ function findLatestReportJson(rootDir) {
   return candidates[0]?.path || null;
 }
 
-export async function runLighthousePass(url, formFactor = 'mobile') {
+function buildLighthouseChromeFlags() {
   const chromeFlags = [
     '--headless=new',
     '--disable-gpu',
+    '--disable-dev-shm-usage',
     '--no-first-run',
     '--no-default-browser-check',
   ];
   if (process.env.WEB_UPLIFT_NO_SANDBOX === '1' || (typeof process.getuid === 'function' && process.getuid() === 0)) {
     chromeFlags.push('--no-sandbox');
   }
+  return chromeFlags;
+}
 
-  const chrome = await chromeLauncher.launch({
-    chromePath: resolveStableChromePath(),
-    chromeFlags,
-    logLevel: 'silent',
-  });
+export async function runLighthousePass(url, formFactor = 'mobile', sharedPort = null) {
+  let ownedChrome = null;
+  const port =
+    sharedPort ||
+    (
+      (ownedChrome = await chromeLauncher.launch({
+        chromePath: resolveStableChromePath(),
+        chromeFlags: buildLighthouseChromeFlags(),
+        logLevel: 'silent',
+      })),
+      ownedChrome.port
+    );
+
   try {
     const isDesktop = formFactor === 'desktop';
-    const runnerResult = await lighthouse(
-      url,
-      {
-        port: chrome.port,
-        output: 'json',
-        logLevel: 'error',
-        onlyCategories: ['performance', 'accessibility', 'best-practices', 'seo'],
-      },
-      {
-        extends: 'lighthouse:default',
-        settings: isDesktop
-          ? {
-              formFactor: 'desktop',
-              screenEmulation: {
-                mobile: false,
-                width: 1440,
-                height: 900,
-                deviceScaleFactor: 1,
-                disabled: false,
+    const runnerResult = await withTimeout(
+      lighthouse(
+        url,
+        {
+          port,
+          output: 'json',
+          logLevel: 'error',
+          onlyCategories: ['performance', 'accessibility', 'best-practices', 'seo'],
+        },
+        {
+          extends: 'lighthouse:default',
+          settings: isDesktop
+            ? {
+                formFactor: 'desktop',
+                maxWaitForFcp: 12000,
+                maxWaitForLoad: 18000,
+                screenEmulation: {
+                  mobile: false,
+                  width: 1440,
+                  height: 900,
+                  deviceScaleFactor: 1,
+                  disabled: false,
+                },
+                throttlingMethod: 'simulate',
+              }
+            : {
+                formFactor: 'mobile',
+                maxWaitForFcp: 12000,
+                maxWaitForLoad: 18000,
+                throttlingMethod: 'simulate',
               },
-              throttlingMethod: 'simulate',
-            }
-          : {
-              formFactor: 'mobile',
-              throttlingMethod: 'simulate',
-            },
-      }
+        }
+      ),
+      45000,
+      `Lighthouse (${formFactor})`
     );
 
     const lhr = runnerResult?.lhr;
@@ -148,6 +168,27 @@ export async function runLighthousePass(url, formFactor = 'mobile') {
       passedAudits,
     };
   } finally {
+    if (ownedChrome) {
+      try {
+        await ownedChrome.kill();
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
+
+export async function runLighthouseSuite(url) {
+  const chrome = await chromeLauncher.launch({
+    chromePath: resolveStableChromePath(),
+    chromeFlags: buildLighthouseChromeFlags(),
+    logLevel: 'silent',
+  });
+  try {
+    const mobile = await runLighthousePass(url, 'mobile', chrome.port);
+    const desktop = await runLighthousePass(url, 'desktop', chrome.port);
+    return { mobile, desktop };
+  } finally {
     try {
       await chrome.kill();
     } catch {
@@ -195,31 +236,86 @@ async function gatherWebUpliftPrimitives(url, upliftDir) {
     return { available: false };
   }
 
+  const chromeBin = resolveStableChromePath();
+  if (chromeBin && !process.env.CHROME_BIN) {
+    process.env.CHROME_BIN = chromeBin;
+  }
+
   const evidenceDir = join(upliftDir, 'evidence');
   mkdirSync(evidenceDir, { recursive: true });
 
   const primitives = {};
-  for (const prim of ['discoverability', 'layout', 'axe', 'targets', 'images', 'console']) {
-    const outFile = join(evidenceDir, `${prim}.json`);
-    const res = await runNodeScript(evidenceCli, [prim, url, '--out', outFile, '--quiet'], {
-      cwd: upliftPkgDir,
-      timeoutMs: 35000,
-    });
-    if (existsSync(outFile)) {
+  const neededPrimitives = ['discoverability', 'layout', 'axe', 'targets', 'console'];
+
+  let sharedBrowser = null;
+  try {
+    const [{ launchChrome, configureCdpDeadlines }, { configureFetchDeadline }, { gather }] = await Promise.all([
+      import(pathToFileURL(join(upliftPkgDir, 'evidence', 'cdp.mjs')).href),
+      import(pathToFileURL(join(upliftPkgDir, 'evidence', 'fetch.mjs')).href),
+      import(pathToFileURL(evidenceCli).href),
+    ]);
+    configureCdpDeadlines({ navigationMs: 10000, callMs: 10000 });
+    configureFetchDeadline(8000);
+    sharedBrowser = await withTimeout(launchChrome({ log: () => {} }), 15000, 'web-uplift launchChrome');
+
+    for (const prim of neededPrimitives) {
+      const outFile = join(evidenceDir, `${prim}.json`);
       try {
-        primitives[prim] = JSON.parse(readFileSync(outFile, 'utf8'));
+        const res = await withTimeout(
+          gather(prim, url, {
+            browser: sharedBrowser,
+            out: outFile,
+            quiet: true,
+            wait: 650,
+            waitIsDefault: false,
+          }),
+          14000,
+          `web-uplift ${prim}`
+        );
+        if (existsSync(outFile)) {
+          primitives[prim] = JSON.parse(readFileSync(outFile, 'utf8'));
+        } else if (res && typeof res === 'object') {
+          primitives[prim] = res;
+          writeFileSync(outFile, JSON.stringify(res, null, 2) + '\n', 'utf8');
+        }
       } catch {
-        // ignore parse failure
+        // Non-fatal: continue collecting remaining primitives on the shared Chrome instance
       }
-    } else if (res.stdout.trim().startsWith('{')) {
+    }
+    return { available: true, primitives };
+  } catch {
+    // Fallback if package subpath imports differ in an older web-uplift layout
+    for (const prim of neededPrimitives) {
+      const outFile = join(evidenceDir, `${prim}.json`);
+      const res = await runNodeScript(
+        evidenceCli,
+        [prim, url, '--out', outFile, '--wait', '650', '--cdp-deadline', '10000', '--fetch-deadline', '8000', '--quiet'],
+        { cwd: upliftPkgDir, timeoutMs: 15000 }
+      );
+      if (existsSync(outFile)) {
+        try {
+          primitives[prim] = JSON.parse(readFileSync(outFile, 'utf8'));
+        } catch {
+          // ignore
+        }
+      } else if (res.stdout.trim().startsWith('{')) {
+        try {
+          primitives[prim] = JSON.parse(res.stdout.trim());
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return { available: true, primitives };
+  } finally {
+    if (sharedBrowser) {
       try {
-        primitives[prim] = JSON.parse(res.stdout.trim());
+        await sharedBrowser.close();
       } catch {
         // ignore
       }
     }
   }
-  return { available: true, primitives };
 }
 
 async function runAgenticWebUplift(url, upliftDir, config) {
@@ -429,8 +525,7 @@ export default {
     mkdirSync(upliftDir, { recursive: true });
 
     onProgress?.({ stage: 'lighthouse-uplift', detail: 'Running Lighthouse (Mobile & Desktop)' });
-    const mobile = await runLighthousePass(url, 'mobile');
-    const desktop = await runLighthousePass(url, 'desktop');
+    const { mobile, desktop } = await runLighthouseSuite(url);
 
     onProgress?.({ stage: 'lighthouse-uplift', detail: 'Gathering web-uplift raw-CDP evidence primitives' });
     const evidenceBundle = await gatherWebUpliftPrimitives(url, upliftDir);

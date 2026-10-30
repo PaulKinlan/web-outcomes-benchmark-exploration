@@ -32,6 +32,31 @@ function avg(nums) {
   return Math.round((valid.reduce((a, b) => a + b, 0) / valid.length) * 10) / 10;
 }
 
+function percentile(nums, q = 0.5) {
+  const valid = nums
+    .filter((n) => typeof n === 'number' && Number.isFinite(n))
+    .slice()
+    .sort((a, b) => a - b);
+  if (valid.length === 0) return null;
+  const idx = Math.min(valid.length - 1, Math.max(0, Math.floor((valid.length - 1) * q)));
+  return Math.round(valid[idx]);
+}
+
+function summarizeDurations(nums) {
+  const valid = nums.filter((n) => typeof n === 'number' && Number.isFinite(n) && n >= 0);
+  if (valid.length === 0) {
+    return { count: 0, minMs: null, medianMs: null, p95Ms: null, maxMs: null, totalMs: 0 };
+  }
+  return {
+    count: valid.length,
+    minMs: percentile(valid, 0),
+    medianMs: percentile(valid, 0.5),
+    p95Ms: percentile(valid, 0.95),
+    maxMs: percentile(valid, 1),
+    totalMs: Math.round(valid.reduce((a, b) => a + b, 0)),
+  };
+}
+
 function normalizeCellMode(rawMode, dirName) {
   if (rawMode === 'agent' || dirName.endsWith('__agent')) return 'agent';
   return 'oneshot';
@@ -62,8 +87,9 @@ export function aggregateAllResults({ customWeights = null } = {}) {
 
       const mode = normalizeCellMode(generation.mode, dirName);
       const materialization = safeReadJson(join(cellDir, 'materialization.json'));
-      // Skip cells whose generation was cached before a job cancellation and haven't been materialized yet
-      if (!materialization && !generation.error) continue;
+      const auditTelemetry = safeReadJson(join(cellDir, 'audit-telemetry.json'));
+      // Skip cells whose generation was cached before a job cancellation and haven't been materialized or attempted yet
+      if (!materialization && !generation.error && !auditTelemetry) continue;
       const compiledFlow = safeReadJson(join(cellDir, 'compiled-flow.json'));
       const trajectory = safeReadJson(join(cellDir, 'trajectory.json'));
 
@@ -140,6 +166,7 @@ export function aggregateAllResults({ customWeights = null } = {}) {
         generationError: generation.error || null,
 
         buildSucceeded,
+        auditTelemetry: auditTelemetry || null,
         outputShape: materialization?.outputShape || 'unknown',
         serverArchitecture: materialization?.serverArchitecture || tech?.serverArchitecture || 'static-harness',
         contractCompliance: materialization?.contractCompliance ?? null,
@@ -542,10 +569,121 @@ export function aggregateAllResults({ customWeights = null } = {}) {
     builtInAuthSupported: Boolean(b.builtInAuthSupported),
   }));
 
+  // Pipeline Timing, Phase Breakdown & Sharded VM Fleet Observability
+  const genDurations = cells.map((c) => c.generationMs).filter((n) => typeof n === 'number' && n > 0);
+  const auditedCellsWithTelemetry = cells.filter((c) => typeof c.auditTelemetry?.totalAuditMs === 'number');
+  const auditDurations = auditedCellsWithTelemetry.map((c) => c.auditTelemetry.totalAuditMs);
+
+  const phaseMediansMs = {
+    materializeMs: percentile(
+      auditedCellsWithTelemetry.map((c) => c.auditTelemetry?.phasesMs?.materializeMs),
+      0.5
+    ),
+    serverBootMs: percentile(
+      auditedCellsWithTelemetry.map((c) => c.auditTelemetry?.phasesMs?.serverBootMs),
+      0.5
+    ),
+    flowCompileMs: percentile(
+      auditedCellsWithTelemetry.map((c) => c.auditTelemetry?.phasesMs?.flowCompileMs),
+      0.5
+    ),
+    techStackMs: percentile(
+      auditedCellsWithTelemetry.map((c) => c.auditTelemetry?.phasesMs?.benchmarks?.['tech-stack']),
+      0.5
+    ),
+    lighthouseUpliftMs: percentile(
+      auditedCellsWithTelemetry.map((c) => c.auditTelemetry?.phasesMs?.benchmarks?.['lighthouse-uplift']),
+      0.5
+    ),
+    deepPerfMs: percentile(
+      auditedCellsWithTelemetry.map((c) => c.auditTelemetry?.phasesMs?.benchmarks?.['deep-perf']),
+      0.5
+    ),
+    memoryMs: percentile(
+      auditedCellsWithTelemetry.map((c) => c.auditTelemetry?.phasesMs?.benchmarks?.memory),
+      0.5
+    ),
+  };
+
+  const slowestCells = auditedCellsWithTelemetry
+    .map((c) => {
+      const p = c.auditTelemetry?.phasesMs || {};
+      const b = p.benchmarks || {};
+      const entries = [
+        ['materialize', p.materializeMs || 0],
+        ['flow-compile', p.flowCompileMs || 0],
+        ['tech-stack', b['tech-stack'] || 0],
+        ['lighthouse-uplift', b['lighthouse-uplift'] || 0],
+        ['deep-perf', b['deep-perf'] || 0],
+        ['memory', b.memory || 0],
+      ].sort((x, y) => y[1] - x[1]);
+      const [slowestPhase, slowestPhaseMs] = entries[0] || ['unknown', 0];
+      return {
+        cellId: c.cellId,
+        mode: c.mode,
+        serverArchitecture: c.serverArchitecture,
+        status: c.auditTelemetry?.status || 'ok',
+        totalAuditMs: c.auditTelemetry.totalAuditMs,
+        slowestPhase,
+        slowestPhaseMs,
+      };
+    })
+    .sort((a, b) => b.totalAuditMs - a.totalAuditMs)
+    .slice(0, 8);
+
+  const failedCells = cells
+    .filter((c) => c.generationError || !c.buildSucceeded || (c.auditTelemetry && c.auditTelemetry.status !== 'ok'))
+    .map((c) => ({
+      cellId: c.cellId,
+      mode: c.mode,
+      status: c.generationError
+        ? 'generation_failed'
+        : c.auditTelemetry?.status && c.auditTelemetry.status !== 'ok'
+          ? c.auditTelemetry.status
+          : 'materialization_failed',
+      failedStage: c.auditTelemetry?.failedStage || (c.generationError ? 'generating' : 'materializing'),
+      durationMs: c.auditTelemetry?.totalAuditMs ?? c.generationMs ?? null,
+      error: (c.generationError || c.auditTelemetry?.error || 'Build or runtime server verification failed').slice(0, 260),
+    }));
+
+  let vmCanaryFleet = null;
+  const canariesDir = join(PROJECT_ROOT, 'runs', 'canaries');
+  if (existsSync(canariesDir)) {
+    const canaryEntries = readdirSync(canariesDir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => safeReadJson(join(canariesDir, f)))
+      .filter(Boolean);
+    if (canaryEntries.length > 0) {
+      const statusCounts = { stable: 0, warning: 0, noisy: 0 };
+      for (const ce of canaryEntries) {
+        const s = String(ce.status || '').toLowerCase();
+        if (s in statusCounts) statusCounts[s]++;
+      }
+      vmCanaryFleet = {
+        shardCount: canaryEntries.length,
+        statusCounts,
+        nodeCpuMs: summarizeDurations(canaryEntries.map((c) => c.nodeCpuComputeMs)),
+        chromeMainThreadMs: summarizeDurations(canaryEntries.map((c) => c.browserMainThreadComputeMs)),
+      };
+    }
+  }
+
+  const observability = {
+    generationTiming: summarizeDurations(genDurations),
+    auditTiming: {
+      ...summarizeDurations(auditDurations),
+      phaseMediansMs,
+    },
+    slowestCells,
+    failedCells,
+    vmCanaryFleet,
+  };
+
   const summary = {
     generatedAt: new Date().toISOString(),
     weights,
     canary: loadLatestCanary(),
+    observability,
     environment: {
       piVersion: piInfo.version,
       piSource: piInfo.source,

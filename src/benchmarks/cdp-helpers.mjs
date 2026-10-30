@@ -17,6 +17,25 @@ export function resolveStableChromePath() {
   return installs.find((p) => !p.includes('Canary')) || installs[0] || undefined;
 }
 
+export function withTimeout(promise, timeoutMs, label = 'CDP operation') {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
+  return new Promise((resolvePromise, rejectPromise) => {
+    const timer = setTimeout(() => {
+      rejectPromise(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    Promise.resolve(promise).then(
+      (val) => {
+        clearTimeout(timer);
+        resolvePromise(val);
+      },
+      (err) => {
+        clearTimeout(timer);
+        rejectPromise(err);
+      }
+    );
+  });
+}
+
 export async function withIsolatedChrome(options = {}, fn) {
   const {
     headless = true,
@@ -26,6 +45,7 @@ export async function withIsolatedChrome(options = {}, fn) {
   const chromeFlags = [
     ...(headless ? ['--headless=new'] : []),
     '--disable-gpu',
+    '--disable-dev-shm-usage',
     '--disable-background-timer-throttling',
     '--disable-backgrounding-occluded-windows',
     '--disable-renderer-backgrounding',
@@ -116,17 +136,23 @@ export async function applyMobileThrottling(client, throttleConfig) {
   });
 }
 
-export async function navigateAndSettle(client, url, settleMs = 1200, timeoutMs = 25000) {
+export async function navigateAndSettle(client, url, settleMs = 1000, timeoutMs = 10000) {
   const { Page } = client;
+  let onLoad = null;
   const loadPromise = new Promise((resolve) => {
-    const timer = setTimeout(resolve, timeoutMs);
-    Page.loadEventFired(() => {
-      clearTimeout(timer);
+    const timer = setTimeout(() => {
+      if (onLoad) client.removeListener?.('Page.loadEventFired', onLoad);
       resolve();
-    });
+    }, timeoutMs);
+    onLoad = () => {
+      clearTimeout(timer);
+      if (onLoad) client.removeListener?.('Page.loadEventFired', onLoad);
+      resolve();
+    };
+    Page.loadEventFired(onLoad);
   });
 
-  await Page.navigate({ url });
+  await withTimeout(Page.navigate({ url }), timeoutMs, 'Page.navigate').catch(() => {});
   await loadPromise;
   if (settleMs > 0) await sleep(settleMs);
 }
@@ -136,7 +162,7 @@ export async function capturePngScreenshot(client, outPath, { fullPage = false }
   const { Page } = client;
   let clip;
   if (fullPage) {
-    const metrics = await Page.getLayoutMetrics();
+    const metrics = await withTimeout(Page.getLayoutMetrics(), 6000, 'Page.getLayoutMetrics');
     const content = metrics.cssContentSize || metrics.contentSize;
     if (content) {
       clip = {
@@ -148,10 +174,14 @@ export async function capturePngScreenshot(client, outPath, { fullPage = false }
       };
     }
   }
-  const { data } = await Page.captureScreenshot({
-    format: 'png',
-    ...(clip ? { clip } : {}),
-  });
+  const { data } = await withTimeout(
+    Page.captureScreenshot({
+      format: 'png',
+      ...(clip ? { clip } : {}),
+    }),
+    10000,
+    'Page.captureScreenshot'
+  );
   writeFileSync(outPath, Buffer.from(data, 'base64'));
   return outPath;
 }

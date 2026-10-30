@@ -9,6 +9,7 @@ import { extractGeneratedFiles } from '../materialize/extract-files.mjs';
 import { prepareCellRuntime, startCellServer } from '../materialize/server-runner.mjs';
 import { compileCanonicalFlow } from '../flows/compile-flow.mjs';
 import { selectBenchmarks } from '../benchmarks/registry.mjs';
+import { withTimeout } from '../benchmarks/cdp-helpers.mjs';
 import { runHostCanaryCalibration } from '../benchmarks/canary.mjs';
 import { aggregateAllResults, CELLS_ROOT } from '../scoring/aggregate.mjs';
 
@@ -222,189 +223,285 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
     }
   }
 
+  const jobStartedMs = performance.now();
+  const baseCellTimeoutMs = Math.max(30000, Number(options.cellTimeoutMs || config.audit?.cellTimeoutMs || 180000));
+  const effectiveCellTimeoutMs = baseCellTimeoutMs * auditRuns;
+
+  const totalAuditTargets = cellQueue.filter((i) => !i.skippedNoGeneration).length;
+  let auditOrdinal = 0;
+
   // Stage 2: Materialize / Verify Production Server + Serialized Browser Audits (strictly concurrency = 1)
   for (const item of cellQueue) {
     if (signal?.aborted) break;
     if (item.skippedNoGeneration) continue;
+    auditOrdinal++;
     const { cellId, cellDir, promptEntry, generation } = item;
 
     if (generation?.error) {
       failedCells++;
-      emitter.emit('cell:done', { jobId, cellId, ok: false, error: generation.error });
+      emitter.emit('cell:done', {
+        jobId,
+        cellId,
+        index: auditOrdinal,
+        total: totalAuditTargets,
+        ok: false,
+        error: generation.error,
+      });
       continue;
     }
 
-    const rawMarkdown = existsSync(join(cellDir, 'raw-output.md'))
-      ? readFileSync(join(cellDir, 'raw-output.md'), 'utf8')
-      : '';
+    const cellT0 = performance.now();
+    const phasesMs = {
+      materializeMs: 0,
+      serverBootMs: 0,
+      flowCompileMs: 0,
+      benchmarks: {},
+    };
+    let activeStage = 'initializing';
+    let activeDetail = 'Preparing cell workspace';
+    let serverArchitecture = null;
 
-    const extraction = extractGeneratedFiles({ cellDir, rawMarkdown });
-    const matPath = join(cellDir, 'materialization.json');
-    let materialization;
-
-    if (!force && reuseGeneration && existsSync(matPath)) {
-      const cachedMat = JSON.parse(readFileSync(matPath, 'utf8'));
-      if (cachedMat.ok) {
-        materialization = {
-          distDir: join(cellDir, 'dist'),
-          ...cachedMat,
-        };
-      }
-    }
-
-    if (!materialization) {
-      materialization = await prepareCellRuntime({
-        cellDir,
-        extraction,
-        forceBuild: force,
-        onProgress: (p) => emitter.emit('cell:stage', { jobId, cellId, ...p }),
+    const emitStage = (p) => {
+      activeStage = p.stage || activeStage;
+      activeDetail = p.detail || activeDetail;
+      emitter.emit('cell:stage', {
+        jobId,
+        cellId,
+        index: auditOrdinal,
+        total: totalAuditTargets,
+        elapsedCellMs: Math.round(performance.now() - cellT0),
+        ...p,
       });
-    }
+    };
 
-    if (!materialization.ok) {
+    let serverHandle = null;
+    try {
+      await withTimeout(
+        (async () => {
+          const rawMarkdown = existsSync(join(cellDir, 'raw-output.md'))
+            ? readFileSync(join(cellDir, 'raw-output.md'), 'utf8')
+            : '';
+
+          const tMat0 = performance.now();
+          const extraction = extractGeneratedFiles({ cellDir, rawMarkdown });
+          const matPath = join(cellDir, 'materialization.json');
+          let materialization;
+
+          if (!force && reuseGeneration && existsSync(matPath)) {
+            const cachedMat = JSON.parse(readFileSync(matPath, 'utf8'));
+            if (cachedMat.ok) {
+              materialization = {
+                distDir: join(cellDir, 'dist'),
+                ...cachedMat,
+              };
+            }
+          }
+
+          if (!materialization) {
+            materialization = await prepareCellRuntime({
+              cellDir,
+              extraction,
+              forceBuild: force,
+              keepServerAlive: true,
+              onProgress: emitStage,
+            });
+          }
+          phasesMs.materializeMs = Math.round(performance.now() - tMat0);
+          serverArchitecture = materialization?.serverArchitecture || null;
+
+          if (!materialization.ok) {
+            throw new Error(materialization.error || 'Runtime materialization failed');
+          }
+
+          const tBoot0 = performance.now();
+          if (materialization._liveServerHandle) {
+            serverHandle = materialization._liveServerHandle;
+            phasesMs.serverBootMs = materialization.verifiedColdBootMs ?? 0;
+          } else {
+            emitStage({
+              stage: 'server-boot',
+              detail: `Booting ${materialization.serverArchitecture} (${materialization.startCommand || 'static'})`,
+            });
+            serverHandle = await startCellServer({ cellDir, materialization, timeoutMs: 15000 });
+            phasesMs.serverBootMs = Math.round(performance.now() - tBoot0);
+          }
+
+          const tFlow0 = performance.now();
+          const flowFile = join(cellDir, 'compiled-flow.json');
+          let compiledFlow;
+          if (!force && existsSync(flowFile)) {
+            compiledFlow = JSON.parse(readFileSync(flowFile, 'utf8'));
+          } else {
+            emitStage({
+              stage: 'flow-compile',
+              detail: `Compiling ${promptEntry.canonicalJourney.length}-step canonical user journey`,
+            });
+            const flowRes = await compileCanonicalFlow({
+              url: serverHandle.url,
+              promptEntry,
+              cellDir,
+              config,
+            });
+            compiledFlow = flowRes.compiled;
+          }
+          phasesMs.flowCompileMs = Math.round(performance.now() - tFlow0);
+
+          for (const bench of benchmarks) {
+            if (signal?.aborted) break;
+            const resultFile = join(cellDir, 'results', `${bench.id}.json`);
+            if (!force && !options.benchmarkIds && existsSync(resultFile)) {
+              emitStage({
+                stage: bench.id,
+                detail: `Reusing cached ${bench.id} result`,
+              });
+              phasesMs.benchmarks[bench.id] = 0;
+              continue;
+            }
+
+            const tBench0 = performance.now();
+            const isStaticAnalysisOnly = bench.id === 'tech-stack';
+            const passes = isStaticAnalysisOnly ? 1 : auditRuns;
+
+            if (passes === 1) {
+              await bench.run({
+                url: serverHandle.url,
+                serverHandle,
+                cellDir,
+                distDir: materialization.distDir || join(cellDir, 'dist'),
+                extraction,
+                materialization,
+                compiledFlow,
+                promptEntry,
+                config,
+                options: { skipJudge },
+                onProgress: emitStage,
+              });
+            } else {
+              const runArtifacts = [];
+              for (let passIdx = 1; passIdx <= passes; passIdx++) {
+                if (signal?.aborted) break;
+                emitStage({
+                  stage: bench.id,
+                  detail: `Audit pass ${passIdx}/${passes} (${bench.label})`,
+                });
+                await bench.run({
+                  url: serverHandle.url,
+                  serverHandle,
+                  cellDir,
+                  distDir: materialization.distDir || join(cellDir, 'dist'),
+                  extraction,
+                  materialization,
+                  compiledFlow,
+                  promptEntry,
+                  config,
+                  options: { skipJudge },
+                  onProgress: (p) =>
+                    emitStage({
+                      stage: p.stage || bench.id,
+                      detail: `[pass ${passIdx}/${passes}] ${p.detail}`,
+                    }),
+                });
+                if (existsSync(resultFile)) {
+                  const parsed = JSON.parse(readFileSync(resultFile, 'utf8'));
+                  runArtifacts.push({
+                    passIdx,
+                    primaryScore: extractPrimaryBenchScore(bench.id, parsed),
+                    payload: parsed,
+                  });
+                }
+              }
+
+              if (runArtifacts.length > 0) {
+                runArtifacts.sort((a, b) => a.primaryScore - b.primaryScore);
+                const medianEntry = runArtifacts[Math.floor(runArtifacts.length / 2)];
+                const allScores = runArtifacts.map((r) => Math.round(r.primaryScore * 10) / 10);
+                const enrichedMedian = {
+                  ...medianEntry.payload,
+                  auditRunsMetadata: {
+                    passesRequested: passes,
+                    passesCompleted: runArtifacts.length,
+                    selectedMedianPass: medianEntry.passIdx,
+                    allPrimaryScores: allScores,
+                    scoreSpread:
+                      allScores.length > 1
+                        ? Math.round((allScores[allScores.length - 1] - allScores[0]) * 10) / 10
+                        : 0,
+                  },
+                };
+                writeFileSync(resultFile, JSON.stringify(enrichedMedian, null, 2) + '\n', 'utf8');
+              }
+            }
+            phasesMs.benchmarks[bench.id] = Math.round(performance.now() - tBench0);
+          }
+        })(),
+        effectiveCellTimeoutMs,
+        `Cell audit (${cellId})`
+      );
+
+      const totalAuditMs = Math.round(performance.now() - cellT0);
+      const telemetry = {
+        cellId,
+        status: 'ok',
+        auditRuns,
+        serverArchitecture,
+        totalAuditMs,
+        phasesMs,
+        hostCanaryStatus: canary?.status || null,
+        hostCanaryBrowserMs: canary?.browserMainThreadComputeMs ?? null,
+        completedAt: new Date().toISOString(),
+      };
+      mkdirSync(cellDir, { recursive: true });
+      writeFileSync(join(cellDir, 'audit-telemetry.json'), JSON.stringify(telemetry, null, 2) + '\n', 'utf8');
+
+      completedCells++;
+      emitter.emit('cell:done', {
+        jobId,
+        cellId,
+        index: auditOrdinal,
+        total: totalAuditTargets,
+        ok: true,
+        telemetry,
+      });
+    } catch (err) {
+      const totalAuditMs = Math.round(performance.now() - cellT0);
+      const rawMsg = err.message || String(err);
+      const isTimeout = /timed out/i.test(rawMsg);
+      const enrichedError = `${rawMsg} [active stage: ${activeStage} — "${activeDetail}"]`;
+      const telemetry = {
+        cellId,
+        status: isTimeout ? 'timeout' : 'error',
+        failedStage: activeStage,
+        failedDetail: activeDetail,
+        error: enrichedError,
+        auditRuns,
+        serverArchitecture,
+        totalAuditMs,
+        phasesMs,
+        hostCanaryStatus: canary?.status || null,
+        hostCanaryBrowserMs: canary?.browserMainThreadComputeMs ?? null,
+        completedAt: new Date().toISOString(),
+      };
+      mkdirSync(cellDir, { recursive: true });
+      writeFileSync(join(cellDir, 'audit-telemetry.json'), JSON.stringify(telemetry, null, 2) + '\n', 'utf8');
+
       failedCells++;
       emitter.emit('cell:done', {
         jobId,
         cellId,
+        index: auditOrdinal,
+        total: totalAuditTargets,
         ok: false,
-        error: materialization.error || 'Runtime materialization failed',
+        error: enrichedError,
+        telemetry,
       });
-      continue;
-    }
-
-    let serverHandle = null;
-    try {
-      emitter.emit('cell:stage', {
-        jobId,
-        cellId,
-        stage: 'server-boot',
-        detail: `Booting ${materialization.serverArchitecture} (${materialization.startCommand || 'static'})`,
-      });
-      serverHandle = await startCellServer({ cellDir, materialization, timeoutMs: 25000 });
-
-      const flowFile = join(cellDir, 'compiled-flow.json');
-      let compiledFlow;
-      if (!force && existsSync(flowFile)) {
-        compiledFlow = JSON.parse(readFileSync(flowFile, 'utf8'));
-      } else {
-        emitter.emit('cell:stage', {
-          jobId,
-          cellId,
-          stage: 'flow-compile',
-          detail: `Compiling ${promptEntry.canonicalJourney.length}-step canonical user journey`,
-        });
-        const flowRes = await compileCanonicalFlow({
-          url: serverHandle.url,
-          promptEntry,
-          cellDir,
-          config,
-        });
-        compiledFlow = flowRes.compiled;
-      }
-
-      for (const bench of benchmarks) {
-        if (signal?.aborted) break;
-        const resultFile = join(cellDir, 'results', `${bench.id}.json`);
-        if (!force && !options.benchmarkIds && existsSync(resultFile)) {
-          emitter.emit('cell:stage', {
-            jobId,
-            cellId,
-            stage: bench.id,
-            detail: `Reusing cached ${bench.id} result`,
-          });
-          continue;
-        }
-
-        const isStaticAnalysisOnly = bench.id === 'tech-stack';
-        const passes = isStaticAnalysisOnly ? 1 : auditRuns;
-
-        if (passes === 1) {
-          await bench.run({
-            url: serverHandle.url,
-            serverHandle,
-            cellDir,
-            distDir: materialization.distDir || join(cellDir, 'dist'),
-            extraction,
-            materialization,
-            compiledFlow,
-            promptEntry,
-            config,
-            options: { skipJudge },
-            onProgress: (p) => emitter.emit('cell:stage', { jobId, cellId, ...p }),
-          });
-        } else {
-          const runArtifacts = [];
-          for (let passIdx = 1; passIdx <= passes; passIdx++) {
-            if (signal?.aborted) break;
-            emitter.emit('cell:stage', {
-              jobId,
-              cellId,
-              stage: bench.id,
-              detail: `Audit pass ${passIdx}/${passes} (${bench.label})`,
-            });
-            await bench.run({
-              url: serverHandle.url,
-              serverHandle,
-              cellDir,
-              distDir: materialization.distDir || join(cellDir, 'dist'),
-              extraction,
-              materialization,
-              compiledFlow,
-              promptEntry,
-              config,
-              options: { skipJudge },
-              onProgress: (p) =>
-                emitter.emit('cell:stage', {
-                  jobId,
-                  cellId,
-                  stage: p.stage || bench.id,
-                  detail: `[pass ${passIdx}/${passes}] ${p.detail}`,
-                }),
-            });
-            if (existsSync(resultFile)) {
-              const parsed = JSON.parse(readFileSync(resultFile, 'utf8'));
-              runArtifacts.push({
-                passIdx,
-                primaryScore: extractPrimaryBenchScore(bench.id, parsed),
-                payload: parsed,
-              });
-            }
-          }
-
-          if (runArtifacts.length > 0) {
-            runArtifacts.sort((a, b) => a.primaryScore - b.primaryScore);
-            const medianEntry = runArtifacts[Math.floor(runArtifacts.length / 2)];
-            const allScores = runArtifacts.map((r) => Math.round(r.primaryScore * 10) / 10);
-            const enrichedMedian = {
-              ...medianEntry.payload,
-              auditRunsMetadata: {
-                passesRequested: passes,
-                passesCompleted: runArtifacts.length,
-                selectedMedianPass: medianEntry.passIdx,
-                allPrimaryScores: allScores,
-                scoreSpread:
-                  allScores.length > 1
-                    ? Math.round((allScores[allScores.length - 1] - allScores[0]) * 10) / 10
-                    : 0,
-              },
-            };
-            writeFileSync(resultFile, JSON.stringify(enrichedMedian, null, 2) + '\n', 'utf8');
-          }
-        }
-      }
-
-      completedCells++;
-      emitter.emit('cell:done', { jobId, cellId, ok: true });
-    } catch (err) {
-      failedCells++;
-      emitter.emit('cell:done', { jobId, cellId, ok: false, error: err.message || String(err) });
     } finally {
       if (serverHandle) {
-        await serverHandle.close();
+        await serverHandle.close().catch(() => {});
       }
     }
   }
 
+  const jobDurationMs = Math.round(performance.now() - jobStartedMs);
   const summary = aggregateAllResults();
 
   const jobsDir = join(PROJECT_ROOT, 'runs', 'jobs');
@@ -420,6 +517,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
         mode: requestedMode,
         completedCells,
         failedCells,
+        durationMs: jobDurationMs,
         finishedAt: new Date().toISOString(),
       },
       null,
@@ -428,6 +526,13 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
     'utf8'
   );
 
-  emitter.emit('job:done', { jobId, stage: pipelineStage, completedCells, failedCells, summary });
-  return { jobId, stage: pipelineStage, completedCells, failedCells, summary };
+  emitter.emit('job:done', {
+    jobId,
+    stage: pipelineStage,
+    completedCells,
+    failedCells,
+    durationMs: jobDurationMs,
+    summary,
+  });
+  return { jobId, stage: pipelineStage, completedCells, failedCells, durationMs: jobDurationMs, summary };
 }

@@ -104,6 +104,7 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
           exactPrompt,
           harnessEnvironment,
           materialization: readOpt(join(cellDir, 'materialization.json')),
+          auditTelemetry: readOpt(join(cellDir, 'audit-telemetry.json')),
           compiledFlow: readOpt(join(cellDir, 'compiled-flow.json')),
           trajectory: readOpt(join(cellDir, 'trajectory.json')),
           transcriptTimeline,

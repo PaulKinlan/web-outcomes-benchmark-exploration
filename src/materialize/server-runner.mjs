@@ -4,6 +4,8 @@ import {
   writeFileSync,
   readdirSync,
   statSync,
+  lstatSync,
+  rmSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { createServer as createNetServer } from 'node:net';
@@ -271,11 +273,40 @@ function rawHttpGet(targetUrl, timeoutMs = 5000) {
   });
 }
 
+export function hasBrokenNodeModules(workspaceDir) {
+  const nmDir = join(workspaceDir, 'node_modules');
+  if (!existsSync(nmDir)) return false;
+  const binDir = join(nmDir, '.bin');
+  if (!existsSync(binDir)) return false;
+  try {
+    const entries = readdirSync(binDir);
+    for (const name of entries) {
+      if (name.startsWith('.')) continue;
+      const full = join(binDir, name);
+      const lst = lstatSync(full);
+      // Zipped CI artifacts (e.g. actions/upload-artifact@v4) dereference symlinks and strip +x bits in .bin/,
+      // breaking relative ESM imports inside tools like vite/tsx/next. Detect and reinstall cleanly.
+      if (process.platform !== 'win32' && !lst.isSymbolicLink()) return true;
+      const st = statSync(full);
+      if (process.platform !== 'win32' && (st.mode & 0o111) === 0) return true;
+    }
+  } catch {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Materializes a cell into either a runnable PaaS production server (`agent-workspace`)
  * or a static/synthesized site (`dist/`), and verifies it actually boots & responds on HTTP!
  */
-export async function prepareCellRuntime({ cellDir, extraction, forceBuild = false, onProgress = () => {} }) {
+export async function prepareCellRuntime({
+  cellDir,
+  extraction,
+  forceBuild = false,
+  keepServerAlive = false,
+  onProgress = () => {},
+}) {
   const agentWorkspaceDir = join(cellDir, 'agent-workspace');
   const extractedDir = join(cellDir, 'extracted');
   const hasAgentWorkspace = existsSync(agentWorkspaceDir);
@@ -297,39 +328,48 @@ export async function prepareCellRuntime({ cellDir, extraction, forceBuild = fal
   if (contract && workspaceDir) {
     const t0 = performance.now();
     let buildError = null;
+    let probeSrv = null;
 
     try {
+      const hasPkgJson = existsSync(join(workspaceDir, 'package.json'));
+      if (hasPkgJson && hasBrokenNodeModules(workspaceDir)) {
+        onProgress({ stage: 'materializing', detail: 'Repairing zipped workspace node_modules symlinks' });
+        rmSync(join(workspaceDir, 'node_modules'), { recursive: true, force: true });
+      }
+
       // Install npm dependencies only if package.json exists and node_modules is missing
-      if (existsSync(join(workspaceDir, 'package.json')) && !existsSync(join(workspaceDir, 'node_modules'))) {
+      if (hasPkgJson && !existsSync(join(workspaceDir, 'node_modules'))) {
         onProgress({ stage: 'materializing', detail: 'Installing workspace dependencies' });
-        await runShellCommand('npm install --no-audit --no-fund --legacy-peer-deps', workspaceDir, 150000);
+        await runShellCommand('npm install --prefer-offline --no-audit --no-fund --legacy-peer-deps', workspaceDir, 120000);
       }
 
       if (contract.buildCommand && forceBuild) {
         onProgress({ stage: 'materializing', detail: `Running production build: ${contract.buildCommand}` });
-        await runShellCommand(contract.buildCommand, workspaceDir, 150000);
+        await runShellCommand(contract.buildCommand, workspaceDir, 120000);
       }
 
       // Smoke-boot the production server once to verify it binds $PORT and returns <500!
       onProgress({ stage: 'materializing', detail: `Verifying production server start (${contract.startCommand})` });
-      let probeSrv = null;
       try {
-        probeSrv = await bootProductionWorkspaceServer({ workspaceDir, contract, timeoutMs: 25000 });
+        probeSrv = await bootProductionWorkspaceServer({ workspaceDir, contract, timeoutMs: 15000 });
       } catch (firstBootErr) {
         // If agent didn't run buildCommand yet, run buildCommand now and retry boot once
         if (contract.buildCommand && !forceBuild) {
           onProgress({ stage: 'materializing', detail: `Running build (${contract.buildCommand}) and retrying server boot` });
-          await runShellCommand(contract.buildCommand, workspaceDir, 150000);
-          probeSrv = await bootProductionWorkspaceServer({ workspaceDir, contract, timeoutMs: 25000 });
+          await runShellCommand(contract.buildCommand, workspaceDir, 120000);
+          probeSrv = await bootProductionWorkspaceServer({ workspaceDir, contract, timeoutMs: 15000 });
         } else {
           throw firstBootErr;
         }
       }
       const verifiedColdBootMs = probeSrv.coldBootMs;
-      await probeSrv.close();
+      if (!keepServerAlive) {
+        await probeSrv.close();
+        probeSrv = null;
+      }
 
       let installedPackages = [];
-      if (existsSync(join(workspaceDir, 'package.json'))) {
+      if (hasPkgJson) {
         try {
           const pkg = JSON.parse(readFileSync(join(workspaceDir, 'package.json'), 'utf8'));
           installedPackages = [
@@ -360,8 +400,15 @@ export async function prepareCellRuntime({ cellDir, extraction, forceBuild = fal
         error: null,
       };
       writeFileSync(join(cellDir, 'materialization.json'), JSON.stringify(result, null, 2) + '\n', 'utf8');
+      if (probeSrv) {
+        Object.defineProperty(result, '_liveServerHandle', { value: probeSrv, enumerable: false });
+      }
       return result;
     } catch (err) {
+      if (probeSrv) {
+        await probeSrv.close().catch(() => {});
+        probeSrv = null;
+      }
       buildError = err.message || String(err);
       onProgress({
         stage: 'materializing',

@@ -31,6 +31,11 @@ on:
           - agent
           - oneshot
           - both
+      reuse_generation_run_id:
+        description: 'Optional: Prior workflow Run ID to reuse generated cells from (skips Stage 1 LLM generation)'
+        required: false
+        default: ''
+        type: string
       bridges:
         description: 'Optional clean-room provider bridges to install (e.g. antigravity)'
         required: false
@@ -46,7 +51,7 @@ on:
           - '3'
           - '5'
       audit_runner:
-        description: 'Runner label for Stage 2 Chrome/MemLab audits (use self-hosted for bare-metal stability)'
+        description: 'Runner label for Stage 2 Chrome/MemLab audits (ubuntu-latest fans out across isolated VMs)'
         required: true
         default: 'ubuntu-latest'
         type: string
@@ -58,101 +63,77 @@ on:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
 jobs:
   prepare-matrix:
-    name: Prepare Parallel Model × Category Shards
+    name: Plan Dynamic Generate & Audit VM Shards
     runs-on: ubuntu-latest
     outputs:
-      shards_json: ${{ steps.plan.outputs.shards_json }}
-      audit_prompt_flag: ${{ steps.plan.outputs.audit_prompt_flag }}
+      skip_generate: ${{ steps.plan.outputs.skip_generate }}
+      generate_shards_json: ${{ steps.plan.outputs.generate_shards_json }}
+      audit_shards_json: ${{ steps.plan.outputs.audit_shards_json }}
+      total_cells: ${{ steps.plan.outputs.total_cells }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - id: plan
+        env:
+          INPUT_MODELS: ${{ inputs.models }}
+          INPUT_SCOPE: ${{ inputs.prompt_scope }}
+          INPUT_PROMPTS: ${{ inputs.prompts }}
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_AUDIT_RUNS: ${{ inputs.audit_runs }}
+          INPUT_REUSE_RUN_ID: ${{ inputs.reuse_generation_run_id }}
         run: |
-          node -e '
-            const fs = require("node:fs");
-            const modelsRaw = process.argv[1] || "";
-            const scope = process.argv[2] || "pilot";
-            const customPromptsRaw = (process.argv[3] || "").trim();
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            import { planWorkflowShards } from "./src/runner/shard-planner.mjs";
 
-            const models = modelsRaw.split(",").map(s => s.trim()).filter(Boolean);
-            if (models.length === 0) {
-              throw new Error("At least one model must be provided in the models input.");
-            }
+            const plan = planWorkflowShards({
+              modelsRaw: process.env.INPUT_MODELS,
+              promptScope: process.env.INPUT_SCOPE,
+              customPromptsRaw: process.env.INPUT_PROMPTS,
+              mode: process.env.INPUT_MODE,
+              auditRuns: Number(process.env.INPUT_AUDIT_RUNS || 1),
+              reuseGenerationRunId: process.env.INPUT_REUSE_RUN_ID || "",
+            });
 
-            const reg = JSON.parse(fs.readFileSync("prompts/index.json", "utf8"));
-            const categories = (reg.categories || []).map(c => c.id);
-            const pilotIds = (reg.prompts || []).filter(p => p.pilot).map(p => p.id);
+            const genMatrix = plan.skipGenerate
+              ? [{ shardId: "skipped", label: "reusing-prior-run", model: plan.models[0], mode: plan.modes[0], promptFlag: "" }]
+              : plan.generateShards;
 
-            const shards = [];
-            let auditPromptFlag = "";
+            appendFileSync(process.env.GITHUB_OUTPUT, `skip_generate=${plan.skipGenerate ? "true" : "false"}\n`);
+            appendFileSync(process.env.GITHUB_OUTPUT, `generate_shards_json=${JSON.stringify(genMatrix)}\n`);
+            appendFileSync(process.env.GITHUB_OUTPUT, `audit_shards_json=${JSON.stringify(plan.auditShards)}\n`);
+            appendFileSync(process.env.GITHUB_OUTPUT, `total_cells=${plan.totalCells}\n`);
 
-            if (scope === "all") {
-              // Shard across categories in parallel (capped well under GitHub 256-job matrix limit)
-              const maxGroups = Math.max(1, Math.min(categories.length, Math.floor(200 / models.length)));
-              const groupSize = Math.ceil(categories.length / maxGroups);
-              for (let i = 0; i < categories.length; i += groupSize) {
-                const catSlice = categories.slice(i, i + groupSize);
-                for (const model of models) {
-                  shards.push({
-                    model,
-                    shardId: `${model.replace(/[^a-zA-Z0-9_-]/g, "-")}-cats-${Math.floor(i / groupSize) + 1}`,
-                    label: `${model} / ${catSlice.join("+")}`,
-                    promptFlag: `--category=${catSlice.join(",")}`,
-                  });
-                }
-              }
-              auditPromptFlag = ""; // empty filter = audit all 37 prompts!
-            } else if (scope === "pilot") {
-              // Split 10 pilot prompts into 2 parallel shards of 5 prompts per model
-              const half = Math.ceil(pilotIds.length / 2);
-              const groups = [pilotIds.slice(0, half), pilotIds.slice(half)].filter(g => g.length > 0);
-              groups.forEach((grp, idx) => {
-                for (const model of models) {
-                  shards.push({
-                    model,
-                    shardId: `${model.replace(/[^a-zA-Z0-9_-]/g, "-")}-pilot-${idx + 1}`,
-                    label: `${model} / pilot-${idx + 1} (${grp.length} prompts)`,
-                    promptFlag: `--prompts=${grp.join(",")}`,
-                  });
-                }
-              });
-              auditPromptFlag = "--pilot";
-            } else {
-              const ids = customPromptsRaw
-                ? customPromptsRaw.split(",").map(s => s.trim()).filter(Boolean)
-                : ["plumbing-appointment"];
-              for (const model of models) {
-                shards.push({
-                  model,
-                  shardId: `${model.replace(/[^a-zA-Z0-9_-]/g, "-")}-custom`,
-                  label: `${model} / ${ids.length} prompt(s)`,
-                  promptFlag: `--prompts=${ids.join(",")}`,
-                });
-              }
-              auditPromptFlag = `--prompts=${ids.join(",")}`;
-            }
-
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, `shards_json=${JSON.stringify(shards)}\n`);
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, `audit_prompt_flag=${auditPromptFlag}\n`);
-            console.log(`Planned ${shards.length} parallel generation shard(s) for scope="${scope}".`);
-          ' "${{ inputs.models }}" "${{ inputs.prompt_scope }}" "${{ inputs.prompts }}"
+            console.log(
+              `Planned ${plan.totalCells} cell(s): ` +
+              `${plan.skipGenerate ? `0 generate shards (reusing run ${plan.reuseGenerationRunId})` : `${plan.generateShards.length} parallel generate shard(s)`} -> ` +
+              `${plan.auditShards.length} parallel isolated-VM audit shard(s).`
+            );
+          '
 
   # Stage 1: Parallel CPU-light LLM / pi Agent Generation (Zero Chrome needed)
   generate:
     name: Generate (${{ matrix.shard.label }})
     needs: prepare-matrix
+    if: ${{ needs.prepare-matrix.outputs.skip_generate != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJson(needs.prepare-matrix.outputs.shards_json) }}
+        shard: ${{ fromJson(needs.prepare-matrix.outputs.generate_shards_json) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -191,27 +172,34 @@ jobs:
           node bin/bench.mjs \
             --stage=generate \
             --force \
-            --mode="${{ inputs.mode }}" \
+            --mode="${{ matrix.shard.mode }}" \
             --models="${{ matrix.shard.model }}" \
             ${{ matrix.shard.promptFlag }}
 
-      - name: Upload generated workspace & pi session artifacts
+      - name: Upload generated workspace & pi session artifacts (without node_modules)
         uses: actions/upload-artifact@v4
         with:
           name: generated-cells-${{ matrix.shard.shardId }}
-          path: runs/cells/
+          path: |
+            runs/cells/
+            !runs/cells/**/node_modules/**
           if-no-files-found: warn
           retention-days: 14
 
-  # Stage 2: Airgapped-Secrets Serialized Performance, INP & Memory Audit (All 4 Pillars: tech-stack, lighthouse-uplift, deep-perf, memory)
+  # Stage 2: Parallel Sharded Isolated-VM Audits (1 dedicated VM per 1–4 cells; concurrency=1 inside each VM; zero LLM keys)
   audit:
-    name: Audit All 4 Pillars (Lighthouse + Uplift + CWV/INP + MemLab)
+    name: Audit (${{ matrix.shard.label }})
     needs: [prepare-matrix, generate]
+    if: ${{ !cancelled() && needs.prepare-matrix.result == 'success' && (needs.generate.result == 'success' || needs.generate.result == 'skipped' || needs.generate.result == 'failure') }}
     runs-on: ${{ inputs.audit_runner }}
-    timeout-minutes: 360
+    timeout-minutes: 45
     concurrency:
-      group: benchmark-hardware-audit-${{ inputs.audit_runner }}
+      group: ${{ inputs.audit_runner == 'ubuntu-latest' && format('audit-vm-{0}-{1}', github.run_id, matrix.shard.shardId) || format('self-hosted-audit-{0}', inputs.audit_runner) }}
       cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.prepare-matrix.outputs.audit_shards_json) }}
     env:
       WEB_UPLIFT_NO_SANDBOX: '1'
     steps:
@@ -229,14 +217,26 @@ jobs:
       - name: Bootstrap portable pi & pinned Chrome for Testing
         run: node scripts/setup-vm.mjs --with-chrome
 
-      - name: Download all generated cell workspaces
+      - name: Download generated cells from this workflow run
+        if: ${{ inputs.reuse_generation_run_id == '' }}
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
+          pattern: ${{ matrix.shard.artifactPattern }}
+          path: runs/cells/
+          merge-multiple: true
+
+      - name: Download generated cells from prior workflow run (${{ inputs.reuse_generation_run_id }})
+        if: ${{ inputs.reuse_generation_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.reuse_generation_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           pattern: generated-cells-*
           path: runs/cells/
           merge-multiple: true
 
-      - name: Run Host Canary + All 4 Benchmark Test Pillars
+      - name: Run Host Canary + All 4 Benchmark Test Pillars (${{ matrix.shard.label }})
         # Notice: ZERO LLM API keys are passed into this step while executing generated $PORT servers!
         run: |
           node bin/bench.mjs \
@@ -244,10 +244,121 @@ jobs:
             --force \
             --skip-judge \
             --audit-runs="${{ inputs.audit_runs }}" \
-            --mode="${{ inputs.mode }}" \
-            --models="${{ inputs.models }}" \
-            ${{ needs.prepare-matrix.outputs.audit_prompt_flag }} \
+            --mode="${{ matrix.shard.mode }}" \
+            --models="${{ matrix.shard.model }}" \
+            ${{ matrix.shard.promptFlag }} \
             --markdown-summary="$GITHUB_STEP_SUMMARY"
+
+      - name: Stage only this shard's audited cells & VM canary telemetry
+        env:
+          SHARD_ID: ${{ matrix.shard.shardId }}
+          SHARD_MODE: ${{ matrix.shard.mode }}
+          SHARD_PROMPT_FLAG: ${{ matrix.shard.promptFlag }}
+        run: |
+          node --input-type=module -e '
+            import { existsSync, readdirSync, rmSync, mkdirSync, cpSync, renameSync, writeFileSync, statSync } from "node:fs";
+            import { join } from "node:path";
+
+            const shardId = process.env.SHARD_ID || "shard";
+            const shardMode = process.env.SHARD_MODE || "agent";
+            const promptIds = new Set(
+              String(process.env.SHARD_PROMPT_FLAG || "")
+                .replace(/^--prompts=/, "")
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean)
+            );
+
+            rmSync("_shard_out", { recursive: true, force: true });
+            mkdirSync("_shard_out/cells", { recursive: true });
+            mkdirSync("_shard_out/canaries", { recursive: true });
+
+            let stagedCount = 0;
+            const cellsRoot = "runs/cells";
+            if (existsSync(cellsRoot)) {
+              for (const entry of readdirSync(cellsRoot)) {
+                const cellDir = join(cellsRoot, entry);
+                if (!statSync(cellDir).isDirectory()) continue;
+                const parts = entry.split("__");
+                const promptId = parts[1] || "";
+                const mode = parts[2] || "";
+                if (mode !== shardMode || (promptIds.size > 0 && !promptIds.has(promptId))) continue;
+                if (
+                  !existsSync(join(cellDir, "results")) &&
+                  !existsSync(join(cellDir, "materialization.json")) &&
+                  !existsSync(join(cellDir, "audit-telemetry.json"))
+                ) {
+                  continue;
+                }
+
+                for (const sub of ["agent-workspace/node_modules", "extracted/node_modules", ".tmp-heapsnapshots"]) {
+                  const fullSub = join(cellDir, sub);
+                  if (existsSync(fullSub)) rmSync(fullSub, { recursive: true, force: true });
+                }
+                renameSync(cellDir, join("_shard_out/cells", entry));
+                stagedCount++;
+              }
+            }
+
+            if (existsSync("data/canary-latest.json")) {
+              cpSync("data/canary-latest.json", join("_shard_out/canaries", `canary-${shardId}.json`));
+            }
+
+            writeFileSync(
+              "_shard_out/shard-meta.json",
+              JSON.stringify({ shardId, stagedCount, finishedAt: new Date().toISOString() }, null, 2) + "\n"
+            );
+            console.log(`Staged ${stagedCount} audited cell(s) for shard ${shardId}.`);
+          '
+
+      - name: Upload audited cell shard artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: audited-cells-${{ matrix.shard.shardId }}
+          path: _shard_out/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # Stage 3: Fast Aggregation, Leaderboard Step Summary & Static Benchmark Studio Export (~20s)
+  aggregate-and-report:
+    name: Aggregate All Shards & Export Benchmark Studio
+    needs: [prepare-matrix, audit]
+    if: ${{ !cancelled() && needs.prepare-matrix.result == 'success' && (needs.audit.result == 'success' || needs.audit.result == 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install benchmark dependencies
+        run: npm install --no-package-lock --no-audit --no-fund --registry=https://registry.npmjs.org
+
+      - name: Download all audited cell shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: audited-cells-*
+          path: runs/
+          merge-multiple: true
+
+      - name: Restore representative Host Canary & aggregate full leaderboard
+        run: |
+          node --input-type=module -e '
+            import { existsSync, readdirSync, cpSync, mkdirSync } from "node:fs";
+            import { join } from "node:path";
+            if (existsSync("runs/canaries")) {
+              const files = readdirSync("runs/canaries").filter((f) => f.endsWith(".json")).sort();
+              if (files.length > 0) {
+                mkdirSync("data", { recursive: true });
+                cpSync(join("runs/canaries", files[0]), "data/canary-latest.json");
+              }
+            }
+          '
+          node bin/bench.mjs --score-only --markdown-summary="$GITHUB_STEP_SUMMARY"
 
       - name: Export static Benchmark Studio report (dist-report/)
         run: npm run export
@@ -271,7 +382,7 @@ jobs:
   deploy-pages:
     name: Publish Benchmark Studio to GitHub Pages
     if: ${{ inputs.deploy_pages == true }}
-    needs: audit
+    needs: aggregate-and-report
     runs-on: ubuntu-latest
     environment:
       name: github-pages

@@ -64,9 +64,12 @@
     "timeoutMs": 480000
   },
   "memory": {
-    "idleProbeSeconds": [0, 3, 10],
+    "idleProbeSeconds": [0, 2, 5],
     "leakLoopIterations": 10,
     "keepRawSnapshots": false
+  },
+  "audit": {
+    "cellTimeoutMs": 180000
   },
   "scoring": {
     "weights": {

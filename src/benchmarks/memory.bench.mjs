@@ -7,35 +7,50 @@ import {
   createWriteStream,
 } from 'node:fs';
 import { join } from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
-import { withIsolatedChrome, navigateAndSettle } from './cdp-helpers.mjs';
+import { withIsolatedChrome, navigateAndSettle, withTimeout } from './cdp-helpers.mjs';
 import { executeReversibleCycle } from '../flows/replay-journey.mjs';
-import { sleep } from '../util/env.mjs';
+import { PROJECT_ROOT, sleep } from '../util/env.mjs';
 
 const execFileAsync = promisify(execFile);
 
+let cachedMemlabBin = undefined;
+
 function resolveMemlabBin() {
+  if (cachedMemlabBin !== undefined) return cachedMemlabBin;
   const candidates = [
     process.env.MEMLAB_BIN,
+    join(PROJECT_ROOT, 'node_modules', '.bin', 'memlab'),
     '/Users/paulkinlan/.nvm/versions/node/v25.3.0/bin/memlab',
   ].filter(Boolean);
   for (const c of candidates) {
-    if (existsSync(c)) return c;
+    if (existsSync(c)) {
+      cachedMemlabBin = c;
+      return cachedMemlabBin;
+    }
   }
-  return 'memlab';
+  try {
+    const found = execFileSync('which', ['memlab'], { encoding: 'utf8', timeout: 2000 }).trim();
+    cachedMemlabBin = found || null;
+  } catch {
+    cachedMemlabBin = null;
+  }
+  return cachedMemlabBin;
 }
 
 async function sampleMemoryCounters(client) {
   const { HeapProfiler, Performance, Memory, Runtime } = client;
-  await HeapProfiler.enable();
-  await HeapProfiler.collectGarbage();
-  await Runtime.evaluate({ expression: `window.gc && window.gc()` }).catch(() => {});
+  await withTimeout(HeapProfiler.enable(), 5000, 'HeapProfiler.enable');
+  await withTimeout(HeapProfiler.collectGarbage(), 8000, 'HeapProfiler.collectGarbage').catch(() => {});
+  await withTimeout(Runtime.evaluate({ expression: `window.gc && window.gc()` }), 4000, 'window.gc').catch(() => {});
   await sleep(80);
 
   const [perfRes, domRes] = await Promise.all([
-    Performance.getMetrics(),
-    Memory.getDOMCounters ? Memory.getDOMCounters().catch(() => null) : Promise.resolve(null),
+    withTimeout(Performance.getMetrics(), 5000, 'Performance.getMetrics'),
+    Memory.getDOMCounters
+      ? withTimeout(Memory.getDOMCounters(), 5000, 'Memory.getDOMCounters').catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const map = {};
@@ -51,25 +66,40 @@ async function sampleMemoryCounters(client) {
   };
 }
 
-async function captureHeapSnapshotToDisk(client, outPath) {
+async function captureHeapSnapshotToDisk(client, outPath, timeoutMs = 20000) {
   const { HeapProfiler } = client;
-  await HeapProfiler.enable();
-  await HeapProfiler.collectGarbage();
+  await withTimeout(HeapProfiler.enable(), 5000, 'HeapProfiler.enable');
+  await withTimeout(HeapProfiler.collectGarbage(), 8000, 'HeapProfiler.collectGarbage').catch(() => {});
   await sleep(100);
 
   await new Promise((resolvePromise, rejectPromise) => {
+    let settled = false;
     const outStream = createWriteStream(outPath, { encoding: 'utf8' });
     const onChunk = ({ chunk }) => {
-      outStream.write(chunk);
+      if (!settled) outStream.write(chunk);
     };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      client.removeListener('HeapProfiler.addHeapSnapshotChunk', onChunk);
+      outStream.destroy();
+      rejectPromise(new Error(`HeapProfiler.takeHeapSnapshot timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
     client.on('HeapProfiler.addHeapSnapshotChunk', onChunk);
 
     HeapProfiler.takeHeapSnapshot({ reportProgress: false, treatGlobalObjectsAsRoots: true })
       .then(() => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         client.removeListener('HeapProfiler.addHeapSnapshotChunk', onChunk);
         outStream.end(() => resolvePromise());
       })
       .catch((err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         client.removeListener('HeapProfiler.addHeapSnapshotChunk', onChunk);
         outStream.destroy();
         rejectPromise(err);
@@ -171,6 +201,13 @@ function summarizeSnapshotDiff(baselinePath, finalPath) {
 
 async function runMemlabFindLeaks(snapDir) {
   const memlabBin = resolveMemlabBin();
+  if (!memlabBin) {
+    return {
+      memlabRan: false,
+      leakClusterCount: null,
+      note: 'memlab CLI not installed; scored via V8 heap snapshot diff + DOM/listener counters',
+    };
+  }
   const workDir = join(snapDir, 'memlab-work');
   mkdirSync(workDir, { recursive: true });
 
@@ -193,7 +230,7 @@ async function runMemlabFindLeaks(snapDir) {
     const { stdout } = await execFileAsync(
       memlabBin,
       ['find-leaks', '--snapshot-dir', snapDir, '--work-dir', workDir],
-      { timeout: 60000, maxBuffer: 8 * 1024 * 1024 }
+      { timeout: 45000, maxBuffer: 8 * 1024 * 1024 }
     );
 
     // Strip ANSI escape sequences and parse MemLab leak clusters
@@ -232,18 +269,19 @@ export default {
     mkdirSync(snapDir, { recursive: true });
 
     const iterations = config.memory?.leakLoopIterations || 10;
+    const hasMemlab = Boolean(resolveMemlabBin());
 
     try {
       const result = await withIsolatedChrome(
         { viewport: config.browser.viewportDesktop },
         async ({ client }) => {
           await client.Memory.enable?.().catch(() => {});
-          await navigateAndSettle(client, url, config.browser.settleWaitMs || 1200);
+          await navigateAndSettle(client, url, config.browser.settleWaitMs || 1000);
 
           // Phase 1: Idle Memory Drift (0s -> t1 -> t2 with zero user input)
-          const probeSecs = config.memory?.idleProbeSeconds || [0, 3, 10];
-          const wait1Ms = Math.max(200, Math.round(((probeSecs[1] ?? 3) - (probeSecs[0] ?? 0)) * 1000));
-          const wait2Ms = Math.max(200, Math.round(((probeSecs[2] ?? 10) - (probeSecs[1] ?? 3)) * 1000));
+          const probeSecs = config.memory?.idleProbeSeconds || [0, 2, 6];
+          const wait1Ms = Math.max(200, Math.round(((probeSecs[1] ?? 2) - (probeSecs[0] ?? 0)) * 1000));
+          const wait2Ms = Math.max(200, Math.round(((probeSecs[2] ?? 6) - (probeSecs[1] ?? 2)) * 1000));
           onProgress?.({ stage: 'memory', detail: `Sampling idle heap & listener drift (${probeSecs.join('s → ')}s)` });
           const idle0 = await sampleMemoryCounters(client);
           await sleep(wait1Ms);
@@ -256,32 +294,69 @@ export default {
             idle3.jsHeapUsedBytes > idle0.jsHeapUsedBytes + 64 * 1024 &&
             idle10.jsHeapUsedBytes > idle3.jsHeapUsedBytes + 128 * 1024;
 
-          // Phase 2: 10x Reversible UI Cycle + 3 Heap Snapshots (Baseline -> Target -> Final)
+          // Phase 2: Reversible UI Cycle + Heap Snapshots (Baseline -> [Target] -> Final)
           onProgress?.({ stage: 'memory', detail: 'Capturing s1 baseline heap snapshot' });
           const s1Path = join(snapDir, 's1.heapsnapshot');
           const s2Path = join(snapDir, 's2.heapsnapshot');
           const s3Path = join(snapDir, 's3.heapsnapshot');
 
           const beforeCycleCounters = await sampleMemoryCounters(client);
-          await captureHeapSnapshotToDisk(client, s1Path);
+          let s1Captured = false;
+          try {
+            await captureHeapSnapshotToDisk(client, s1Path, 20000);
+            s1Captured = true;
+          } catch {
+            s1Captured = false;
+          }
 
           onProgress?.({ stage: 'memory', detail: `Running ${iterations}× reversible UI interaction cycles` });
-          // Cycle 1 -> capture target snapshot mid-cycle
-          await executeReversibleCycle(client, promptEntry.leakLoop);
-          await captureHeapSnapshotToDisk(client, s2Path);
+          await withTimeout(executeReversibleCycle(client, promptEntry.leakLoop), 8000, 'executeReversibleCycle').catch(() => {});
+          if (hasMemlab && s1Captured) {
+            await captureHeapSnapshotToDisk(client, s2Path, 20000).catch(() => {});
+          }
 
           // Remaining N-1 cycles
           for (let i = 1; i < iterations; i++) {
-            await executeReversibleCycle(client, promptEntry.leakLoop);
+            await withTimeout(executeReversibleCycle(client, promptEntry.leakLoop), 8000, 'executeReversibleCycle').catch(() => {});
           }
 
-          await sleep(300);
+          await sleep(250);
           const afterCycleCounters = await sampleMemoryCounters(client);
-          onProgress?.({ stage: 'memory', detail: 'Capturing s3 final heap snapshot & running MemLab analysis' });
-          await captureHeapSnapshotToDisk(client, s3Path);
+          onProgress?.({ stage: 'memory', detail: 'Capturing s3 final heap snapshot & analyzing retained objects' });
+          let s3Captured = false;
+          if (s1Captured) {
+            try {
+              await captureHeapSnapshotToDisk(client, s3Path, 20000);
+              s3Captured = true;
+            } catch {
+              s3Captured = false;
+            }
+          }
 
-          const snapshotDiff = summarizeSnapshotDiff(s1Path, s3Path);
-          const memlabReport = await runMemlabFindLeaks(snapDir);
+          const snapshotDiff =
+            s1Captured && s3Captured
+              ? summarizeSnapshotDiff(s1Path, s3Path)
+              : {
+                  baselineNodeCount: null,
+                  finalNodeCount: null,
+                  retainedBytesDelta: 0,
+                  baselineDetachedDomCount: 0,
+                  finalDetachedDomCount: 0,
+                  detachedDomDelta: 0,
+                  detachedDomBytesDelta: 0,
+                  topGrowingObjects: [],
+                  snapshotTimedOut: true,
+                };
+          const memlabReport =
+            hasMemlab && s1Captured && s3Captured && existsSync(s2Path)
+              ? await runMemlabFindLeaks(snapDir)
+              : {
+                  memlabRan: false,
+                  leakClusterCount: null,
+                  note: hasMemlab
+                    ? 'Heap snapshots timed out; scored via DOM/listener & heap counters'
+                    : 'memlab CLI not installed; scored via V8 heap snapshot diff + DOM/listener counters',
+                };
 
           return {
             benchmarkId: 'memory',

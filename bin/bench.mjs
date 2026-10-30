@@ -45,6 +45,30 @@ export function parseCliArgs(argv) {
   return opts;
 }
 
+function fmtSec(ms) {
+  if (typeof ms !== 'number' || !Number.isFinite(ms)) return '—';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function clockNow() {
+  return new Date().toISOString().slice(11, 19);
+}
+
+export function formatPhaseBreakdownLine(telemetry) {
+  if (!telemetry?.phasesMs) return '';
+  const p = telemetry.phasesMs;
+  const b = p.benchmarks || {};
+  const parts = [];
+  if (typeof p.materializeMs === 'number') parts.push(`mat ${fmtSec(p.materializeMs)}`);
+  if (typeof p.flowCompileMs === 'number') parts.push(`flow ${fmtSec(p.flowCompileMs)}`);
+  if (typeof b['tech-stack'] === 'number') parts.push(`stack ${fmtSec(b['tech-stack'])}`);
+  if (typeof b['lighthouse-uplift'] === 'number') parts.push(`lh+up ${fmtSec(b['lighthouse-uplift'])}`);
+  if (typeof b['deep-perf'] === 'number') parts.push(`perf ${fmtSec(b['deep-perf'])}`);
+  if (typeof b.memory === 'number') parts.push(`mem ${fmtSec(b.memory)}`);
+  return parts.length > 0 ? `(${parts.join(' · ')})` : '';
+}
+
 export function formatMarkdownSummary(summary) {
   const lines = [];
   lines.push('## Web Generation & Performance Benchmark Summary');
@@ -52,13 +76,19 @@ export function formatMarkdownSummary(summary) {
 
   const env = summary.environment || {};
   const canary = summary.canary || null;
+  const obs = summary.observability || null;
   lines.push(
     `- **Cells Evaluated**: ${summary.totals?.cells ?? 0} (${summary.totals?.agentCells ?? 0} agent loop, ${summary.totals?.oneshotCells ?? 0} 1-shot)`
   );
   if (env.piVersion) {
     lines.push(`- **Clean-Room \`pi\` Runtime**: \`v${env.piVersion}\` (\`${env.piSource || 'local'}\`)`);
   }
-  if (canary) {
+  if (obs?.vmCanaryFleet?.shardCount > 1) {
+    const fleet = obs.vmCanaryFleet;
+    lines.push(
+      `- **Sharded VM Fleet Canary (${fleet.shardCount} isolated VMs)**: \`${fleet.statusCounts.stable} stable / ${fleet.statusCounts.warning} warn / ${fleet.statusCounts.noisy} noisy\` — Node CPU median \`${fleet.nodeCpuMs.medianMs ?? '—'}ms\` (\`${fleet.nodeCpuMs.minMs ?? '—'}–${fleet.nodeCpuMs.maxMs ?? '—'}ms\`), Chrome Layout+JS median \`${fleet.chromeMainThreadMs.medianMs ?? '—'}ms\` (\`${fleet.chromeMainThreadMs.minMs ?? '—'}–${fleet.chromeMainThreadMs.maxMs ?? '—'}ms\`)`
+    );
+  } else if (canary) {
     lines.push(
       `- **Host Canary Calibration**: \`${String(canary.status || 'unknown').toUpperCase()}\` — Node CPU \`${canary.nodeCpuComputeMs}ms\`, Chrome Layout+JS \`${canary.browserMainThreadComputeMs ?? '—'}ms\`, Ref FCP \`${canary.referenceFcpMs ?? '—'}ms\` (${canary.host?.cpuModel || 'host'}, ${canary.host?.cpuCores || '?'} cores)`
     );
@@ -77,6 +107,63 @@ export function formatMarkdownSummary(summary) {
     }
     lines.push('');
   }
+
+  if (obs) {
+    const genT = obs.generationTiming || {};
+    const audT = obs.auditTiming || {};
+    const pm = audT.phaseMediansMs || {};
+
+    if ((genT.count || 0) > 0 || (audT.count || 0) > 0) {
+      lines.push('### Execution Timing & Pipeline Observability');
+      lines.push('');
+      if ((genT.count || 0) > 0) {
+        lines.push(
+          `- **Stage 1 Generation (${genT.count} cells)**: median \`${fmtSec(genT.medianMs)}\` · p95 \`${fmtSec(genT.p95Ms)}\` · max \`${fmtSec(genT.maxMs)}\` · cumulative \`${fmtSec(genT.totalMs)}\``
+        );
+      }
+      if ((audT.count || 0) > 0) {
+        lines.push(
+          `- **Stage 2 4-Pillar Audit (${audT.count} cells)**: median \`${fmtSec(audT.medianMs)}\` · p95 \`${fmtSec(audT.p95Ms)}\` · max \`${fmtSec(audT.maxMs)}\` · cumulative \`${fmtSec(audT.totalMs)}\``
+        );
+        lines.push('');
+        lines.push('| Materialize & Boot | Flow Compile | Tech Stack | Lighthouse + web-uplift | Deep Perf / W3C INP | Memory & Heap Diff |');
+        lines.push('|---:|---:|---:|---:|---:|---:|');
+        lines.push(
+          `| \`${fmtSec(pm.materializeMs)}\` | \`${fmtSec(pm.flowCompileMs)}\` | \`${fmtSec(pm.techStackMs)}\` | \`${fmtSec(pm.lighthouseUpliftMs)}\` | \`${fmtSec(pm.deepPerfMs)}\` | \`${fmtSec(pm.memoryMs)}\` |`
+        );
+      }
+      lines.push('');
+    }
+
+    if (Array.isArray(obs.slowestCells) && obs.slowestCells.length > 0) {
+      lines.push('<details><summary><strong>Slowest Audited Cells & Bottleneck Phase</strong></summary>');
+      lines.push('');
+      lines.push('| Cell | Architecture | Status | Total Audit | Slowest Phase |');
+      lines.push('|---|---|---|---:|---|');
+      for (const sc of obs.slowestCells.slice(0, 6)) {
+        lines.push(
+          `| \`${sc.cellId}\` | \`${sc.serverArchitecture || '—'}\` | \`${sc.status}\` | **${fmtSec(sc.totalAuditMs)}** | \`${sc.slowestPhase}\` (${fmtSec(sc.slowestPhaseMs)}) |`
+        );
+      }
+      lines.push('</details>');
+      lines.push('');
+    }
+
+    if (Array.isArray(obs.failedCells) && obs.failedCells.length > 0) {
+      lines.push(`### Failed / Timed-Out Cells (${obs.failedCells.length})`);
+      lines.push('');
+      lines.push('| Cell | Status | Stage | Duration | Diagnostic |');
+      lines.push('|---|---|---|---:|---|');
+      for (const fc of obs.failedCells.slice(0, 20)) {
+        const cleanErr = String(fc.error || '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+        lines.push(
+          `| \`${fc.cellId}\` | \`${fc.status}\` | \`${fc.failedStage}\` | ${fmtSec(fc.durationMs)} | ${cleanErr} |`
+        );
+      }
+      lines.push('');
+    }
+  }
+
   return lines.join('\n') + '\n';
 }
 
@@ -135,45 +222,108 @@ async function main() {
     return;
   }
 
+  const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
   const emitter = new EventEmitter();
+  let activeHeartbeat = null;
+  let currentLive = null;
+
+  function stopHeartbeat() {
+    if (activeHeartbeat) {
+      clearInterval(activeHeartbeat);
+      activeHeartbeat = null;
+    }
+    currentLive = null;
+  }
+
+  function startOrUpdateHeartbeat(info) {
+    currentLive = {
+      ...info,
+      stageStartedAt: Date.now(),
+    };
+    if (!activeHeartbeat) {
+      activeHeartbeat = setInterval(() => {
+        if (!currentLive) return;
+        const stageSec = ((Date.now() - currentLive.stageStartedAt) / 1000).toFixed(1);
+        if (Number(stageSec) >= 15) {
+          const ord = currentLive.index && currentLive.total ? `[${currentLive.index}/${currentLive.total}] ` : '';
+          console.log(
+            `  [${clockNow()}] ⏳ ${ord}[${currentLive.cellId}] still in (${currentLive.stage}): ${currentLive.detail} (${stageSec}s in stage)`
+          );
+        }
+      }, 15000);
+      activeHeartbeat.unref?.();
+    }
+  }
+
   emitter.on('job:start', (info) => {
     console.log(
-      `\n[bench] Starting ${info.jobId} (stage=${info.stage}, auditRuns=${info.auditRuns}, modes=${info.modes.join(', ')})`
+      `\n[${clockNow()}] [bench] Starting ${info.jobId} (stage=${info.stage}, auditRuns=${info.auditRuns}, modes=${info.modes.join(', ')}, totalCells=${info.totalCells})`
     );
-    console.log(`[bench] Models (${info.models.length}): ${info.models.join(', ') || '(none)'}`);
+    console.log(`[${clockNow()}] [bench] Models (${info.models.length}): ${info.models.join(', ') || '(none)'}`);
     if (info.skippedModels.length > 0) {
       console.log(
-        `[bench] Skipped (${info.skippedModels.length} missing credentials): ${info.skippedModels.map((s) => s.key).join(', ')}`
+        `[${clockNow()}] [bench] Skipped (${info.skippedModels.length} missing credentials): ${info.skippedModels.map((s) => s.key).join(', ')}`
       );
     }
     if (info.unknownModels?.length > 0) {
       console.warn(
-        `[bench] ! Unrecognized model keys (${info.unknownModels.length}): ${info.unknownModels.join(', ')}`
+        `[${clockNow()}] [bench] ! Unrecognized model keys (${info.unknownModels.length}): ${info.unknownModels.join(', ')}`
       );
     }
-    console.log(`[bench] Prompts (${info.prompts.length}): ${info.prompts.join(', ')}`);
+    console.log(`[${clockNow()}] [bench] Prompts (${info.prompts.length}): ${info.prompts.join(', ')}`);
     if (info.benchmarks.length > 0) {
-      console.log(`[bench] Benchmarks: ${info.benchmarks.join(', ')}\n`);
+      console.log(`[${clockNow()}] [bench] Benchmarks: ${info.benchmarks.join(', ')}\n`);
     }
   });
 
   emitter.on('job:canary-done', ({ canary }) => {
     console.log(
-      `  [canary] ${canary.status.toUpperCase()} — Node CPU ${canary.nodeCpuComputeMs}ms | Chrome Layout+JS ${canary.browserMainThreadComputeMs ?? '-'}ms | Ref FCP ${canary.referenceFcpMs ?? '-'}ms`
+      `  [${clockNow()}] [canary] ${canary.status.toUpperCase()} — Node CPU ${canary.nodeCpuComputeMs}ms | Chrome Layout+JS ${canary.browserMainThreadComputeMs ?? '-'}ms | Ref FCP ${canary.referenceFcpMs ?? '-'}ms`
     );
+    if (isGitHubActions && canary.status === 'noisy') {
+      console.log(
+        `::warning title=Noisy VM Canary Calibration::Host CPU=${canary.nodeCpuComputeMs}ms, Chrome=${canary.browserMainThreadComputeMs}ms`
+      );
+    }
   });
 
-  emitter.on('cell:stage', ({ cellId, stage, detail }) => {
-    console.log(`  [${cellId}] (${stage}) ${detail}`);
+  emitter.on('cell:stage', ({ cellId, index, total, elapsedCellMs, stage, detail }) => {
+    startOrUpdateHeartbeat({ cellId, index, total, stage, detail });
+    const ord = index && total ? `[${index}/${total}] ` : '';
+    const el = typeof elapsedCellMs === 'number' && elapsedCellMs > 0 ? ` (+${fmtSec(elapsedCellMs)})` : '';
+    console.log(`  [${clockNow()}] ${ord}[${cellId}] (${stage}) ${detail}${el}`);
   });
 
-  emitter.on('cell:done', ({ cellId, ok, error }) => {
-    if (ok) console.log(`  ✓ [${cellId}] Complete\n`);
-    else console.error(`  ✗ [${cellId}] Failed: ${error}\n`);
+  emitter.on('cell:done', ({ cellId, index, total, ok, error, telemetry }) => {
+    stopHeartbeat();
+    const ord = index && total ? `[${index}/${total}] ` : '';
+    if (ok) {
+      const totalStr = telemetry?.totalAuditMs != null ? ` in ${fmtSec(telemetry.totalAuditMs)}` : '';
+      const breakdown = formatPhaseBreakdownLine(telemetry);
+      console.log(`  [${clockNow()}] ✓ ${ord}[${cellId}] Complete${totalStr} ${breakdown}\n`);
+      if (isGitHubActions && telemetry?.totalAuditMs > 90000) {
+        console.log(
+          `::warning title=Slow Cell Audit (${cellId})::Completed in ${fmtSec(telemetry.totalAuditMs)} ${breakdown}`
+        );
+      }
+    } else {
+      console.error(`  [${clockNow()}] ✗ ${ord}[${cellId}] Failed: ${error}\n`);
+      if (isGitHubActions) {
+        const cleanErr = String(error || '').replace(/\r?\n/g, ' ');
+        console.log(`::error title=Benchmark Cell Failed (${cellId})::${cleanErr}`);
+      }
+    }
   });
 
-  const res = await runBenchmarkJob(opts, emitter);
-  console.log(`[bench] Finished (${res.stage}): ${res.completedCells} succeeded, ${res.failedCells} failed.`);
+  let res;
+  try {
+    res = await runBenchmarkJob(opts, emitter);
+  } finally {
+    stopHeartbeat();
+  }
+  console.log(
+    `[${clockNow()}] [bench] Finished (${res.stage}) in ${fmtSec(res.durationMs)}: ${res.completedCells} succeeded, ${res.failedCells} failed.`
+  );
 
   const mdOut = opts.markdownSummaryPath || process.env.BENCH_STEP_SUMMARY_PATH || null;
   if (mdOut) {
