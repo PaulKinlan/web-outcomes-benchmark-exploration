@@ -10,6 +10,8 @@ import { PROJECT_ROOT, loadBenchmarkConfig } from '../util/env.mjs';
 import { loadPromptRegistry } from '../registry/prompts.mjs';
 import { loadModelRegistryConfig } from '../harness/model-registry.mjs';
 import { getPiRuntimeInfo } from '../harness/pi-loader.mjs';
+import { parseCellDirIdentity } from '../harness/generate.mjs';
+import { hasResolvableStaticPreview } from '../materialize/static-mirror.mjs';
 import { listProviderBridges } from '../harness/provider-bridges.mjs';
 import { BENCHMARK_PLUGINS } from '../benchmarks/registry.mjs';
 import { loadLatestCanary } from '../benchmarks/canary.mjs';
@@ -85,7 +87,9 @@ export function aggregateAllResults({ customWeights = null } = {}) {
       const generation = safeReadJson(join(cellDir, 'generation.json'));
       if (!generation) continue;
 
-      const mode = normalizeCellMode(generation.mode, dirName);
+      const parsedIdentity = parseCellDirIdentity(dirName, generation);
+      const mode = parsedIdentity.mode;
+      const spec = parsedIdentity.spec;
       const materialization = safeReadJson(join(cellDir, 'materialization.json'));
       const auditTelemetry = safeReadJson(join(cellDir, 'audit-telemetry.json'));
       // Skip cells whose generation was cached before a job cancellation and haven't been materialized or attempted yet
@@ -156,6 +160,7 @@ export function aggregateAllResults({ customWeights = null } = {}) {
         category: promptInfo?.category || generation.category || 'other',
         categoryLabel: promptInfo?.categoryLabel || generation.category || 'Other',
         mode,
+        spec,
         provider: generation.provider,
         modelId: generation.modelId,
         generatedAt: generation.completedAt,
@@ -300,6 +305,7 @@ export function aggregateAllResults({ customWeights = null } = {}) {
 
         hasDesktopScreenshot: existsSync(join(cellDir, 'screenshots', 'desktop.png')),
         hasMobileScreenshot: existsSync(join(cellDir, 'screenshots', 'mobile.png')),
+        hasStaticPreview: Boolean(buildSucceeded && hasResolvableStaticPreview(cellDir)),
         hasUpliftScorecard: existsSync(join(cellDir, 'uplift', 'scorecard.html')),
         hasPiTranscript: existsSync(join(cellDir, 'pi-transcript.html')),
         hasPiSession: existsSync(join(cellDir, 'pi-session.jsonl')),
@@ -307,10 +313,10 @@ export function aggregateAllResults({ customWeights = null } = {}) {
     }
   }
 
-  // 1. Leaderboard Aggregation by (modelKey + mode) so Agent vs 1-Shot tracks are cleanly ranked & filterable
+  // 1. Leaderboard Aggregation by (modelKey + mode + spec) so Agent vs 1-Shot & Free-form vs Guided tracks are cleanly ranked & filterable
   const byModelMode = new Map();
   for (const c of cells) {
-    const groupKey = `${c.modelKey}__${c.mode}`;
+    const groupKey = c.spec === 'guided' ? `${c.modelKey}__${c.mode}__guided` : `${c.modelKey}__${c.mode}`;
     if (!byModelMode.has(groupKey)) byModelMode.set(groupKey, []);
     byModelMode.get(groupKey).push(c);
   }
@@ -320,6 +326,7 @@ export function aggregateAllResults({ customWeights = null } = {}) {
     const first = mCells[0];
     const modelKey = first.modelKey;
     const mode = first.mode;
+    const spec = first.spec || 'freeform';
     const modelMeta = modelMap.get(modelKey) || {};
     const built = mCells.filter((c) => c.buildSucceeded);
 
@@ -352,6 +359,7 @@ export function aggregateAllResults({ customWeights = null } = {}) {
       rowId: groupKey,
       modelKey,
       mode,
+      spec,
       label: modelMeta.label || first?.modelLabel || modelKey,
       family: modelMeta.family || first?.family || 'Other',
       tier: modelMeta.tier || 'standard',
@@ -402,15 +410,20 @@ export function aggregateAllResults({ customWeights = null } = {}) {
 
   leaderboard.sort((a, b) => (b.scores.composite || 0) - (a.scores.composite || 0));
 
-  // 2. Cohort Analytics (Frontend Framework, Backend Stack, Delivery Pattern, and Agent vs 1-Shot Mode!)
+  // 2. Cohort Analytics (Frontend Framework, Backend Stack, Delivery Pattern, Agent vs 1-Shot Mode, and Freeform vs Guided Spec!)
   const byFramework = new Map();
   const byBackend = new Map();
   const byDelivery = new Map();
   const byMode = new Map();
+  const bySpec = new Map();
 
   for (const c of cells.filter((x) => x.buildSucceeded)) {
     if (!byMode.has(c.mode)) byMode.set(c.mode, []);
     byMode.get(c.mode).push(c);
+
+    const sp = c.spec || 'freeform';
+    if (!bySpec.has(sp)) bySpec.set(sp, []);
+    bySpec.get(sp).push(c);
 
     if (c.techStack) {
       const fw = c.techStack.primaryFramework;
@@ -453,11 +466,12 @@ export function aggregateAllResults({ customWeights = null } = {}) {
     return rows.sort((a, b) => b.count - a.count);
   }
 
-  // Paired head-to-head comparison where BOTH agent & oneshot exist for the exact same (modelKey, promptId)
+  // Paired head-to-head comparison where BOTH agent & oneshot exist for the exact same (modelKey, promptId, spec)
   const pairedMap = new Map();
   for (const c of cells.filter((x) => x.buildSucceeded)) {
-    const pk = `${c.modelKey}__${c.promptId}`;
-    if (!pairedMap.has(pk)) pairedMap.set(pk, {});
+    const sp = c.spec || 'freeform';
+    const pk = sp === 'guided' ? `${c.modelKey}__${c.promptId}__guided` : `${c.modelKey}__${c.promptId}`;
+    if (!pairedMap.has(pk)) pairedMap.set(pk, { spec: sp });
     pairedMap.get(pk)[c.mode] = c;
   }
   const pairedHeadToHead = [];
@@ -465,6 +479,9 @@ export function aggregateAllResults({ customWeights = null } = {}) {
     if (pair.agent && pair.oneshot) {
       pairedHeadToHead.push({
         pairKey: pk,
+        spec: pair.spec || 'freeform',
+        agentCellId: pair.agent.cellId,
+        oneshotCellId: pair.oneshot.cellId,
         modelKey: pair.agent.modelKey,
         modelLabel: pair.agent.modelLabel,
         promptId: pair.agent.promptId,
@@ -483,8 +500,40 @@ export function aggregateAllResults({ customWeights = null } = {}) {
     }
   }
 
+  // Paired Free-form vs Guided comparison where BOTH exist for the exact same (modelKey, promptId, mode)
+  const specPairedMap = new Map();
+  for (const c of cells.filter((x) => x.buildSucceeded)) {
+    const sk = `${c.modelKey}__${c.promptId}__${c.mode}`;
+    if (!specPairedMap.has(sk)) specPairedMap.set(sk, {});
+    specPairedMap.get(sk)[c.spec || 'freeform'] = c;
+  }
+  const pairedSpecHeadToHead = [];
+  for (const [sk, pair] of specPairedMap.entries()) {
+    if (pair.freeform && pair.guided) {
+      pairedSpecHeadToHead.push({
+        pairKey: sk,
+        mode: pair.guided.mode,
+        freeformCellId: pair.freeform.cellId,
+        guidedCellId: pair.guided.cellId,
+        modelKey: pair.guided.modelKey,
+        modelLabel: pair.guided.modelLabel,
+        promptId: pair.guided.promptId,
+        promptTitle: pair.guided.promptTitle,
+        freeformComposite: pair.freeform.scores.composite,
+        guidedComposite: pair.guided.scores.composite,
+        deltaComposite: Math.round((pair.guided.scores.composite - pair.freeform.scores.composite) * 10) / 10,
+        freeformLcpMs: pair.freeform.keyMetrics.mobileLcpMs,
+        guidedLcpMs: pair.guided.keyMetrics.mobileLcpMs,
+        freeformInpMs: pair.freeform.keyMetrics.inpMs,
+        guidedInpMs: pair.guided.keyMetrics.inpMs,
+      });
+    }
+  }
+
   const agentCellsCount = cells.filter((c) => c.mode === 'agent').length;
   const oneshotCellsCount = cells.filter((c) => c.mode === 'oneshot').length;
+  const freeformCellsCount = cells.filter((c) => (c.spec || 'freeform') === 'freeform').length;
+  const guidedCellsCount = cells.filter((c) => c.spec === 'guided').length;
 
   // 3. Corpus-wide Lighthouse Audit Pass / Failure Telemetry
   const lhFailureFreq = new Map();
@@ -695,6 +744,8 @@ export function aggregateAllResults({ customWeights = null } = {}) {
       cells: cells.length,
       agentCells: agentCellsCount,
       oneshotCells: oneshotCellsCount,
+      freeformCells: freeformCellsCount,
+      guidedCells: guidedCellsCount,
       modelsWithRuns: new Set(cells.map((c) => c.modelKey)).size,
       categoriesCovered: new Set(cells.map((c) => c.category)).size,
       promptsCovered: new Set(cells.map((c) => c.promptId)).size,
@@ -703,6 +754,10 @@ export function aggregateAllResults({ customWeights = null } = {}) {
     modeComparison: {
       byMode: summarizeCohort(byMode, 'mode'),
       pairedHeadToHead,
+    },
+    specComparison: {
+      bySpec: summarizeCohort(bySpec, 'spec'),
+      pairedSpecHeadToHead,
     },
     techObservatory: {
       byFramework: summarizeCohort(byFramework, 'framework'),

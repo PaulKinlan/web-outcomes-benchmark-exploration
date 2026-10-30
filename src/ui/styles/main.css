@@ -1492,3 +1492,176 @@ dialog::backdrop {
   border-radius: 4px;
   display: block;
 }
+
+/* Spec Mode Badges, Lighthouse Corpus Split Controls & Audit Cross-Check Modal */
+.spec-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.spec-guided {
+  background: var(--good-bg);
+  color: var(--good-ink);
+  border: 1px solid color-mix(in srgb, var(--good-ink) 32%, transparent);
+}
+
+.spec-freeform {
+  background: var(--bg-subtle);
+  color: var(--ink-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.lh-corpus-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.lh-audit-row {
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.lh-audit-row:hover {
+  background: var(--bg-subtle);
+}
+
+.lh-audit-title-btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--ink-primary);
+  text-align: left;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.lh-audit-title-btn:hover strong {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.lh-split-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.lh-split-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  padding: 12px 14px;
+}
+
+.lh-split-card h4 {
+  margin: 0 0 8px;
+  font-size: 0.84rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+
+.lh-split-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.82rem;
+}
+
+.lh-split-item:last-child {
+  border-bottom: none;
+}
+
+.lh-evidence-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.lh-evidence-list li {
+  font-family: var(--font-mono);
+  font-size: 0.73rem;
+  color: var(--ink-secondary);
+  background: var(--bg-subtle);
+  padding: 2px 6px;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+.preview-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.preview-mode-pills {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--bg-subtle);
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+}
+
+.preview-mode-pill {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  cursor: pointer;
+}
+
+.preview-mode-pill.active {
+  background: var(--bg-elevated);
+  color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.arena-ref-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.arena-ref-thumb {
+  width: 150px;
+  height: 94px;
+  object-fit: cover;
+  object-position: top center;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-subtle);
+}

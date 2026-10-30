@@ -23,6 +23,10 @@ import { aggregateAllResults, CELLS_ROOT, SUMMARY_OUT_PATH } from '../scoring/ag
 import { runBenchmarkJob } from '../runner/orchestrator.mjs';
 import { extractGeneratedFiles } from '../materialize/extract-files.mjs';
 import { startCellServer } from '../materialize/server-runner.mjs';
+import {
+  resolveCellStaticPreviewSource,
+  hasResolvableStaticPreview,
+} from '../materialize/static-mirror.mjs';
 
 const UI_DIR = join(PROJECT_ROOT, 'src', 'ui');
 
@@ -266,6 +270,7 @@ export async function startStudioServer({ port = null } = {}) {
           })),
           nodeVersion: process.version,
           config: loadBenchmarkConfig(),
+          designDoc: promptReg.designDoc || '',
           models: runtime.models.map((m) => ({
             key: m.key,
             label: m.label,
@@ -367,6 +372,7 @@ export async function startStudioServer({ port = null } = {}) {
           rawOutputPreview,
           hasPiTranscript: existsSync(join(cellDir, 'pi-transcript.html')),
           hasPiSession: existsSync(sessionPath),
+          hasStaticPreview: Boolean(materialization?.ok && hasResolvableStaticPreview(cellDir)),
           livePreviewUrl,
           benchmarks: {
             'tech-stack': readJsonOpt(join(cellDir, 'results', 'tech-stack.json')),
@@ -591,7 +597,8 @@ export async function startStudioServer({ port = null } = {}) {
           return;
         }
 
-        serveFileSafe(res, join(cellDir, 'dist'), subPath, true);
+        const fallbackSrc = resolveCellStaticPreviewSource(cellDir);
+        serveFileSafe(res, fallbackSrc?.dir || join(cellDir, 'dist'), subPath, true);
         return;
       }
 

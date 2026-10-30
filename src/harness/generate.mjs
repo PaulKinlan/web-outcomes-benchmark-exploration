@@ -5,6 +5,7 @@ import { resolvePiBin, getPiRuntimeInfo } from './pi-loader.mjs';
 import { buildPiCliEnv } from './pi-auth-bridge.mjs';
 import { resolveBridgeForProvider } from './provider-bridges.mjs';
 import { exportPiTranscriptHtml, saveTrajectorySummary } from './pi-transcript.mjs';
+import { loadDesignDoc } from '../registry/prompts.mjs';
 import { PROJECT_ROOT, sleep } from '../util/env.mjs';
 
 let cachedPiVersion = null;
@@ -50,28 +51,160 @@ export function normalizeHarnessMode(mode) {
   return 'agent';
 }
 
+export function normalizeSpecMode(spec) {
+  const s = String(spec || '').trim().toLowerCase();
+  if (s === 'guided' || s === 'reference' || s === 'seeded') return 'guided';
+  if (s === 'both' || s === 'all') return 'both';
+  return 'freeform';
+}
+
+export function buildCellId(modelKey, promptId, mode = 'agent', spec = 'freeform') {
+  const cleanMode = mode === 'agent' ? 'agent' : 'oneshot';
+  const cleanSpec = spec === 'guided' ? 'guided' : 'freeform';
+  return cleanSpec === 'guided'
+    ? `${modelKey}__${promptId}__${cleanMode}__guided`
+    : `${modelKey}__${promptId}__${cleanMode}`;
+}
+
+export function parseCellDirIdentity(dirName, generation = null) {
+  const raw = String(dirName || '');
+  const parts = raw.split('__');
+  if (parts.length >= 4 && parts[parts.length - 1] === 'guided') {
+    const modePart = parts[parts.length - 2];
+    return {
+      modelKey: generation?.modelKey || parts[0] || '',
+      promptId: generation?.promptId || parts.slice(1, parts.length - 2).join('__') || '',
+      mode: generation?.mode === 'agent' || modePart === 'agent' ? 'agent' : 'oneshot',
+      spec: 'guided',
+    };
+  }
+  const modePart = parts[2] || '';
+  return {
+    modelKey: generation?.modelKey || parts[0] || '',
+    promptId: generation?.promptId || parts[1] || '',
+    mode: generation?.mode === 'agent' || modePart === 'agent' || raw.endsWith('__agent') ? 'agent' : 'oneshot',
+    spec: generation?.spec === 'guided' || generation?.exactPrompt?.spec === 'guided' ? 'guided' : 'freeform',
+  };
+}
+
+function resolveReferenceImageList(refs) {
+  const arr = Array.isArray(refs) ? refs : [];
+  const resolved = [];
+  for (const r of arr) {
+    if (!r?.path) continue;
+    const abs = join(PROJECT_ROOT, r.path);
+    if (existsSync(abs) && statSync(abs).isFile()) {
+      const ext = extname(abs).toLowerCase();
+      const mimeType = IMAGE_MIME_MAP[ext] || 'image/jpeg';
+      resolved.push({ ...r, absPath: abs, filename: basename(abs), mimeType });
+    }
+  }
+  return resolved;
+}
+
+export function formatCanonicalSeedDataSection(seedData) {
+  if (!seedData || typeof seedData !== 'object') return '';
+  return [
+    '## Canonical Brand & Content Seed Data',
+    'Use the exact organization name, physical address, contact details, pricing, and starter records below so domain content is consistent across implementations:',
+    '```json',
+    JSON.stringify(seedData, null, 2),
+    '```',
+  ].join('\n');
+}
+
+export function composeSpecPromptMaterials({ promptEntry, spec = 'freeform', config = {}, designDoc = null }) {
+  const cleanSpec = spec === 'guided' ? 'guided' : 'freeform';
+  const basePrompt = promptEntry?.prompt || '';
+  const visualInstruction =
+    config.generation?.visualReferenceInstruction ||
+    'Use the attached reference layout image as a reference for the proposed page layout, visual hierarchy, color palette, and component styling while implementing all requested functionality.';
+
+  if (cleanSpec === 'freeform') {
+    const resolvedRefImages = resolveReferenceImageList(promptEntry?.referenceImages || []);
+    const visualSuffix = resolvedRefImages.length > 0 ? `\n\n${visualInstruction}` : '';
+    return {
+      spec: 'freeform',
+      basePrompt,
+      composedUserPrompt: `${basePrompt}${visualSuffix}`,
+      resolvedRefImages,
+      seedData: null,
+      designDocText: null,
+    };
+  }
+
+  // cleanSpec === 'guided'
+  const candidateRefs =
+    Array.isArray(promptEntry?.referenceImages) && promptEntry.referenceImages.length > 0
+      ? promptEntry.referenceImages
+      : Array.isArray(promptEntry?.guidedReferenceImages) && promptEntry.guidedReferenceImages.length > 0
+        ? promptEntry.guidedReferenceImages
+        : promptEntry?.id
+          ? [
+              {
+                path: `assets/reference-images/${promptEntry.id}.jpg`,
+                label: `${promptEntry.title || promptEntry.id} — Proposed Desktop Layout Reference`,
+              },
+            ]
+          : [];
+
+  const resolvedRefImages = resolveReferenceImageList(candidateRefs);
+  const effectiveDesignDoc = (designDoc ?? loadDesignDoc() ?? '').trim();
+  const seedData = promptEntry?.seedData || null;
+
+  const sections = [basePrompt];
+  if (resolvedRefImages.length > 0) {
+    sections.push(visualInstruction);
+  }
+  if (seedData) {
+    sections.push(formatCanonicalSeedDataSection(seedData));
+  }
+  if (effectiveDesignDoc) {
+    sections.push(effectiveDesignDoc);
+  }
+
+  return {
+    spec: 'guided',
+    basePrompt,
+    composedUserPrompt: sections.filter(Boolean).join('\n\n'),
+    resolvedRefImages,
+    seedData,
+    designDocText: effectiveDesignDoc || null,
+  };
+}
+
 export function buildCanonicalPromptAndEnvMetadata(gen = {}, promptEntry = null, config = {}) {
   const mode = gen?.mode === 'agent' ? 'agent' : 'oneshot';
-  const userPrompt = gen?.exactPrompt?.userPrompt || promptEntry?.prompt || '';
-  const refImages = gen?.exactPrompt?.referenceImages || promptEntry?.referenceImages || [];
-  const visualNote =
-    refImages.length > 0 ? `\n\n${config.generation?.visualReferenceInstruction || ''}` : '';
+  const spec = gen?.spec === 'guided' || gen?.exactPrompt?.spec === 'guided' ? 'guided' : 'freeform';
+  const materials = composeSpecPromptMaterials({ promptEntry, spec, config });
+
+  const userPrompt = gen?.exactPrompt?.userPrompt || materials.basePrompt || promptEntry?.prompt || '';
+  const refImages =
+    gen?.exactPrompt?.referenceImages ||
+    materials.resolvedRefImages.map(({ path, label, caption }) => ({ path, label, caption }));
+  const seedData = gen?.exactPrompt?.seedData ?? (spec === 'guided' ? materials.seedData : null);
+  const hasDesignDoc = Boolean(gen?.exactPrompt?.hasDesignDoc ?? (spec === 'guided' && materials.designDocText));
 
   if (mode === 'agent') {
     const contract = gen?.exactPrompt?.workspaceContract ?? config.generation?.agentWorkspaceContract ?? '';
     const fullDispatchedPrompt =
-      gen?.exactPrompt?.fullDispatchedPrompt || `${userPrompt}${visualNote}\n\n---\n${contract}`;
+      gen?.exactPrompt?.fullDispatchedPrompt || `${materials.composedUserPrompt}\n\n---\n${contract}`;
     return {
       exactPrompt: {
         mode: 'agent',
+        spec,
         userPrompt,
         systemPrompt: '(pi default coding-agent system prompt — zero custom overrides)',
         workspaceContract: contract,
         fullDispatchedPrompt,
         referenceImages: refImages,
+        seedData,
+        hasDesignDoc,
+        designDoc: spec === 'guided' ? materials.designDocText : null,
       },
       harnessEnvironment: gen?.harnessEnvironment || {
         mode: 'agent',
+        spec,
         piVersion: detectPiVersion(),
         isolationFlags: [
           '-p',
@@ -93,17 +226,23 @@ export function buildCanonicalPromptAndEnvMetadata(gen = {}, promptEntry = null,
   }
 
   const systemPrompt = gen?.exactPrompt?.systemPrompt ?? config.generation?.neutralSystemPrompt ?? '';
+  const fullDispatchedPrompt = gen?.exactPrompt?.fullDispatchedPrompt || materials.composedUserPrompt;
   return {
     exactPrompt: {
       mode: 'oneshot',
+      spec,
       userPrompt,
       systemPrompt,
       workspaceContract: null,
-      fullDispatchedPrompt: `${userPrompt}${visualNote}`,
+      fullDispatchedPrompt,
       referenceImages: refImages,
+      seedData,
+      hasDesignDoc,
+      designDoc: spec === 'guided' ? materials.designDocText : null,
     },
     harnessEnvironment: gen?.harnessEnvironment || {
       mode: 'oneshot',
+      spec,
       piVersion: detectPiVersion(),
       isolationFlags: ONESHOT_CLI_CLEAN_ROOM_FLAGS,
       skillsLoaded: 0,
@@ -173,7 +312,6 @@ function runPiCli(args, { cwd, env, timeoutMs = 420000 } = {}) {
     });
     child.on('close', async (code) => {
       clearTimeout(timer);
-      // Reap any stray background processes spawned inside the agent's process group
       await killProcessGroupSafe(child.pid);
       resolve({
         code,
@@ -252,28 +390,10 @@ export function listWorkspaceFiles(dir, base = dir) {
   return results;
 }
 
-function resolveReferenceImageFiles(promptEntry) {
-  const refs = Array.isArray(promptEntry?.referenceImages) ? promptEntry.referenceImages : [];
-  const resolved = [];
-  for (const r of refs) {
-    if (!r?.path) continue;
-    const abs = join(PROJECT_ROOT, r.path);
-    if (existsSync(abs) && statSync(abs).isFile()) {
-      const ext = extname(abs).toLowerCase();
-      const mimeType = IMAGE_MIME_MAP[ext] || 'image/png';
-      resolved.push({ ...r, absPath: abs, filename: basename(abs), mimeType });
-    }
-  }
-  return resolved;
-}
-
 /**
- * Generates a website for one (model x prompt x mode) cell using either:
- *  - mode="agent" (PRIMARY DEFAULT): Goal-oriented autonomous `pi` coding loop with thinking + core tools
- *    in a strict clean-room (`--no-skills --no-extensions --no-prompt-templates --no-themes --no-context-files`),
- *    building a realistic multi-route web app + real backend server on $PORT and saving
- *    both `pi-session.jsonl`, `pi-transcript.html`, and `trajectory.json`.
- *  - mode="oneshot": Zero-tool single-shot @earendil-works/pi-ai completion returning one self-contained HTML document.
+ * Generates a website for one (model x prompt x mode x spec) cell:
+ *  - spec="freeform": Open 1-sentence functional prompt only (unconstrained layout & content defaults)
+ *  - spec="guided": Attaches gemini-nano-banana-2.1 layout reference image + canonical seedData + prompts/design.md
  */
 export async function generateWebsite({
   runtime,
@@ -282,9 +402,12 @@ export async function generateWebsite({
   cellDir,
   config,
   mode = config.generation.defaultMode || 'agent',
+  spec = config.generation.defaultSpec || 'freeform',
+  designDoc = null,
   onProgress = () => {},
 }) {
   const normalizedMode = normalizeHarnessMode(mode);
+  const normalizedSpec = spec === 'guided' ? 'guided' : 'freeform';
   mkdirSync(cellDir, { recursive: true });
   const route = modelEntry.activeRoute;
   if (!route) {
@@ -293,9 +416,13 @@ export async function generateWebsite({
 
   const startedAt = new Date().toISOString();
   const t0 = performance.now();
-  const resolvedRefImages = resolveReferenceImageFiles(promptEntry);
-  const visualPromptSuffix =
-    resolvedRefImages.length > 0 ? `\n\n${config.generation.visualReferenceInstruction || ''}` : '';
+  const materials = composeSpecPromptMaterials({
+    promptEntry,
+    spec: normalizedSpec,
+    config,
+    designDoc,
+  });
+  const { resolvedRefImages, composedUserPrompt, seedData, designDocText } = materials;
 
   if (normalizedMode === 'agent') {
     const workspaceDir = join(cellDir, 'agent-workspace');
@@ -303,7 +430,6 @@ export async function generateWebsite({
     const transcriptHtmlPath = join(cellDir, 'pi-transcript.html');
     const trajectoryJsonPath = join(cellDir, 'trajectory.json');
 
-    // Clean any prior workspace/session so --force starts from a pristine zero-bias directory
     rmSync(workspaceDir, { recursive: true, force: true });
     rmSync(sessionPath, { force: true });
     rmSync(transcriptHtmlPath, { force: true });
@@ -311,12 +437,20 @@ export async function generateWebsite({
     mkdirSync(workspaceDir, { recursive: true });
 
     const piFileAttachments = [];
-    if (resolvedRefImages.length > 0) {
+    if (resolvedRefImages.length > 0 || normalizedSpec === 'guided') {
       const refDir = join(workspaceDir, '.bench-reference');
       mkdirSync(refDir, { recursive: true });
       for (const img of resolvedRefImages) {
         cpSync(img.absPath, join(refDir, img.filename));
         piFileAttachments.push(`@.bench-reference/${img.filename}`);
+      }
+      if (normalizedSpec === 'guided') {
+        if (designDocText) {
+          writeFileSync(join(refDir, 'design.md'), designDocText + '\n', 'utf8');
+        }
+        if (seedData) {
+          writeFileSync(join(refDir, 'seed-data.json'), JSON.stringify(seedData, null, 2) + '\n', 'utf8');
+        }
       }
     }
 
@@ -327,11 +461,11 @@ export async function generateWebsite({
 
     onProgress({
       stage: 'generating',
-      detail: `Running clean-room pi agent loop (${route.provider}/${route.modelId}, thinking=${thinkingLevel}${activeBridge ? `, bridge=${activeBridge.id}` : ', 0 skills/extensions'})`,
+      detail: `Running clean-room pi agent loop (${route.provider}/${route.modelId}, spec=${normalizedSpec}, thinking=${thinkingLevel}${activeBridge ? `, bridge=${activeBridge.id}` : ', 0 skills/extensions'})`,
     });
 
     const contract = config.generation.agentWorkspaceContract || '';
-    const agentPrompt = `${promptEntry.prompt}${visualPromptSuffix}\n\n---\n${contract}`;
+    const agentPrompt = `${composedUserPrompt}\n\n---\n${contract}`;
 
     const cliArgs = [
       '-p',
@@ -353,15 +487,19 @@ export async function generateWebsite({
 
     const exactPrompt = {
       mode: 'agent',
+      spec: normalizedSpec,
       userPrompt: promptEntry.prompt,
       systemPrompt: '(pi default coding-agent system prompt — zero custom overrides)',
       workspaceContract: contract,
       fullDispatchedPrompt: agentPrompt,
       referenceImages: resolvedRefImages.map(({ path, label, caption }) => ({ path, label, caption })),
+      seedData: normalizedSpec === 'guided' ? seedData : null,
+      hasDesignDoc: Boolean(normalizedSpec === 'guided' && designDocText),
     };
 
     const harnessEnvironment = {
       mode: 'agent',
+      spec: normalizedSpec,
       piVersion: piInfo.version || detectPiVersion(),
       piSource: piInfo.source,
       piPortable: piInfo.portable,
@@ -404,7 +542,6 @@ export async function generateWebsite({
       const rawText = res.stdout || '';
       writeFileSync(join(cellDir, 'raw-output.md'), rawText, 'utf8');
 
-      // Parse structured trajectory metrics & export interactive HTML session viewer
       const trajectory = saveTrajectorySummary(sessionPath, trajectoryJsonPath);
       const hasTranscriptHtml = await exportPiTranscriptHtml(sessionPath, transcriptHtmlPath);
 
@@ -415,6 +552,7 @@ export async function generateWebsite({
         promptId: promptEntry.id,
         category: promptEntry.category,
         mode: 'agent',
+        spec: normalizedSpec,
         provider: route.provider,
         modelId: route.modelId,
         via: route.via,
@@ -439,7 +577,6 @@ export async function generateWebsite({
       writeFileSync(join(cellDir, 'generation.json'), JSON.stringify(meta, null, 2) + '\n', 'utf8');
       return meta;
     } catch (err) {
-      // Still salvage partial session transcript if pi timed out mid-loop!
       const createdFiles = listWorkspaceFiles(workspaceDir);
       const trajectory = saveTrajectorySummary(sessionPath, trajectoryJsonPath);
       const hasTranscriptHtml = await exportPiTranscriptHtml(sessionPath, transcriptHtmlPath);
@@ -452,6 +589,7 @@ export async function generateWebsite({
         promptId: promptEntry.id,
         category: promptEntry.category,
         mode: 'agent',
+        spec: normalizedSpec,
         provider: route.provider,
         modelId: route.modelId,
         via: route.via,
@@ -481,19 +619,23 @@ export async function generateWebsite({
 
   // normalizedMode === "oneshot"
   const systemPrompt = config.generation.neutralSystemPrompt;
-  const dispatchedUserText = `${promptEntry.prompt}${visualPromptSuffix}`;
+  const dispatchedUserText = composedUserPrompt;
   const exactPrompt = {
     mode: 'oneshot',
+    spec: normalizedSpec,
     userPrompt: promptEntry.prompt,
     systemPrompt,
     workspaceContract: null,
     fullDispatchedPrompt: dispatchedUserText,
     referenceImages: resolvedRefImages.map(({ path, label, caption }) => ({ path, label, caption })),
+    seedData: normalizedSpec === 'guided' ? seedData : null,
+    hasDesignDoc: Boolean(normalizedSpec === 'guided' && designDocText),
   };
   const piInfo = getPiRuntimeInfo();
   const activeBridge = route.transport === 'pi-cli' ? resolveBridgeForProvider(route.provider) : null;
   const harnessEnvironment = {
     mode: 'oneshot',
+    spec: normalizedSpec,
     piVersion: piInfo.version || detectPiVersion(),
     piSource: piInfo.source,
     piPortable: piInfo.portable,
@@ -523,7 +665,10 @@ export async function generateWebsite({
 
   if (route.transport === 'pi-cli') {
     const childEnv = await buildPiCliEnv(runtime, route.provider);
-    onProgress({ stage: 'generating', detail: `Calling clean-room 1-shot ${route.provider}/${route.modelId} via pi --no-tools` });
+    onProgress({
+      stage: 'generating',
+      detail: `Calling clean-room 1-shot ${route.provider}/${route.modelId} (spec=${normalizedSpec}) via pi --no-tools`,
+    });
     const fileArgs = resolvedRefImages.map((img) => `@${img.absPath}`);
     const res = await runPiCli(
       [
@@ -554,6 +699,7 @@ export async function generateWebsite({
       promptId: promptEntry.id,
       category: promptEntry.category,
       mode: 'oneshot',
+      spec: normalizedSpec,
       provider: route.provider,
       modelId: route.modelId,
       via: route.via,
@@ -574,7 +720,10 @@ export async function generateWebsite({
   }
 
   // Direct @earendil-works/pi-ai streamSimple call
-  onProgress({ stage: 'generating', detail: `Streaming clean-room 1-shot ${route.provider}/${route.modelId} via pi-ai` });
+  onProgress({
+    stage: 'generating',
+    detail: `Streaming clean-room 1-shot ${route.provider}/${route.modelId} (spec=${normalizedSpec}) via pi-ai`,
+  });
   const maxTokens = Math.min(config.generation.maxTokens || 32768, route.piModel.maxTokens || 32768);
   const modelSupportsVision = Array.isArray(route.piModel?.input) && route.piModel.input.includes('image');
 
@@ -647,6 +796,7 @@ export async function generateWebsite({
       promptId: promptEntry.id,
       category: promptEntry.category,
       mode: 'oneshot',
+      spec: normalizedSpec,
       provider: route.provider,
       modelId: route.modelId,
       via: route.via,
@@ -677,6 +827,7 @@ export async function generateWebsite({
       promptId: promptEntry.id,
       category: promptEntry.category,
       mode: 'oneshot',
+      spec: normalizedSpec,
       provider: route.provider,
       modelId: route.modelId,
       via: route.via,

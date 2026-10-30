@@ -15,8 +15,62 @@ import { loadPromptRegistry } from '../registry/prompts.mjs';
 import { loadModelRegistryConfig } from '../harness/model-registry.mjs';
 import { buildCanonicalPromptAndEnvMetadata, detectPiVersion } from '../harness/generate.mjs';
 import { parsePiSessionTimeline } from '../harness/pi-transcript.mjs';
+import { extractGeneratedFiles } from '../materialize/extract-files.mjs';
+import {
+  resolveCellStaticPreviewSource,
+  prepareExportedStaticPreview,
+} from '../materialize/static-mirror.mjs';
 import { BENCHMARK_PLUGINS } from '../benchmarks/registry.mjs';
 import { aggregateAllResults, CELLS_ROOT } from '../scoring/aggregate.mjs';
+
+function collectCompactSourceFiles(cellDir) {
+  const extractedDir = join(cellDir, 'extracted');
+  const out = [];
+  if (existsSync(extractedDir)) {
+    const walk = (d, base = d) => {
+      for (const f of readdirSync(d)) {
+        if (out.length >= 16) return;
+        if (f === 'node_modules' || f === '.git' || f === '.bench-reference') continue;
+        const full = join(d, f);
+        let st;
+        try {
+          st = statSync(full);
+        } catch {
+          continue;
+        }
+        if (st.isDirectory()) walk(full, base);
+        else if (st.size <= 160_000 && !f.endsWith('package-lock.json')) {
+          try {
+            out.push({
+              path: full.slice(base.length + 1),
+              content: readFileSync(full, 'utf8').slice(0, 24000),
+            });
+          } catch {
+            // ignore binary/unreadable file
+          }
+        }
+      }
+    };
+    walk(extractedDir);
+    return out;
+  }
+
+  if (existsSync(join(cellDir, 'agent-workspace'))) {
+    try {
+      const wsExtracted = extractGeneratedFiles({ cellDir });
+      return (wsExtracted.files || [])
+        .filter((f) => !f.path.endsWith('package-lock.json') && !f.path.endsWith('pnpm-lock.yaml'))
+        .slice(0, 16)
+        .map((f) => ({
+          path: f.path,
+          content: String(f.content || '').slice(0, 24000),
+        }));
+    } catch {
+      return [];
+    }
+  }
+  return out;
+}
 
 export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
   mkdirSync(outDir, { recursive: true });
@@ -38,8 +92,9 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
   const promptReg = loadPromptRegistry();
   const modelReg = loadModelRegistryConfig();
   const summary = aggregateAllResults();
+  const exportedPreviewCells = new Set();
 
-  // Copy per-cell screenshots, dist previews, uplift scorecards, and compact cell details
+  // Copy per-cell screenshots, static previews, uplift scorecards, and compact cell details
   const apiCellsDir = join(outDir, 'api-static', 'cells');
   mkdirSync(apiCellsDir, { recursive: true });
 
@@ -48,7 +103,6 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
       const cellDir = join(CELLS_ROOT, cellId);
       if (!statSync(cellDir).isDirectory()) continue;
 
-      // Copy screenshots + scorecard
       for (const sub of ['screenshots', 'uplift']) {
         const srcSub = join(cellDir, sub);
         if (existsSync(srcSub)) {
@@ -61,7 +115,6 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
         }
       }
 
-      // Copy self-contained pi session HTML transcript if present
       const srcTranscript = join(cellDir, 'pi-transcript.html');
       if (existsSync(srcTranscript)) {
         const destCellArtifacts = join(outDir, 'artifacts', cellId);
@@ -69,36 +122,20 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
         cpSync(srcTranscript, join(destCellArtifacts, 'pi-transcript.html'));
       }
 
-      // Copy built site preview (`dist/`) and add opaque-sandbox storage shim ONLY in static export
-      const srcDist = join(cellDir, 'dist');
-      if (existsSync(srcDist)) {
+      const readOpt = (p) => (existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null);
+      const materialization = readOpt(join(cellDir, 'materialization.json'));
+      const previewSource = materialization?.ok ? resolveCellStaticPreviewSource(cellDir) : null;
+      let hasStaticPreview = false;
+
+      if (previewSource) {
         const destPreview = join(outDir, 'preview', cellId);
-        mkdirSync(destPreview, { recursive: true });
-        cpSync(srcDist, destPreview, {
-          recursive: true,
-          filter: (p) => !p.includes('node_modules') && !p.includes('.git'),
-        });
-        const shim = `<script>(function(){try{window.localStorage.length}catch(e){var mk=function(){var s=Object.create(null);return{getItem:function(k){return Object.prototype.hasOwnProperty.call(s,k)?s[k]:null},setItem:function(k,v){s[String(k)]=String(v)},removeItem:function(k){delete s[k]},clear:function(){s=Object.create(null)},key:function(i){return Object.keys(s)[i]||null},get length(){return Object.keys(s).length}}};try{Object.defineProperty(window,'localStorage',{value:mk(),configurable:true});Object.defineProperty(window,'sessionStorage',{value:mk(),configurable:true})}catch(_){}}})();</script>`;
-        const patchHtmlFiles = (dir) => {
-          for (const entry of readdirSync(dir)) {
-            const p = join(dir, entry);
-            if (statSync(p).isDirectory()) patchHtmlFiles(p);
-            else if (entry.endsWith('.html')) {
-              const html = readFileSync(p, 'utf8');
-              if (!html.includes('Object.defineProperty(window,\'localStorage\'')) {
-                const patched = /<head[^>]*>/i.test(html)
-                  ? html.replace(/<head[^>]*>/i, (m) => `${m}\n${shim}`)
-                  : `${shim}\n${html}`;
-                writeFileSync(p, patched, 'utf8');
-              }
-            }
-          }
-        };
-        patchHtmlFiles(destPreview);
+        prepareExportedStaticPreview(previewSource.dir, destPreview);
+        if (existsSync(join(destPreview, 'index.html'))) {
+          hasStaticPreview = true;
+          exportedPreviewCells.add(cellId);
+        }
       }
 
-      // Write static cell detail JSON
-      const readOpt = (p) => (existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null);
       const gen = readOpt(join(cellDir, 'generation.json'));
       const promptEntry = promptReg.prompts.find((p) => p.id === gen?.promptId) || null;
       const { exactPrompt, harnessEnvironment } = buildCanonicalPromptAndEnvMetadata(gen, promptEntry, config);
@@ -117,7 +154,9 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
           generation: gen,
           exactPrompt,
           harnessEnvironment,
-          materialization: readOpt(join(cellDir, 'materialization.json')),
+          materialization,
+          hasStaticPreview,
+          staticPreviewSource: previewSource?.source || null,
           auditTelemetry: readOpt(join(cellDir, 'audit-telemetry.json')),
           compiledFlow: readOpt(join(cellDir, 'compiled-flow.json')),
           trajectory: readOpt(join(cellDir, 'trajectory.json')),
@@ -131,11 +170,15 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
             'deep-perf': readOpt(join(cellDir, 'results', 'deep-perf.json')),
             memory: readOpt(join(cellDir, 'results', 'memory.json')),
           },
-          extractedFiles: [],
+          extractedFiles: collectCompactSourceFiles(cellDir),
         }),
         'utf8'
       );
     }
+  }
+
+  for (const c of summary.cells || []) {
+    c.hasStaticPreview = exportedPreviewCells.has(c.cellId);
   }
 
   const refAssetsDir = join(PROJECT_ROOT, 'assets', 'reference-images');
@@ -145,7 +188,6 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
     cpSync(refAssetsDir, outRefDir, { recursive: true });
   }
 
-  // Write static state snapshot consumed automatically by app.js when /api/state is absent
   mkdirSync(join(outDir, 'api-static'), { recursive: true });
   writeFileSync(
     join(outDir, 'api-static', 'state.json'),
@@ -156,6 +198,7 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
       providerBridges: summary.environment?.providerBridges || [],
       nodeVersion: process.version,
       config,
+      designDoc: promptReg.designDoc || '',
       models: modelReg.models.map((m) => ({
         key: m.key,
         label: m.label,
@@ -174,10 +217,16 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
   );
   writeFileSync(join(outDir, '.nojekyll'), '', 'utf8');
 
-  return { outDir, cellCount: summary.totals.cells };
+  return {
+    outDir,
+    cellCount: summary.totals.cells,
+    previewCount: exportedPreviewCells.size,
+  };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const res = exportStaticReport();
-  console.log(`[export] Exported standalone static report (${res.cellCount} cells) -> ${res.outDir}`);
+  console.log(
+    `[export] Exported standalone static report (${res.cellCount} cells, ${res.previewCount} hosted previews) -> ${res.outDir}`
+  );
 }

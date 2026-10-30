@@ -2,11 +2,17 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { loadBenchmarkConfig, PROJECT_ROOT } from '../util/env.mjs';
-import { selectPrompts } from '../registry/prompts.mjs';
+import { selectPrompts, loadDesignDoc } from '../registry/prompts.mjs';
 import { initializeModelRuntime, selectModels } from '../harness/model-registry.mjs';
-import { generateWebsite, normalizeHarnessMode } from '../harness/generate.mjs';
+import {
+  generateWebsite,
+  normalizeHarnessMode,
+  normalizeSpecMode,
+  buildCellId,
+} from '../harness/generate.mjs';
 import { extractGeneratedFiles } from '../materialize/extract-files.mjs';
 import { prepareCellRuntime, startCellServer } from '../materialize/server-runner.mjs';
+import { captureStaticPreviewMirror } from '../materialize/static-mirror.mjs';
 import { compileCanonicalFlow } from '../flows/compile-flow.mjs';
 import { selectBenchmarks } from '../benchmarks/registry.mjs';
 import { withTimeout, killAllActiveChromes } from '../benchmarks/cdp-helpers.mjs';
@@ -23,8 +29,8 @@ export function normalizePipelineStage(stage) {
 function extractPrimaryBenchScore(benchId, resultObj) {
   if (!resultObj || typeof resultObj !== 'object') return 0;
   if (benchId === 'lighthouse-uplift') {
-    const lh = resultObj.lighthouse?.performanceScore ?? 0;
-    const up = resultObj.uplift?.overallScore ?? 0;
+    const lh = resultObj.lighthouse?.performanceScore ?? resultObj.lighthouse?.compositeScore ?? 0;
+    const up = resultObj.uplift?.overallScore ?? resultObj.uplift?.overall ?? 0;
     return (lh + up) / 2;
   }
   if (typeof resultObj.score === 'number') return resultObj.score;
@@ -33,12 +39,7 @@ function extractPrimaryBenchScore(benchId, resultObj) {
 }
 
 /**
- * Runs a configurable matrix slice of [models x prompts x modes x benchmarks].
- * Supports:
- *   - stage="all" (default): Stage 1 generation + Canary + Stage 2 serialized browser audits
- *   - stage="generate": Stage 1 LLM generation ONLY (zero Chrome needed; ideal for cloud CPU workers)
- *   - stage="audit": Canary + Stage 2 materialization & browser audits on existing generations
- *   - auditRuns=N: Median-of-N browser audit passes per cell to eliminate VM scheduling jitter
+ * Runs a configurable matrix slice of [models x prompts x modes x specs x benchmarks].
  */
 export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()) {
   const {
@@ -48,6 +49,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
     benchmarkIds = null,
     pilot = false,
     mode = null,
+    spec = null,
     stage: rawStage = 'all',
     auditRuns: rawAuditRuns = 1,
     skipCanary = false,
@@ -62,8 +64,11 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
   const auditRuns = Math.max(1, Math.min(7, Number(rawAuditRuns) || 1));
 
   const config = loadBenchmarkConfig();
+  const designDoc = loadDesignDoc();
   const requestedMode = normalizeHarnessMode(mode || config.generation.defaultMode || 'agent');
   const modesToRun = requestedMode === 'both' ? ['agent', 'oneshot'] : [requestedMode];
+  const requestedSpec = normalizeSpecMode(spec || config.generation.defaultSpec || 'freeform');
+  const specsToRun = requestedSpec === 'both' ? ['freeform', 'guided'] : [requestedSpec];
 
   const runtime = await initializeModelRuntime();
   const prompts = selectPrompts({ ids: promptIds, categories, pilot });
@@ -75,7 +80,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
   const benchmarks = selectBenchmarks(benchmarkIds);
 
   const jobId = `job-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-  const totalCells = models.length * prompts.length * modesToRun.length;
+  const totalCells = models.length * prompts.length * modesToRun.length * specsToRun.length;
 
   emitter.emit('job:start', {
     jobId,
@@ -83,6 +88,8 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
     auditRuns,
     mode: requestedMode,
     modes: modesToRun,
+    spec: requestedSpec,
+    specs: specsToRun,
     models: models.map((m) => m.key),
     skippedModels: skippedModels.map((m) => ({ key: m.key, missingProviders: m.missingProviders })),
     unknownModels: unknownKeys,
@@ -102,17 +109,20 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
   let failedCells = 0;
 
   const cellQueue = [];
-  for (const cellMode of modesToRun) {
-    for (const modelEntry of models) {
-      for (const promptEntry of prompts) {
-        const cellId = `${modelEntry.key}__${promptEntry.id}__${cellMode}`;
-        cellQueue.push({
-          cellId,
-          cellDir: join(CELLS_ROOT, cellId),
-          cellMode,
-          modelEntry,
-          promptEntry,
-        });
+  for (const cellSpec of specsToRun) {
+    for (const cellMode of modesToRun) {
+      for (const modelEntry of models) {
+        for (const promptEntry of prompts) {
+          const cellId = buildCellId(modelEntry.key, promptEntry.id, cellMode, cellSpec);
+          cellQueue.push({
+            cellId,
+            cellDir: join(CELLS_ROOT, cellId),
+            cellMode,
+            cellSpec,
+            modelEntry,
+            promptEntry,
+          });
+        }
       }
     }
   }
@@ -131,7 +141,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
     while (nextIdx < cellQueue.length) {
       if (signal?.aborted) return;
       const item = cellQueue[nextIdx++];
-      const { cellId, cellDir, cellMode, modelEntry, promptEntry } = item;
+      const { cellId, cellDir, cellMode, cellSpec, modelEntry, promptEntry } = item;
       const genJsonPath = join(cellDir, 'generation.json');
 
       let hasExistingGen = false;
@@ -153,7 +163,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
           jobId,
           cellId,
           stage: 'generating',
-          detail: `Reusing cached ${cellMode} generation output`,
+          detail: `Reusing cached ${cellMode} (${cellSpec}) generation output`,
         });
         item.generation = JSON.parse(readFileSync(genJsonPath, 'utf8'));
       } else if (reuseGeneration && !hasExistingGen) {
@@ -165,6 +175,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
           modelKey: modelEntry.key,
           promptId: promptEntry.id,
           mode: cellMode,
+          spec: cellSpec,
         });
         item.generation = await generateWebsite({
           runtime,
@@ -173,6 +184,8 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
           cellDir,
           config,
           mode: cellMode,
+          spec: cellSpec,
+          designDoc,
           onProgress: (p) => emitter.emit('cell:stage', { jobId, cellId, ...p }),
         });
       }
@@ -181,7 +194,6 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
 
   await Promise.all(Array.from({ length: Math.min(genConcurrency, cellQueue.length) }, () => generationWorker()));
 
-  // If stage === 'generate', finish cleanly without launching Chrome or running audits!
   if (pipelineStage === 'generate') {
     for (const item of cellQueue) {
       if (item.skippedNoGeneration) continue;
@@ -200,7 +212,15 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
     writeFileSync(
       join(jobsDir, `${jobId}.json`),
       JSON.stringify(
-        { jobId, stage: pipelineStage, mode: requestedMode, completedCells, failedCells, finishedAt: new Date().toISOString() },
+        {
+          jobId,
+          stage: pipelineStage,
+          mode: requestedMode,
+          spec: requestedSpec,
+          completedCells,
+          failedCells,
+          finishedAt: new Date().toISOString(),
+        },
         null,
         2
       ) + '\n',
@@ -324,6 +344,17 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
             });
             serverHandle = await startCellServer({ cellDir, materialization, timeoutMs: 15000 });
             phasesMs.serverBootMs = Math.round(performance.now() - tBoot0);
+          }
+
+          // Capture a self-contained static mirror + GET /api/* seed snapshot before journey mutations
+          // so GitHub Pages static reports can host interactive previews for full-stack $PORT servers!
+          if (materialization.serverArchitecture === 'production-server' || !existsSync(join(cellDir, 'dist', 'index.html'))) {
+            await captureStaticPreviewMirror({
+              serverUrl: serverHandle.url,
+              cellDir,
+              materialization,
+              timeoutMs: 7000,
+            }).catch(() => {});
           }
 
           const tFlow0 = performance.now();
@@ -516,6 +547,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
         auditRuns,
         canaryStatus: canary?.status || null,
         mode: requestedMode,
+        spec: requestedSpec,
         completedCells,
         failedCells,
         durationMs: jobDurationMs,

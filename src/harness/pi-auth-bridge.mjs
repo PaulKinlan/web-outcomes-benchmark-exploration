@@ -109,6 +109,14 @@ export async function buildPiCliEnv(runtime, providerId) {
   }
 
   const targetVar = CANONICAL_PI_ENV[providerId];
+  if (targetVar && !childEnv[targetVar]) {
+    for (const aliasVar of ENV_KEY_MAP[providerId] || []) {
+      if (childEnv[aliasVar] && String(childEnv[aliasVar]).trim()) {
+        childEnv[targetVar] = String(childEnv[aliasVar]).trim();
+        break;
+      }
+    }
+  }
   if (targetVar && !childEnv[targetVar] && runtime?.credentials) {
     try {
       const cred = await runtime.credentials.read(providerId);

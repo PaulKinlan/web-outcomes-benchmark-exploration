@@ -3,6 +3,7 @@
   "studioPort": 4321,
   "generation": {
     "defaultMode": "agent",
+    "defaultSpec": "freeform",
     "agentConcurrency": 2,
     "oneshotConcurrency": 3,
     "thinkingLevel": "low",
@@ -11,7 +12,7 @@
     "agentTimeoutMs": 600000,
     "agentWorkspaceContract": "Build this as a complete, realistic multi-page or multi-route web application in the current directory with a real HTTP backend server and a seeded local data store so all user flows, forms, authentication, and state changes persist across page reloads.\n\nDeployment contract (required):\n1. Write `.bench-runtime.json` in the workspace root with JSON fields:\n   {\n     \"buildCommand\": \"<production build command, or empty string if none>\",\n     \"startCommand\": \"<command that starts the production server bound to 127.0.0.1 using the PORT environment variable>\",\n     \"healthPath\": \"/\"\n   }\n   (Alternatively, provide an executable `./start.sh` that honors `$PORT`.)\n2. Run your build and verify your production server actually boots on a temporary free port and returns HTTP 200 on key routes and APIs before finishing.\n3. Stop any test server processes you started before completing your turn.",
     "neutralSystemPrompt": "Generate the complete, working source code for the requested website as one self-contained HTML document with all markup, styling, and scripts inline so no separate local asset files are required. Return only the code block without prose explanations outside the code block.",
-    "visualReferenceInstruction": "Match the layout hierarchy, visual tone, color palette, and component styling shown in the attached reference image(s) while implementing all requested functionality."
+    "visualReferenceInstruction": "Use the attached reference layout image as a reference for the proposed page layout, visual hierarchy, color palette, and component styling while implementing all requested functionality."
   },
   "cleanRoomEnvironment": {
     "harness": "pi CLI (agent mode) / @earendil-works/pi-ai (oneshot mode)",

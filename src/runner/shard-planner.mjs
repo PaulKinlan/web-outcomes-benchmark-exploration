@@ -20,7 +20,7 @@ function chunkArray(items, chunkSize) {
 
 /**
  * Dynamically plans parallel Generate and Audit task shards for CI / multi-VM execution.
- * Scales shard counts automatically with (models × modes × prompts × auditRuns) while
+ * Scales shard counts automatically with (models × modes × specs × prompts × auditRuns) while
  * staying safely below GitHub Actions' 256-job matrix ceiling.
  */
 export function planWorkflowShards({
@@ -28,6 +28,7 @@ export function planWorkflowShards({
   promptScope = 'pilot',
   customPromptsRaw = '',
   mode = 'agent',
+  spec = 'freeform',
   auditRuns = 1,
   reuseGenerationRunId = '',
   maxGenerateShards = 120,
@@ -63,74 +64,85 @@ export function planWorkflowShards({
   }
 
   const normalizedMode = String(mode || 'agent').trim().toLowerCase();
-  const modes = normalizedMode === 'both' ? ['agent', 'oneshot'] : [normalizedMode === 'oneshot' ? 'oneshot' : 'agent'];
+  const modes =
+    normalizedMode === 'both' ? ['agent', 'oneshot'] : [normalizedMode === 'oneshot' ? 'oneshot' : 'agent'];
+
+  const normalizedSpec = String(spec || 'freeform').trim().toLowerCase();
+  const specs =
+    normalizedSpec === 'both' ? ['freeform', 'guided'] : [normalizedSpec === 'guided' ? 'guided' : 'freeform'];
+
   const runsPerCell = Math.max(1, Math.min(7, Number(auditRuns) || 1));
   const cleanReuseRunId = String(reuseGenerationRunId || '').trim();
   const skipGenerate = cleanReuseRunId.length > 0;
 
-  const totalCells = models.length * modes.length * selectedPromptIds.length;
+  const totalCells = models.length * modes.length * specs.length * selectedPromptIds.length;
+  const comboCount = models.length * modes.length * specs.length;
 
   // --- 1. Plan Stage 1 Generate Shards ---
   const generateShards = [];
   if (!skipGenerate) {
-    // Agent mode benefits from small shards (~4 prompts/shard); oneshot can batch ~10 prompts/shard.
-    // Ensure total shards across all models & modes never exceed maxGenerateShards.
-    const modelModePairs = models.length * modes.length;
-    const maxChunksPerPair = Math.max(1, Math.floor(maxGenerateShards / Math.max(1, modelModePairs)));
+    const maxChunksPerCombo = Math.max(1, Math.floor(maxGenerateShards / Math.max(1, comboCount)));
 
-    for (const model of models) {
-      const modelSlug = sanitizeSlug(model);
-      for (const cellMode of modes) {
-        const idealChunkSize = cellMode === 'agent' ? 4 : 10;
-        const minChunkForCap = Math.ceil(selectedPromptIds.length / maxChunksPerPair);
-        const chunkSize = Math.max(idealChunkSize, minChunkForCap);
-        const promptChunks = chunkArray(selectedPromptIds, chunkSize);
+    for (const cellSpec of specs) {
+      const specSuffix = cellSpec === 'guided' ? '-guided' : '';
+      const specTag = specs.length > 1 || cellSpec === 'guided' ? `:${cellSpec}` : '';
+      for (const model of models) {
+        const modelSlug = sanitizeSlug(model);
+        for (const cellMode of modes) {
+          const idealChunkSize = cellMode === 'agent' ? 4 : 10;
+          const minChunkForCap = Math.ceil(selectedPromptIds.length / maxChunksPerCombo);
+          const chunkSize = Math.max(idealChunkSize, minChunkForCap);
+          const promptChunks = chunkArray(selectedPromptIds, chunkSize);
 
-        promptChunks.forEach((chunk, idx) => {
-          const shardNum = idx + 1;
-          generateShards.push({
-            model,
-            modelSlug,
-            mode: cellMode,
-            shardId: `${modelSlug}-${cellMode}-gen-${shardNum}`,
-            label: `${model} [${cellMode}] (${shardNum}/${promptChunks.length}: ${chunk.length}p)`,
-            promptCount: chunk.length,
-            promptFlag: `--prompts=${chunk.join(',')}`,
+          promptChunks.forEach((chunk, idx) => {
+            const shardNum = idx + 1;
+            generateShards.push({
+              model,
+              modelSlug,
+              mode: cellMode,
+              spec: cellSpec,
+              shardId: `${modelSlug}-${cellMode}${specSuffix}-gen-${shardNum}`,
+              label: `${model} [${cellMode}${specTag}] (${shardNum}/${promptChunks.length}: ${chunk.length}p)`,
+              promptCount: chunk.length,
+              promptFlag: `--prompts=${chunk.join(',')}`,
+            });
           });
-        });
+        }
       }
     }
   }
 
   // --- 2. Plan Stage 2 Isolated-VM Audit Shards ---
-  // Each VM runs strictly concurrency=1 Chrome locally, while multiple VMs run in parallel!
-  // Target ~4 audit pass-equivalents per VM (~2–5 min wall-clock per VM shard).
-  const modelModePairs = models.length * modes.length;
-  const maxAuditChunksPerPair = Math.max(1, Math.floor(maxAuditShards / Math.max(1, modelModePairs)));
+  const maxAuditChunksPerCombo = Math.max(1, Math.floor(maxAuditShards / Math.max(1, comboCount)));
   const idealCellsPerAuditShard = runsPerCell >= 5 ? 1 : runsPerCell >= 3 ? 2 : 4;
-  const minAuditChunkForCap = Math.ceil(selectedPromptIds.length / maxAuditChunksPerPair);
+  const minAuditChunkForCap = Math.ceil(selectedPromptIds.length / maxAuditChunksPerCombo);
   const cellsPerAuditShard = Math.max(idealCellsPerAuditShard, minAuditChunkForCap);
 
   const auditShards = [];
-  for (const model of models) {
-    const modelSlug = sanitizeSlug(model);
-    for (const cellMode of modes) {
-      const promptChunks = chunkArray(selectedPromptIds, cellsPerAuditShard);
-      promptChunks.forEach((chunk, idx) => {
-        const shardNum = idx + 1;
-        auditShards.push({
-          model,
-          modelSlug,
-          mode: cellMode,
-          shardId: `${modelSlug}-${cellMode}-audit-${shardNum}`,
-          label: `${model} [${cellMode}] (${shardNum}/${promptChunks.length}: ${chunk.length} cells)`,
-          cellCount: chunk.length,
-          promptFlag: `--prompts=${chunk.join(',')}`,
-          artifactPattern: skipGenerate
-            ? 'generated-cells-*'
-            : `generated-cells-${modelSlug}-${cellMode}-*`,
+  for (const cellSpec of specs) {
+    const specSuffix = cellSpec === 'guided' ? '-guided' : '';
+    const specTag = specs.length > 1 || cellSpec === 'guided' ? `:${cellSpec}` : '';
+    for (const model of models) {
+      const modelSlug = sanitizeSlug(model);
+      for (const cellMode of modes) {
+        const promptChunks = chunkArray(selectedPromptIds, cellsPerAuditShard);
+        promptChunks.forEach((chunk, idx) => {
+          const shardNum = idx + 1;
+          auditShards.push({
+            model,
+            modelSlug,
+            mode: cellMode,
+            spec: cellSpec,
+            shardId: `${modelSlug}-${cellMode}${specSuffix}-audit-${shardNum}`,
+            label: `${model} [${cellMode}${specTag}] (${shardNum}/${promptChunks.length}: ${chunk.length} cells)`,
+            cellCount: chunk.length,
+            promptFlag: `--prompts=${chunk.join(',')}`,
+            artifactPattern: skipGenerate
+              ? 'generated-cells-*'
+              : `generated-cells-${modelSlug}-${cellMode}${specSuffix}-gen-*`,
+          });
         });
-      });
+      }
     }
   }
 
@@ -138,6 +150,7 @@ export function planWorkflowShards({
     scope: normalizedScope,
     models,
     modes,
+    specs,
     selectedPromptIds,
     totalCells,
     auditRuns: runsPerCell,

@@ -28,6 +28,14 @@
             <option value="oneshot">1-Shot Stream</option>
           </select>
         </label>
+        <label class="inline-select" for="global-spec-select">
+          <span>Spec</span>
+          <select id="global-spec-select">
+            <option value="all">All Specs (Free-form + Guided)</option>
+            <option value="freeform">Free-form (Open Prompt)</option>
+            <option value="guided">Guided (Ref + Design + Data)</option>
+          </select>
+        </label>
         <button id="copy-view-link-btn" class="btn btn-ghost" type="button" title="Copy sharable permalink to current view and filters">
           Copy Link
         </button>
@@ -165,14 +173,70 @@
         </div>
       </article>
 
+      <article id="spec-head-to-head-panel" class="panel-card mt-lg hidden">
+        <h3>Paired Spec Comparison: Free-form Open Prompt vs. Guided (<code>gemini-nano-banana-2.1</code> Layout + <code>design.md</code> + Seed Data)</h3>
+        <p class="panel-sub">Apples-to-apples performance comparison when holding proposed layout hierarchy, UI design rules, and company/domain seed data constant.</p>
+        <div class="table-surface">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Model &amp; Lead</th>
+                <th>Prompt</th>
+                <th class="num">Free-form Score</th>
+                <th class="num">Guided Score</th>
+                <th class="num">Δ Score</th>
+                <th class="num">Free-form LCP / INP</th>
+                <th class="num">Guided LCP / INP</th>
+              </tr>
+            </thead>
+            <tbody id="spec-h2h-tbody"></tbody>
+          </table>
+        </div>
+      </article>
+
       <article id="lighthouse-corpus-panel" class="panel-card mt-lg hidden">
         <div class="cohort-header-row">
           <div>
             <h3>Corpus-Wide Lighthouse Audit Passes &amp; Failures</h3>
-            <p class="panel-sub">Which individual Lighthouse performance, accessibility, best-practices, and SEO checks models fail most often — and which checks pass universally.</p>
+            <p class="panel-sub">Slice by audit category, model family, 1-shot vs. agent lead, or spec — and click any Lighthouse check to cross-check every evaluated site.</p>
           </div>
-          <div class="mini-actions" id="lh-corpus-filter-pills"></div>
+          <div class="lh-corpus-controls">
+            <label class="inline-select" for="lh-split-select">
+              <span>Split Columns</span>
+              <select id="lh-split-select">
+                <option value="none">Combined Corpus</option>
+                <option value="mode">By Lead (Agent vs 1-Shot)</option>
+                <option value="family">By Model Family</option>
+                <option value="spec">By Spec (Free-form vs Guided)</option>
+                <option value="model">By Individual Model</option>
+              </select>
+            </label>
+            <label class="inline-select" for="lh-family-select">
+              <span>Family</span>
+              <select id="lh-family-select">
+                <option value="all">All Model Families</option>
+              </select>
+            </label>
+            <label class="inline-select" for="lh-lead-select">
+              <span>Lead</span>
+              <select id="lh-lead-select">
+                <option value="all">All Leads</option>
+                <option value="agent">Agent-Led (pi)</option>
+                <option value="oneshot">1-Shot</option>
+              </select>
+            </label>
+            <label class="inline-select" for="lh-spec-select">
+              <span>Spec</span>
+              <select id="lh-spec-select">
+                <option value="all">All Specs</option>
+                <option value="freeform">Free-form</option>
+                <option value="guided">Guided</option>
+              </select>
+            </label>
+            <input id="lh-search-input" class="transcript-search" type="search" placeholder="Search audit ID or title..." aria-label="Search Lighthouse audits" />
+          </div>
         </div>
+        <div class="category-pills" id="lh-corpus-filter-pills" style="margin-bottom:12px"></div>
         <div id="lighthouse-corpus-body"></div>
       </article>
     </section>
@@ -379,6 +443,14 @@
                   <option value="both">Both Side-by-Side (Agent + 1-Shot)</option>
                 </select>
               </label>
+              <label class="inline-select" for="opt-spec-mode">
+                <span>Prompt Spec</span>
+                <select id="opt-spec-mode">
+                  <option value="freeform" selected>Free-form (Open Prompt Only)</option>
+                  <option value="guided">Guided (Ref Layout Image + design.md + Seed Data)</option>
+                  <option value="both">Both Side-by-Side (Free-form + Guided)</option>
+                </select>
+              </label>
               <label class="inline-select" for="opt-run-stage">
                 <span>Pipeline Stage</span>
                 <select id="opt-run-stage">
@@ -438,6 +510,25 @@
       </header>
       <nav id="cell-dialog-tabs" class="dialog-subtabs" aria-label="Cell inspection sections"></nav>
       <div id="cell-dialog-body" class="dialog-body"></div>
+    </div>
+  </dialog>
+
+  <!-- LIGHTHOUSE AUDIT CORPUS CROSS-CHECK & VERIFICATION DIALOG -->
+  <dialog id="lh-audit-detail-dialog" class="detail-dialog" closedby="any" aria-labelledby="lh-audit-dialog-title">
+    <div class="dialog-shell">
+      <header class="dialog-header">
+        <div>
+          <p id="lh-audit-dialog-eyebrow" class="dialog-eyebrow">Corpus Lighthouse Audit Verification</p>
+          <h2 id="lh-audit-dialog-title" class="dialog-title">Lighthouse Check</h2>
+        </div>
+        <div class="dialog-header-actions">
+          <button id="copy-lh-audit-link-btn" type="button" class="btn btn-ghost" title="Copy permalink to this Lighthouse audit cross-check">Copy Link</button>
+          <form method="dialog">
+            <button id="close-lh-audit-dialog-btn" type="submit" class="btn btn-ghost" aria-label="Close Lighthouse audit dialog">✕</button>
+          </form>
+        </div>
+      </header>
+      <div id="lh-audit-dialog-body" class="dialog-body"></div>
     </div>
   </dialog>
 

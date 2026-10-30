@@ -259,7 +259,7 @@
     {
       "key": "grok-4-6",
       "label": "Grok 4.6",
-      "family": "Frontier Peers",
+      "family": "Grok (xAI)",
       "tier": "synced",
       "pilot": false,
       "enabled": true,
@@ -282,7 +282,7 @@
     {
       "key": "grok-4-5",
       "label": "Grok 4.5",
-      "family": "Frontier Peers",
+      "family": "Grok (xAI)",
       "tier": "synced",
       "pilot": false,
       "enabled": true,
@@ -305,7 +305,7 @@
     {
       "key": "grok-build-0-1",
       "label": "Grok Build 0.1",
-      "family": "Frontier Peers",
+      "family": "Grok (xAI)",
       "tier": "synced",
       "pilot": false,
       "enabled": true,
@@ -328,7 +328,7 @@
     {
       "key": "grok-4-3",
       "label": "Grok 4.3",
-      "family": "Frontier Peers",
+      "family": "Grok (xAI)",
       "tier": "synced",
       "pilot": false,
       "enabled": true,
@@ -351,7 +351,7 @@
     {
       "key": "grok-4-20-multi-agent",
       "label": "Grok 4.20 Multi-Agent",
-      "family": "Frontier Peers",
+      "family": "Grok (xAI)",
       "tier": "synced",
       "pilot": false,
       "enabled": true,

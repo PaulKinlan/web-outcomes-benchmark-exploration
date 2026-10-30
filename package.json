@@ -22,6 +22,7 @@
     "bridges:list": "node scripts/manage-bridges.mjs list",
     "bridges:install": "node scripts/manage-bridges.mjs install",
     "sync:models": "node src/harness/sync-models.mjs",
+    "generate:refs": "node scripts/generate-reference-images.mjs",
     "export": "node src/export/static-export.mjs",
     "validate": "node src/registry/validate-all.mjs",
     "test": "node --test --test-concurrency=2 tests/*.test.mjs"

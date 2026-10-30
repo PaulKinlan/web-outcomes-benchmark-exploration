@@ -1,0 +1,538 @@
+{
+  "version": "1.0.0",
+  "description": "Canonical brand identities, addresses, contact details, visual palette notes, and starter datasets for all 37 prompts in Guided (Reference-Anchored) mode.",
+  "prompts": {
+    "photo-portfolio": {
+      "brandName": "Elena Rostova — Documentary & Portrait Photography",
+      "tagline": "Long-form visual journalism on coastal communities, industrial labor, and intimate portraiture.",
+      "location": "Studio 4B, Karl-Marx-Allee 84, 10243 Berlin, Germany",
+      "contact": { "email": "studio@elenarostova.example", "phone": "+49 30 5550 1940", "bookingLeadTime": "Available for editorial & commercial assignments worldwide" },
+      "palette": "Warm gallery alabaster (#F8F6F2), deep archival charcoal (#181816), muted terracotta accent (#B85435)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser chrome or device frame) for 'Elena Rostova — Documentary & Portrait Photography'. Editorial serif masthead, top navigation (Series, Project Stories, About, Commission Inquiry), filter pills (All Series, Documentary, Portrait, Editorial, Travel), asymmetric 3-column photo series grid with series titles, locations, frame counts, and captions, plus an inquiry drawer preview.",
+      "records": [
+        { "title": "North Sea Winter Watch", "category": "Documentary", "year": "2026", "location": "Lofoten & Bergen", "frames": 14, "summary": "Six weeks aboard family trawlers documenting winter herring harvests." },
+        { "title": "Foundry Hands of Ruhr", "category": "Portrait", "year": "2025", "location": "Duisburg, Germany", "frames": 18, "summary": "Large-format studio portraits of third-generation steelworkers." },
+        { "title": "Night Trams of Lisbon", "category": "Editorial", "year": "2025", "location": "Lisbon, Portugal", "frames": 12, "summary": "Late-shift commuters and conductors along Route 28." },
+        { "title": "Salt Flats After Rain", "category": "Travel", "year": "2024", "location": "Uyuni, Bolivia", "frames": 16, "summary": "High-altitude mineral basins during the February wet season." },
+        { "title": "Conservatory Luthiers", "category": "Portrait", "year": "2026", "location": "Cremona, Italy", "frames": 10, "summary": "Violin makers inside historic spruce and maple workshops." },
+        { "title": "Baltic Ferry Crossings", "category": "Documentary", "year": "2024", "location": "Tallinn to Helsinki", "frames": 15, "summary": "Maritime crews and overnight deck passengers across the gulf." }
+      ]
+    },
+    "industrial-design-portfolio": {
+      "brandName": "Soren Lindqvist Industrial Design (SLID)",
+      "tagline": "Tactile acoustic hardware, modular timber furniture, and refillable consumer packaging.",
+      "location": "Kocksgatan 29, 116 24 Stockholm, Sweden",
+      "contact": { "email": "briefs@slidstudio.example", "phone": "+46 8 555 0142", "hours": "Mon–Fri 09:00–18:00 CET" },
+      "palette": "Brushed aluminum off-white (#F4F5F6), anodized graphite (#1D2024), signal international orange (#D94E28)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Soren Lindqvist Industrial Design'. Swiss grid layout with top nav (Work, Case Studies, Resume & Awards, Project Brief), discipline filter pills (All, Hardware, Furniture, Packaging), 2x3 product case-study cards showing dimensions, materials, and year, plus technical specification callouts.",
+      "records": [
+        { "title": "Klang M1 Field Recorder", "discipline": "Hardware", "year": "2026", "client": "Nordic Acoustics", "materials": "CNC bead-blasted 6061 aluminum, sapphire glass", "award": "Red Dot Best of the Best 2026" },
+        { "title": "Trestle 04 Worktable", "discipline": "Furniture", "year": "2025", "client": "Arkiv Living", "materials": "Solid Danish ash, cast brass joinery", "award": "IF Design Gold 2025" },
+        { "title": "Botanica Refill Vessel", "discipline": "Packaging", "year": "2025", "client": "Lyra Skincare", "materials": "Molded pulp shell, recycled flint glass core", "award": "Pentawards Silver 2025" },
+        { "title": "Pulse Studio Monitor", "discipline": "Hardware", "year": "2024", "client": "Tonwerk Berlin", "materials": "Die-cast magnesium baffle, wool acoustic grille", "award": "Swedish Design Award" },
+        { "title": "Stackable Bistro Chair S2", "discipline": "Furniture", "year": "2024", "client": "Kaj Objects", "materials": "Bent birch plywood, powder-coated steel tube", "award": "Core77 Notable" }
+      ]
+    },
+    "literary-illustration-portfolio": {
+      "brandName": "Marlowe & Finch — Illustration & Essays by Clara Marlowe",
+      "tagline": "Woodcut-inspired book jackets, botanical plates, and literary essays on natural history.",
+      "location": "17 Beaumont Street, Oxford OX1 2NA, United Kingdom",
+      "contact": { "email": "rights@claramarlowe.example", "agent": "Bellweather Literary & Art Agency, London", "phone": "+44 1865 550188" },
+      "palette": "Cream book-paper (#FBF7EE), fountain-pen ink (#1E242B), botanical sage (#3E6B52), ochre (#C2842F)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Clara Marlowe — Book Illustrator & Essayist'. Literary editorial layout with collection tabs (All Collections, Book Covers, Editorial Plates, Illustrated Essays), featured illustrated book spread card, customizable chapter excerpt reader preview panel, and rights/commission request button.",
+      "records": [
+        { "title": "The Tidal Almanac", "collection": "Book", "publisher": "Harbor Press, 2026", "medium": "Linocut & gouache on cotton rag", "excerptTitle": "Chapter I: Barnacles and Moonrise" },
+        { "title": "Orchards of the Severn Valley", "collection": "Illustration", "publisher": "Folio Botanical Series, 2025", "medium": "Dip pen ink & watercolor wash", "excerptTitle": "Plate Notes: Heritage Russet Varieties" },
+        { "title": "On Marginalia & Pressed Leaves", "collection": "Essay", "publisher": "The Quarterly Review, 2026", "medium": "spot illustrations & 3,400-word essay", "excerptTitle": "Reading a Nineteenth-Century Herbarium" },
+        { "title": "Winter Folk Tales of Wales", "collection": "Editorial", "publisher": "Cambrian House, 2024", "medium": "Scratchboard & gold leaf", "excerptTitle": "Preface: Lanterns on Snowdon" }
+      ]
+    },
+    "architecture-studio-portfolio": {
+      "brandName": "Atelier Kurosawa & Partners",
+      "tagline": "Civic timber structures, adaptive reuse museums, and passive courtyard residences.",
+      "location": "2-14-8 Minami-Aoyama, Minato-ku, Tokyo / 312 NW Flanders St, Portland, OR 97209",
+      "contact": { "email": "inquiries@atelierkurosawa.example", "phone": "(503) 555-0164" },
+      "palette": "Warm limestone (#F5F3EE), architectural slate (#1A1D20), cedar bronze (#8C5A3C)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Atelier Kurosawa & Partners Architecture Studio'. Minimalist architectural layout with sector filters (All, Residential, Cultural, Civic, Commercial), year filter, featured project showcase with Photography vs Floorplan toggle switch, area in sq m, completion year, and Schedule Consultation CTA.",
+      "records": [
+        { "title": "Willamette Timber Pavilion", "sector": "Civic", "year": "2026", "city": "Portland, OR", "areaSqm": 2450, "summary": "Cross-laminated timber riverfront Boathouse and public reading hall." },
+        { "title": "Setouchi Ceramic Museum", "sector": "Cultural", "year": "2025", "city": "Okayama, Japan", "areaSqm": 4100, "summary": "Daylit brick kiln galleries built into a terraced coastal hillside." },
+        { "title": "Courtyard House in Kyoto", "sector": "Residential", "year": "2025", "city": "Kyoto, Japan", "areaSqm": 310, "summary": "Charred cedar townhome organized around a moss rainwater garden." },
+        { "title": "Nordic Maritime Archive", "sector": "Cultural", "year": "2024", "city": "Aarhus, Denmark", "areaSqm": 5800, "summary": "Adaptive reuse of a 1932 grain silo into climate-buffered archive vaults." },
+        { "title": "Hood River Orchard Residence", "sector": "Residential", "year": "2024", "city": "Hood River, OR", "areaSqm": 420, "summary": "Rammed-earth and Douglas fir home overlooking pear orchards." }
+      ]
+    },
+    "tech-engineering-blog": {
+      "brandName": "Packet & Log — Systems Engineering Notes",
+      "tagline": "Deep technical articles on Raft consensus, storage engines, kernel networking, and distributed queues.",
+      "location": "Published by Nadia Kowalski & Contributors · San Francisco, CA",
+      "contact": { "email": "editors@packetandlog.example", "rss": "/feed.xml" },
+      "palette": "Crisp technical paper (#F7F9FB), deep slate ink (#111827), cobalt engineering blue (#1D4ED8)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Packet & Log — Systems Engineering Blog'. Left/top category pills (All Posts, Systems, Database, Networking, Architecture, Tutorials), keyword search input, chronological article list with read times and tags, right sidebar with Reading List counter and Newsletter signup card.",
+      "records": [
+        { "title": "Leader Leases and Split-Brain Edge Cases in Raft Consensus", "category": "Systems", "date": "2026-10-14", "readMin": 14, "summary": "How clock drift affects quorum read leases and linearizable state transitions." },
+        { "title": "Compaction Strategies in LSM-Tree Storage Engines", "category": "Database", "date": "2026-09-28", "readMin": 18, "summary": "Comparing leveled vs FIFO compaction write amplification under time-series workloads." },
+        { "title": "Zero-Copy Socket Framing over Linux io_uring", "category": "Networking", "date": "2026-09-09", "readMin": 12, "summary": "Registered ring buffers, multishot recv, and backpressure propagation." },
+        { "title": "Deterministic Simulation Testing for Replicated State Machines", "category": "Architecture", "date": "2026-08-21", "readMin": 16, "summary": "Seeded PRNG fault injection across simulated network partitions and disk stalls." },
+        { "title": "Building a Write-Ahead Log from Scratch: Checksums and Recovery", "category": "Tutorials", "date": "2026-07-30", "readMin": 11, "summary": "Segment rotation, CRC32C framing, and torn-write detection on crash restart." }
+      ]
+    },
+    "culinary-journal-blog": {
+      "brandName": "Salt, Koji & Crumb — Seasonal Kitchen Journal",
+      "tagline": "Small-batch fermentation logs, naturally leavened hearth breads, and cellar preservation guides.",
+      "location": "Test Kitchen: 214 Commercial St, Portland, ME 04101",
+      "contact": { "email": "hello@saltkojicrumb.example" },
+      "palette": "Linen flour cream (#FBF8F3), cast-iron espresso (#231F1D),persimmon saffron (#C85A28), herb olive (#4F6A42)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Salt, Koji & Crumb' culinary & fermentation blog. Warm editorial header, category pills (All, Fermentation, Baking, Autumn, Seasonal Essays, Recipes), search bar, featured sourdough/miso article cards with fermentation time, ambient temp, serving scaler preview, and Saved Favorites drawer.",
+      "records": [
+        { "title": "Country Rye Sourdough at Cool Cellar Temperatures", "category": "Baking", "date": "2026-10-18", "prepTime": "28 hrs", "baseServings": 2, "summary": "Balancing lactic and acetic acidity with a 35% stone-milled dark rye levain." },
+        { "title": "Sweet White Chickpea Miso: A 6-Week Fermentation Guide", "category": "Fermentation", "date": "2026-10-02", "prepTime": "42 days", "baseServings": 8, "summary": "Inoculating pearl barley koji and mash-packing at 5% sea salt." },
+        { "title": "Late Autumn Quince Paste and Roasted Hazelnuts", "category": "Autumn", "date": "2026-09-19", "prepTime": "3 hrs", "baseServings": 6, "summary": "Slow orchard fruit reductions for winter cheese boards." },
+        { "title": "Lacto-Fermented Plum Hot Sauce with Smoked Chili", "category": "Recipes", "date": "2026-08-29", "prepTime": "10 days", "baseServings": 4, "summary": "Brine percentages, mash straining, and shelf-stable bottling notes." }
+      ]
+    },
+    "indie-news-publication": {
+      "brandName": "The Bayside Ledger — Independent Civic Reporting",
+      "tagline": "Nonprofit investigative journalism covering transit, housing, public budgets, and neighborhood culture.",
+      "location": "Newsroom: 612 Telegraph Ave, Suite 300, Oakland, CA 94612",
+      "contact": { "email": "tips@baysideledger.example", "phone": "(510) 555-0199" },
+      "palette": "Broadsheet newsprint (#F9F7F1), ink black (#141517), civic crimson (#9E2A2B)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'The Bayside Ledger' local investigative newspaper. Classic modern broadsheet masthead with date, beat navigation bar (All Beats, Transit, Housing, City Hall, Culture), search box, lead investigative story with byline and timestamp, secondary beat columns, and 'Submit a Confidential Tip' button.",
+      "records": [
+        { "title": "Dedicated Bus Rapid Transit Corridor Clears Final Council Vote", "beat": "Transit", "author": "Marcus Vance", "date": "2026-10-28", "summary": "Signal priority along 14th Street aims to cut crosstown commute times by 22%." },
+        { "title": "Audit Finds 1,400 Approved Infill Housing Permits Waiting on Utility Hookups", "beat": "Housing", "author": "Elena Cho", "date": "2026-10-25", "summary": "Transformer backlogs and inspection staffing emerge as primary construction bottlenecks." },
+        { "title": "Inside City Hall's Five-Year Waterfront Stormwater Resilience Budget", "beat": "City Hall", "author": "David Ortiz", "date": "2026-10-21", "summary": "Breaking down $180M in tidal gate upgrades and permeable street retrofits." },
+        { "title": "Historic Paramount Rehearsal Hall Reopens for Youth Jazz Ensembles", "beat": "Culture", "author": "Simone Bell", "date": "2026-10-17", "summary": "Community acoustic restoration brings free after-school brass workshops downtown." }
+      ]
+    },
+    "personal-essays-blog": {
+      "brandName": "Marginalia & Meridian — Essays by Julian Mercer",
+      "tagline": "Longform notes on history of science, cartography, printing presses, and forgotten books.",
+      "location": "Cambridge, MA",
+      "contact": { "email": "julian@meridianessays.example" },
+      "palette": "Soft vellum (#FAF8F4), charcoal serif ink (#1F2328), Oxford navy (#254467)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Marginalia & Meridian — Essays by Julian Mercer'. Refined longform reading layout with year/topic filter bar (All, Science, History, Books, 2026, 2025), search input, essay archive cards with word count, interactive margin side-note preview, Reading Queue badge, and email subscription bar.",
+      "records": [
+        { "title": "On Marine Chronometers and the Longitude Board Trials", "topic": "History", "year": "2026", "words": 4200, "summary": "How John Harrison's H4 sea watch solved temperature compensation at sea." },
+        { "title": "Notes on Glass Harmonics and Nineteenth-Century Acoustics", "topic": "Science", "year": "2026", "words": 3600, "summary": "Chladni sand figures and resonant frequency experiments across Europe." },
+        { "title": "The Pocket Atlas Printers of Antwerp", "topic": "Books", "year": "2025", "words": 5100, "summary": "How Ortelius and Plantin transformed folio maps into portable octavo editions." },
+        { "title": "Ice Cores as Planetary Libraries", "topic": "Science", "year": "2025", "words": 3900, "summary": "Reading trapped ancient atmosphere bubbles from Vostok and Dome C." }
+      ]
+    },
+    "dataviz-academy": {
+      "brandName": "QuantCanvas Academy",
+      "tagline": "Hands-on courses in statistical graphics, perceptual color scales, and exploratory data storytelling.",
+      "location": "540 Howard St, Floor 4, San Francisco, CA 94105",
+      "contact": { "email": "support@quantcanvas.example", "demoAccount": "student@example.com / Password123!" },
+      "palette": "Clean slate white (#F6F8FB), midnight navy (#0F172A), electric teal (#0D9488), indigo (#4F46E5)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'QuantCanvas Academy' online data visualization school. Header with Course Catalog, Lesson Player, Practice Quiz, and 'Demo Student Sign In' button; difficulty filter pills (All, Beginner, Intermediate, Advanced); 4 structured course cards with lesson counts, progress bars, and Enroll buttons.",
+      "records": [
+        { "title": "Foundations of Visual Encoding & Perceptual Scales", "level": "Beginner", "lessons": 6, "duration": "3.5 hrs", "instructor": "Dr. Hannah Park", "summary": "Cleveland-McGill graphical perception hierarchy, log vs linear axes, and small multiples." },
+        { "title": "Uncertainty, Confidence Intervals & Distribution Plots", "level": "Intermediate", "lessons": 8, "duration": "5 hrs", "instructor": "Prof. Mateo Silva", "summary": "Quantile dotplots, raincloud charts, resampling intervals, and honest error bars." },
+        { "title": "Color Spaces for Cartography & Choropleth Maps", "level": "Intermediate", "lessons": 5, "duration": "3 hrs", "instructor": "Claire Lindholm", "summary": "OKLCH sequential and diverging ramps, bivariate legends, and projection trade-offs." },
+        { "title": "High-Dimensional Multivariate Time-Series Views", "level": "Advanced", "lessons": 7, "duration": "6 hrs", "instructor": "Dr. Raj Patel", "summary": "Horizon graphs, seasonal decomposition, anomaly brushing, and linked cohort views." }
+      ]
+    },
+    "language-learning-hub": {
+      "brandName": "Kakehashi & Puente Language Workshop",
+      "tagline": "Structured Japanese & Spanish grammar studios, spaced-repetition flashcards, and placement checks.",
+      "location": "88 Kearny St, Suite 700, San Francisco, CA 94108",
+      "contact": { "email": "hello@kakehashipuente.example", "demoAccount": "learner@example.com / Password123!" },
+      "palette": "Warm rice paper (#FAF8F5), deep indigo (#1E293B), vermilion coral (#E0523C), jade (#15803D)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Kakehashi & Puente' Japanese and Spanish learning platform. Top bar with language switcher (Japanese JLPT N5-N3, Spanish A1-B2), 14-day learner streak badge, Demo Learner Login button, structured lesson path cards, and interactive flippable flashcard deck preview.",
+      "records": [
+        { "title": "Japanese Module 1: Transit & Station Directions (て-Form Requests)", "language": "Japanese", "level": "A2 / N4", "cards": 24, "samplePrompt": "駅まで歩いて行けますか？ (Can I walk to the station?)" },
+        { "title": "Japanese Module 2: Izakaya Ordering & Counters (〜つ / 〜枚 / 〜杯)", "language": "Japanese", "level": "A1 / N5", "cards": 20, "samplePrompt": "お水を二杯お願いします。 (Two glasses of water, please.)" },
+        { "title": "Spanish Module 1: Past Imperfect vs Preterite Storytelling", "language": "Spanish", "level": "B1", "cards": 28, "samplePrompt": "Mientras llovía en Madrid, entramos en la librería." },
+        { "title": "Spanish Module 2: Market Negotiations & Culinary Idioms", "language": "Spanish", "level": "A2", "cards": 22, "samplePrompt": "¿A cómo están los melocotones hoy?" }
+      ]
+    },
+    "music-theory-classes": {
+      "brandName": "Conservatory Interval — Music Theory & Ear Training",
+      "tagline": "Live harmony workshops, modal counterpoint syllabi, and interactive interval recognition drills.",
+      "location": "154 Huntington Ave, Boston, MA 02115",
+      "contact": { "email": "registrar@conservatoryinterval.example", "demoAccount": "music@example.com / Password123!" },
+      "palette": "Concert hall ivory (#FAF7F2), ebony (#18181B), brass gold (#B47B28),burgundy (#7F1D1D)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Conservatory Interval — Music Theory & Ear Training School'. Header with Syllabus Catalog, Live Workshops, Ear Training Quiz, Student Dashboard, and Demo Student Login; class cards for Harmony & Rhythm plus an interactive piano/staff interval quiz panel.",
+      "records": [
+        { "title": "Diatonic Harmony & Voice Leading I", "track": "Harmony", "schedule": "Tue/Thu 18:00 EST", "instructor": "Prof. Claire Beaumont", "modules": 8 },
+        { "title": "Polyrhythms, Odd Meters & Clave Subdivision", "track": "Rhythm", "schedule": "Wed 19:30 EST", "instructor": "Tomas Herrera", "modules": 6 },
+        { "title": "Jazz Voicings: Drop-2, Quartal & Upper Structures", "track": "Harmony", "schedule": "Sat 11:00 EST", "instructor": "Miles Okafor", "modules": 6 },
+        { "title": "Chromatic Ear Training: Intervals & Seventh Chords", "track": "Ear Training", "schedule": "Self-Paced + Fri Lab", "instructor": "Dr. Mei-Ling Zhou", "modules": 10 }
+      ]
+    },
+    "coding-bootcamp-portal": {
+      "brandName": "Meridian Technical Institute — Cohort Portal",
+      "tagline": "Applied graduate-style tracks in Data Science, Cybersecurity Operations, and Product Management.",
+      "location": "1200 E Pike St, Suite 400, Seattle, WA 98122",
+      "contact": { "email": "admissions@meridianinstitute.example", "demoAccount": "cohort@example.com / Password123!" },
+      "palette": "Cool parchment (#F7F9FC), dark slate (#0F172A), academic royal blue (#1E40AF), emerald (#059669)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Meridian Technical Institute' academic workshop portal. Track filter tabs (All Tracks, Data Science, Cybersecurity, Product Management), Demo Student Sign-In button, curriculum module cards with reading materials, workshop dates, assignment submission panel, and knowledge check status.",
+      "records": [
+        { "title": "Applied Bayesian Inference & Experimentation", "track": "Data Science", "credits": 4, "workshopDate": "Nov 12, 2026", "assignment": "Lab 03: A/B Sequential Testing & Sample Ratio Mismatch" },
+        { "title": "Threat Hunting, Packet Forensics & Zero-Trust IAM", "track": "Cybersecurity", "credits": 4, "workshopDate": "Nov 15, 2026", "assignment": "Lab 02: TLS Handshake Inspection & Lateral Movement Audit" },
+        { "title": "B2B Pricing Packaging & Cohort Retention Modeling", "track": "Product Management", "credits": 3, "workshopDate": "Nov 18, 2026", "assignment": "Case Memo: Usage-Based vs Seat Tier Migration" },
+        { "title": "Time-Series Forecasting & Demand Planning", "track": "Data Science", "credits": 4, "workshopDate": "Nov 22, 2026", "assignment": "Lab 04: Hierarchical Retail Store Demand Backtest" }
+      ]
+    },
+    "plumbing-appointment": {
+      "brandName": "Harborline Plumbing & Heating",
+      "tagline": "Licensed residential & commercial master plumbers serving Greater Seattle with upfront flat-rate pricing.",
+      "location": "418 Meridian Ave N, Suite 200, Seattle, WA 98103 (WA License #HARBOHP824KL)",
+      "contact": { "phone": "(206) 555-0148", "email": "dispatch@harborlineplumbing.example", "hours": "Mon–Sat 7:00 AM – 7:00 PM · 24/7 Emergency Leak Dispatch" },
+      "palette": "Crisp utility white (#F8FAFC), navy workwear (#0F2942), copper pipe amber (#C25E24), verified green (#15803D)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Harborline Plumbing & Heating' appointment booking website. Header with Book Service, Upfront Rates, Manage / Cancel Appointment, and phone '(206) 555-0148'. Stepper showing 1. Select Service (Emergency Leak Repair $185, Drain Cleaning $165, Water Heater Installation $340, Whole-Home Inspection $120), 2. Interactive Calendar & Time Slots (09:00 AM, 10:30 AM, 2:00 PM), and 3. Address & Booking Summary.",
+      "records": [
+        { "service": "Emergency Leak Repair", "priceUsd": 185, "durationMin": 90, "warranty": "2-Year Parts & Labor", "description": "Burst pipe isolation, supply line replacement, pressure valve diagnostics." },
+        { "service": "Hydro-Jet Drain Cleaning", "priceUsd": 165, "durationMin": 60, "warranty": "90-Day Clear-Flow Guarantee", "description": "Kitchen, bath, and main sewer line clearing with camera verification." },
+        { "service": "Tankless & Tank Water Heater Installation", "priceUsd": 340, "durationMin": 180, "warranty": "6-Year Installation Warranty", "description": "Haul-away, seismic strapping, expansion tank, and code inspection." },
+        { "service": "Whole-Home Plumbing Inspection", "priceUsd": 120, "durationMin": 75, "warranty": "Written 24-Point Report", "description": "Static water pressure test, shutoff valve check, thermal moisture scan." }
+      ],
+      "sampleExistingBooking": { "confirmationCode": "HL-4829", "customerEmail": "taylor@example.com", "service": "Hydro-Jet Drain Cleaning", "slot": "Tomorrow · 10:00 AM" }
+    },
+    "boutique-fitness-studio": {
+      "brandName": "Atelier Forma — Reformer Pilates & Strength",
+      "tagline": "Small-group allegro reformer, kettlebell strength, and mobility classes in sunlit 10-reformer studios.",
+      "location": "284 Wythe Ave, Williamsburg, Brooklyn, NY 11249",
+      "contact": { "phone": "(718) 555-0136", "email": "frontdesk@atelierforma.example", "demoAccount": "member@studio.example / Password123!" },
+      "palette": "Warm travertine (#F7F4EF), espresso bronze (#221E1C), terracotta clay (#B55338), sage (#4A6B53)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Atelier Forma — Reformer Pilates & Strength Studio'. Top nav with Weekly Timetable, Buy Class Credits, My Upcoming Bookings, and Demo Member Sign-In; filter pills (All Classes, Reformer Pilates, Strength, Mobility) and instructor filter; 7-day class schedule grid with remaining reformer spots and Reserve buttons.",
+      "records": [
+        { "className": "Signature Reformer Flow", "type": "Pilates", "instructor": "Camille Laurent", "time": "08:00 AM (50 min)", "spotsLeft": 3, "credits": 1 },
+        { "className": "Kettlebell & Posterior Chain Strength", "type": "Strength", "instructor": "Marcus Reid", "time": "09:30 AM (50 min)", "spotsLeft": 5, "credits": 1 },
+        { "className": "Athletic Reformer Jumpboard", "type": "Reformer", "instructor": "Sora Takahashi", "time": "12:15 PM (50 min)", "spotsLeft": 2, "credits": 1 },
+        { "className": "Evening Spine & Hip Mobility", "type": "Mobility", "instructor": "Elena Rossi", "time": "06:00 PM (45 min)", "spotsLeft": 6, "credits": 1 },
+        { "packName": "Single Drop-In Pass", "priceUsd": 38, "fivePackUsd": 175, "tenPackUsd": 320 }
+      ]
+    },
+    "dental-clinic-scheduler": {
+      "brandName": "Linden Park Family Dentistry",
+      "tagline": "Preventive cleanings, digital restorative care, and gentle pediatric dentistry under one neighborhood roof.",
+      "location": "1920 NE Broadway, Suite 110, Portland, OR 97232",
+      "contact": { "phone": "(503) 555-0182", "email": "care@lindenparkdental.example", "hours": "Mon–Fri 7:30 AM – 5:30 PM, Sat 8:00 AM – 1:00 PM" },
+      "palette": "Soft clinical mint-ivory (#F6FAF8), deep forest slate (#162A28), calm eucalyptus teal (#1F7A6E)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Linden Park Family Dentistry' online appointment scheduler. Header with Book Visit, Our Dentists, Insurance & Self-Pay, and Manage Appointment; toggle for New Patient vs Returning Patient; visit reason cards (Comprehensive Exam & Cleaning, Toothache / Urgent Exam, Pediatric Checkup, Whitening); dentist cards with morning/afternoon time slots.",
+      "records": [
+        { "visitType": "Comprehensive Exam & Ultrasonic Cleaning", "durationMin": 60, "selfPayUsd": 195, "dentist": "Dr. Priya Subramanian, DDS" },
+        { "visitType": "Returning Patient 6-Month Hygiene Checkup", "durationMin": 45, "selfPayUsd": 145, "dentist": "Dr. Owen Lindberg, DMD" },
+        { "visitType": "Same-Day Toothache & Restorative Consult", "durationMin": 40, "selfPayUsd": 130, "dentist": "Dr. Mei Lin, DDS" },
+        { "visitType": "In-Office Enamel-Safe Whitening", "durationMin": 75, "selfPayUsd": 310, "dentist": "Dr. Owen Lindberg, DMD" }
+      ],
+      "acceptedInsurances": ["Delta Dental Premier", "Cigna DPPO", "MetLife", "Aetna Dental", "Transparent Self-Pay Membership"]
+    },
+    "restaurant-table-reservations": {
+      "brandName": "Osteria Verbena",
+      "tagline": "Wood-fired Pacific Northwest coastal Italian cooking, handmade pastas, and low-intervention Piedmont wines.",
+      "location": "529 E Pine St, Capitol Hill, Seattle, WA 98122",
+      "contact": { "phone": "(206) 555-0174", "email": "host@osteriaverbena.example", "hours": "Tue–Sun 5:00 PM – 10:30 PM" },
+      "palette": "Warm parchment (#FBF7F0), charred olive ink (#1E201B), Barolo wine (#7C2D36), brass (#B5893D)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Osteria Verbena' neighborhood bistro & table reservation system. Editorial header with Reserve a Table, Dinner Menu, Wine List, and Modify Reservation; availability bar (Party Size 2–8, Date, Seating Area: Main Dining Room, 8-Seat Chef Counter, Heated Courtyard Patio) with evening time slots (5:30 PM, 6:45 PM, 7:30 PM, 8:30 PM) and seasonal menu highlights.",
+      "records": [
+        { "course": "Antipasti", "dish": "Charred Octopus, Corona Beans, Meyer Lemon & Castelluccio Lentils", "priceUsd": 21 },
+        { "course": "Primi", "dish": "Tajarin al Tartufo — 40-Yolk Hand-Cut Pasta, Cultured Butter & Oregon Black Truffle", "priceUsd": 29 },
+        { "course": "Primi", "dish": "Dungeness Crab Agnolotti, Saffron Fennel Brodo & Seaweed Crumb", "priceUsd": 32 },
+        { "course": "Secondi", "dish": "Hearth-Roasted Black Cod, Braised Chicories & Anchovy Bagna Cauda", "priceUsd": 38 },
+        { "course": "Wine", "dish": "2022 G.D. Vajra Langhe Nebbiolo (Glass / Bottle)", "priceUsd": 17 }
+      ],
+      "seatingAreas": ["Main Dining Room", "Chef Counter (Hearth View)", "Heated Garden Patio"]
+    },
+    "filmmakers-community": {
+      "brandName": "Framegate Guild — Independent Filmmakers Collective",
+      "tagline": "Peer critique rooms, line-producing budgets, camera package notes, and regional crew calls.",
+      "location": "1140 N Gower St, Suite 210, Los Angeles, CA 90038",
+      "contact": { "email": "guild@framegate.example", "demoAccount": "member@filmmakers.example / Password123!" },
+      "palette": "Cinema dark slate (#12151A) or warm silver-halide paper (#F6F5F2), tungsten amber (#D97706), slate ink (#18181B)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Framegate Guild — Independent Filmmakers Membership Community'. Header with Public Dispatches, Subscriber Forum, Production Templates Vault, Membership Plans, and Demo Member Sign-In; teaser articles with member paywall callout, forum threads on Cinematography, Location Sound & Festival Strategy, and downloadable budget/call-sheet templates.",
+      "records": [
+        { "threadTitle": "Anamorphic Vintage Rehoused Lenses on Micro-Budget Night Exteriors", "topic": "Cinematography", "author": "Lena Cho, DP", "replies": 19, "gated": true },
+        { "threadTitle": "32-Bit Float Location Sound Bag & Tentacle Timecode Workflow", "topic": "Sound & Post", "author": "Omar Haddad", "replies": 14, "gated": true },
+        { "threadTitle": "Breakdown: How We Financed Our $280K Debut Feature Without Sales Pre-Buys", "topic": "Producing", "author": "Tessa Lind", "replies": 31, "gated": false },
+        { "vaultItem": "18-Day Feature Line Budget & Cashflow Schedule (XLSX/CSV)", "category": "Templates Vault", "tier": "Guild Member ($18/mo)" },
+        { "vaultItem": "SAG-AFTRA Ultra-Low Budget Deal Memo & Call Sheet Pack", "category": "Templates Vault", "tier": "Guild Member ($18/mo)" }
+      ]
+    },
+    "paid-research-substack": {
+      "brandName": "Silicon & Megawatt — Industrial & Semiconductor Briefings",
+      "tagline": "Weekly wafer fab capex models, packaging supply-chain teardowns, and grid interconnection data.",
+      "location": "450 Lexington Ave, Floor 14, New York, NY 10017",
+      "contact": { "email": "research@siliconmegawatt.example", "demoAccount": "analyst@research.example / Password123!" },
+      "palette": "Financial Times warm salmon-ivory (#FBF6F0) or crisp research white (#F8FAFC), deep navy (#0F2537), copper (#B45309)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Silicon & Megawatt' paid semiconductor & energy research publication. Editorial research header with Briefings, Data Tables, Subscriber Threads, Saved Library, and Demo Subscriber Login; featured briefing abstract with Pro Subscriber lock badge, capex data table preview, and Institutional vs Individual plan tiers.",
+      "records": [
+        { "title": "CoWoS-L Advanced Packaging Capacity & HBM4 Yield Bottlenecks Through 2027", "sector": "Semiconductors", "date": "2026-10-27", "gated": true, "summary": "Substrate interposer allocations across Taiwan, Arizona, and Kumamoto fabs." },
+        { "title": "HVDC Transformer Lead Times and US Regional Grid Queue Attrition", "sector": "Energy Grid", "date": "2026-10-20", "gated": true, "summary": "Grain-oriented electrical steel supply and 345kV substation capex benchmarks." },
+        { "title": "Q3 Foundry Wafer Pricing & Leading-Edge Node Utilization Tracker", "sector": "Semiconductors", "date": "2026-10-12", "gated": false, "summary": "Public summary of 2nm gate-all-around pilot tape-outs and EUV lithography tool shipments." }
+      ]
+    },
+    "makerspace-member-portal": {
+      "brandName": "Foundry Commons — Woodshop, CNC & Electronics Makerspace",
+      "tagline": "14,000 sq ft neighborhood cooperative workshop with SawStop cabinet saws, Epilog lasers, and 3-axis CNC routers.",
+      "location": "940 SE Sandy Blvd, Portland, OR 97214",
+      "contact": { "phone": "(503) 555-0155", "email": "stewards@foundrycommons.example", "demoAccount": "maker@shop.example / Password123!" },
+      "palette": "Workshop birch (#F8F6F1), cast-iron charcoal (#1C1F22), safety marigold (#D97706), badge green (#15803D)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Foundry Commons Makerspace'. Navigation with Equipment Reservations, Member Project Showcase, Safety Badges, Membership Tiers, and Demo Member Login; machine booking cards (Epilog Fusion Pro Laser, ShopBot 4x8 CNC Router, SawStop Woodshop Bay, Prusa Filament Bank) with hourly bay slots and badge requirements.",
+      "records": [
+        { "machine": "Epilog Fusion Pro 48 (120W CO2 Laser Cutter)", "zone": "Laser Bay", "badgeRequired": "Laser Safety 101", "rate": "Included in $95/mo Standard Tier" },
+        { "machine": "ShopBot PRSalpha 48x96 3-Axis CNC Router", "zone": "CNC Mill", "badgeRequired": "CNC CAM Sign-Off", "rate": "$12/hr Spindle Maintenance" },
+        { "machine": "Hardwood Milling Bay (SawStop + 15\" Helical Planer)", "zone": "Woodshop", "badgeRequired": "Woodshop Core", "rate": "Included" },
+        { "machine": "Rigol Oscilloscope & SMD Hot-Air Rework Bench", "zone": "Electronics Lab", "badgeRequired": "Open Access", "rate": "Included" }
+      ]
+    },
+    "fitness-club-community": {
+      "brandName": "Bridgerunners Track & Marathon Collective",
+      "tagline": "Structured 16-week marathon blocks, VDOT pace calculators, Wednesday track workouts, and Sunday long runs.",
+      "location": "Boathouse Meet-Up: 1200 Riverfront Esplanade, Chicago, IL 60611",
+      "contact": { "email": "captains@bridgerunners.example", "demoAccount": "runner@club.example / Password123!" },
+      "palette": "Crisp track chalk (#F7F8FA), asphalt slate (#111827), marathon crimson (#DC2626), volt teal (#0D9488)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Bridgerunners Marathon Club'. Header with Training Plans, Pace Calculator, Weekend Group Runs, Log Workout, and Demo Member Sign-In; weekly mileage progress card, upcoming Saturday Tempo & Sunday Riverfront Long Run RSVP cards with pace groups (7:15/mi, 8:00/mi, 9:00/mi), and recent member workout feed.",
+      "records": [
+        { "event": "Saturday Lakefront 16-Mile Progression Long Run", "date": "Sat 07:00 AM", "paceGroups": "7:15, 8:00, 8:45, 9:30 /mi", "rsvps": 42 },
+        { "event": "Wednesday Track Intervals: 6 × 1200m @ 5K Threshold", "date": "Wed 06:30 PM", "paceGroups": "All Paces (Lanes 1–6)", "rsvps": 31 },
+        { "plan": "16-Week Sub-3:30 Autumn Marathon Block", "weeklyPeakMiles": 58, "keySession": "Midweek 10-mi Lactate Threshold + 20-mi Marathon-Pace Finish" },
+        { "plan": "16-Week First Marathon Finish Plan", "weeklyPeakMiles": 38, "keySession": "Conversational Aerobic Long Runs + Strides" }
+      ]
+    },
+    "coffee-roasters-directory": {
+      "brandName": "RoastIndex — Independent Specialty Coffee Directory",
+      "tagline": "Curated index of 28+ small-batch coffee roasters across North America with roast profiles, sourcing transparency, and tasting room guides.",
+      "location": "Editorial Desk: 814 SE Hawthorne Blvd, Portland, OR 97214",
+      "contact": { "email": "listings@roastindex.example" },
+      "palette": "Parchment crema (#FAF7F2), espresso roast (#201A17), cherry cascara (#A8382B), washed-process green (#3D6B52)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'RoastIndex — Specialty Coffee Roasters Directory'. Search bar ('Search by roaster or city, e.g. Portland'), left or top multi-facet filters (Roast Profile: Light, Medium, Espresso; Certifications: Direct Trade, Organic, Single Origin; Amenities: Tasting Room, Pour-Over Bar), sort dropdown, Compare drawer bar, and directory listing cards.",
+      "records": [
+        { "name": "Heartwood Roasters", "city": "Portland, OR", "roastProfile": "Light", "certifications": ["Direct Trade", "Single Origin"], "tastingRoom": true, "rating": 4.9, "flagshipLot": "Worka Sakaro Washed Ethiopia" },
+        { "name": "Coava Kiln Coffee", "city": "Portland, OR", "roastProfile": "Light-Medium", "certifications": ["Direct Trade", "Organic"], "tastingRoom": true, "rating": 4.8, "flagshipLot": "Finca San Jeronimo Pacamara" },
+        { "name": "Signal Tower Coffee", "city": "Seattle, WA", "roastProfile": "Medium", "certifications": ["Organic", "Single Origin"], "tastingRoom": true, "rating": 4.7, "flagshipLot": "Huila Pink Bourbon" },
+        { "name": "Alabaster Mill Roastery", "city": "Denver, CO", "roastProfile": "Light", "certifications": ["Direct Trade"], "tastingRoom": false, "rating": 4.8, "flagshipLot": "Nyeri Peaberry AA" },
+        { "name": "monarch Espresso Lab", "city": "Chicago, IL", "roastProfile": "Espresso", "certifications": ["Direct Trade", "Organic"], "tastingRoom": true, "rating": 4.6, "flagshipLot": "Cerrado Natural Pulped" },
+        { "name": "Tidewater Bean Co.", "city": "Boston, MA", "roastProfile": "Medium", "certifications": ["Single Origin"], "tastingRoom": true, "rating": 4.7, "flagshipLot": "Huehuetenango Caturra" }
+      ],
+      "note": "Seed at least 25 realistic roaster entries including multiple in Portland, Seattle, Denver, Chicago, Austin, Boston, San Francisco, and Brooklyn."
+    },
+    "local-trades-directory": {
+      "brandName": "CivicTrade Guild — Verified Local Contractors Index",
+      "tagline": "State-licensed electricians, finish carpenters, roofers, and residential landscapers with verified bond & license numbers.",
+      "location": "Serving Northside, Ballard, Capitol Hill, Westpark & Eastgate Metro",
+      "contact": { "email": "verification@civictradeguild.example", "phone": "(312) 555-0129" },
+      "palette": "Clean blueprint white (#F7F9FB), slate iron (#18222F), safety amber (#C96A1B), license-verified green (#15803D)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'CivicTrade Guild — Verified Local Tradespeople Directory'. Trade category tabs (All Trades, Electricians, Carpenters, Roofers, Landscapers), neighborhood search ('Northside'), filters for 24/7 Emergency Availability and 4.8+ Rating, Quote Shortlist tray, and contractor cards with state license numbers and Request Quote buttons.",
+      "records": [
+        { "name": "Northside Volt Electric LLC", "trade": "Electrician", "neighborhood": "Northside", "license": "EL-90421-MASTER", "emergency24h": true, "rating": 4.9, "hourlyEst": "$125–$165/hr", "specialty": "200A service panel upgrades, EV chargers, knob-and-tube rewiring" },
+        { "name": "Alder & Mortise Finish Carpentry", "trade": "Carpenter", "neighborhood": "Northside", "license": "CC-55108", "emergency24h": false, "rating": 4.8, "hourlyEst": "$95–$135/hr", "specialty": "Built-in white oak bookcases, stair treads, historic window sash restoration" },
+        { "name": "Ridgeline Standing-Seam Roofing", "trade": "Roofer", "neighborhood": "Westpark", "license": "RF-77319-BONDED", "emergency24h": true, "rating": 4.9, "hourlyEst": "Free Itemized Inspection", "specialty": "Architectural shingles, standing-seam metal, emergency storm tarping" },
+        { "name": "Rainier Native Stone & Landscape", "trade": "Landscaper", "neighborhood": "Eastgate", "license": "LC-31840", "emergency24h": false, "rating": 4.7, "hourlyEst": "$85–$115/hr", "specialty": "Basalt retaining walls, rain gardens, permeable paver walkways" }
+      ]
+    },
+    "open-datasets-index": {
+      "brandName": "OpenCivic Data Commons",
+      "tagline": "32+ public datasets spanning municipal transit GTFS feeds, urban tree canopies, air-quality sensors, and watershed gauges.",
+      "location": "Maintained by Civic Open Data Consortium · Washington, DC",
+      "contact": { "email": "curator@opencivicdata.example" },
+      "palette": "Crisp catalog gray-white (#F6F8FA), dark ink (#0F172A), data blue (#1D4ED8), geo teal (#0F766E)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'OpenCivic Data Commons' public civic & climate dataset directory. Keyword search bar, multi-select facet sidebar (Domain: Transit, Climate, Housing, Energy; Format: CSV, Parquet, GeoJSON; License: CC0, CC-BY-4.0), Table vs Card toggle switch, sort by Updated Date or Row Count, and dataset rows with schema column preview drawer.",
+      "records": [
+        { "title": "Metro Bus & Light Rail Real-Time Arrival Archive", "domain": "Transit", "formats": ["Parquet", "CSV"], "rows": "14,820,000", "updated": "2026-10-29", "license": "CC0-1.0", "columns": ["trip_id", "route_id", "stop_id", "scheduled_ts", "observed_ts", "delay_sec"] },
+        { "title": "Regional Bike-Share Station Polygons & Dock Telemetry", "domain": "Transit", "formats": ["GeoJSON", "CSV"], "rows": "940,500", "updated": "2026-10-27", "license": "CC-BY-4.0", "columns": ["station_id", "geometry", "capacity", "ebikes_available", "sampled_at"] },
+        { "title": "Urban Heat Island & Street Tree Canopy Lidar Index", "domain": "Climate", "formats": ["GeoJSON", "Parquet"], "rows": "312,400", "updated": "2026-10-18", "license": "CC0-1.0", "columns": ["census_tract", "canopy_pct", "impervious_pct", "summer_lst_celsius"] },
+        { "title": "Watershed Streamflow & Dissolved Oxygen Hourly Gauges", "domain": "Climate", "formats": ["CSV", "Parquet"], "rows": "4,210,000", "updated": "2026-10-28", "license": "CC0-1.0", "columns": ["gauge_id", "basin", "discharge_cfs", "water_temp_c", "dissolved_o2_mg_l"] }
+      ],
+      "note": "Populate at least 30 realistic civic, transit, and climate datasets across CSV, Parquet, and GeoJSON."
+    },
+    "coworking-spaces-listing": {
+      "brandName": "DeskAtlas — Global Coworking & Studio Spaces",
+      "tagline": "Day passes, dedicated monitors, acoustic phone booths, and team suites across London, Berlin, New York, Tokyo, and Toronto.",
+      "location": "HQ: 42 Clerkenwell Road, London EC1M 5PS, United Kingdom",
+      "contact": { "email": "concierge@deskatlas.example" },
+      "palette": "Warm studio stone (#F8F7F4), charcoal (#191B1F), terracotta teal (#0F766E), amber (#D97706)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'DeskAtlas — Global Coworking Spaces Directory'. City search ('London'), daily/monthly price slider, amenity checkboxes (Phone Booths, 24/7 Access, External Monitors, Dog Friendly, Quiet Library), Saved Shortlist counter, and coworking space cards with day-pass rates and Book Tour button.",
+      "records": [
+        { "name": "Clerkenwell Printworks Loft", "city": "London", "dayPassUsd": 42, "monthlyUsd": 390, "amenities": ["Phone Booths", "24/7 Access", "External Monitors", "Dog Friendly"], "rating": 4.9 },
+        { "name": "Shoreditch Timber Yard", "city": "London", "dayPassUsd": 38, "monthlyUsd": 350, "amenities": ["Phone Booths", "Dog Friendly", "Espresso Bar"], "rating": 4.8 },
+        { "name": "Kreuzberg Canal Studio", "city": "Berlin", "dayPassUsd": 30, "monthlyUsd": 290, "amenities": ["24/7 Access", "External Monitors", "Quiet Zone"], "rating": 4.8 },
+        { "name": "Mercer Cast-Iron Commons", "city": "New York", "dayPassUsd": 55, "monthlyUsd": 495, "amenities": ["Phone Booths", "24/7 Access", "External Monitors"], "rating": 4.7 },
+        { "name": "Daikanyama Courtyard Desk", "city": "Tokyo", "dayPassUsd": 36, "monthlyUsd": 340, "amenities": ["Phone Booths", "External Monitors", "Quiet Zone"], "rating": 4.9 }
+      ]
+    },
+    "outdoor-ecommerce-store": {
+      "brandName": "Ridgeline Alpine Equipment",
+      "tagline": "Four-season ultralight shelters, load-hauling alpine packs, and stormproof backcountry shells tested in the Cascades.",
+      "location": "Flagship & Repair Shop: 1624 Wazee St, Denver, CO 80202",
+      "contact": { "phone": "(303) 555-0168", "email": "gearshop@ridgelinealpine.example", "shipping": "Free ground shipping over $150 · Lifetime seam & zipper repair" },
+      "palette": "Glacier stone (#F5F7F8), basalt charcoal (#141A1F), alpine pine (#1E5631), summit ochre (#C86428)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Ridgeline Alpine Equipment' backcountry outdoor ecommerce store. Category nav (All Gear, Tents & Shelters, Backpacks, Alpine Outerwear), search & price/rating filters, 3-column product grid showing weights in grams, ratings, colorway swatches, size options, Add to Cart buttons, and a slide-out Cart drawer summary.",
+      "records": [
+        { "name": "Cirque 2P Dyneema Tent", "category": "Tents", "priceUsd": 485, "weightGrams": 890, "rating": 4.9, "colors": ["Alpine Lichen", "Summit Gold"], "sizes": ["2-Person", "2P Long"] },
+        { "name": "Couloir 45L Roll-Top Pack", "category": "Backpacks", "priceUsd": 265, "weightGrams": 1040, "rating": 4.8, "colors": ["Obsidian", "Glacier Blue", "Rust"], "sizes": ["S/M", "M/L"] },
+        { "name": "Northwall 3L Storm Hardshell Jacket", "category": "Outerwear", "priceUsd": 395, "weightGrams": 385, "rating": 4.9, "colors": ["Cinder Red", "Deep Pine", "Slate"], "sizes": ["S", "M", "L", "XL"] },
+        { "name": "Timberline 850 Down Belay Parka", "category": "Outerwear", "priceUsd": 340, "weightGrams": 460, "rating": 4.8, "colors": ["Ochre", "Charcoal"], "sizes": ["S", "M", "L", "XL"] },
+        { "name": "Highline Solo Bivy & Tarp System", "category": "Tents", "priceUsd": 220, "weightGrams": 510, "rating": 4.7, "colors": ["Spruce"], "sizes": ["Regular", "Long"] }
+      ]
+    },
+    "artisan-coffee-shop-store": {
+      "brandName": "Larkspur Café & Roastery",
+      "tagline": "Hearth-baked morning laminated pastries, seasonal espresso drinks, and small-lot whole bean subscriptions.",
+      "location": "702 N 35th St, Fremont, Seattle, WA 98103",
+      "contact": { "phone": "(206) 555-0133", "email": "roastery@larkspurcafe.example", "hours": "Daily 6:30 AM – 5:00 PM · Counter Pickup Ready in 12 mins" },
+      "palette": "Warm oat milk (#FBF8F3), roasted cacao (#241B18), cardamom terracotta (#B85636), pistachio (#52734D)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Larkspur Café & Roastery' café menu & online bean store. Section tabs (Coffee Beans, Seasonal Espresso Bar, Morning Pastries, Subscriptions), grind selector (Whole Bean, Pour-Over, Espresso), Pickup vs Shipping toggle, and Order Bag drawer.",
+      "records": [
+        { "name": "Finca El Puente Washed Pink Bourbon (12 oz Bag)", "section": "Beans", "priceUsd": 22, "notes": "White peach, bergamot, raw honey", "options": ["Whole Bean", "Pour-Over Grind", "Espresso Grind"] },
+        { "name": "Nightjar House Espresso Blend (12 oz / 2 lb)", "section": "Beans", "priceUsd": 19, "notes": "Bittersweet chocolate, toasted hazelnut, dried cherry", "options": ["One-Time", "Bi-Weekly Subscription (-10%)"] },
+        { "name": "Brown-Butter Cardamom Cortado", "section": "Espresso", "priceUsd": 5.75, "notes": "Double Nightjar ristretto, house cardamom syrup, textured milk" },
+        { "name": "Twice-Baked Pistachio Frangipane Croissant", "section": "Pastries", "priceUsd": 6.50, "notes": "Cultured Normandy butter lamination, roasted Bronte pistachio cream" }
+      ]
+    },
+    "custom-sneaker-store": {
+      "brandName": "StrideLab Running Co.",
+      "tagline": " supercritical foam marathon racers, technical vibram trail runners, and custom upper colorway builds.",
+      "location": "310 Newbury St, Boston, MA 02115",
+      "contact": { "phone": "(617) 555-0190", "email": "fitlab@stridelab.example" },
+      "palette": "Crisp track white (#F8FAFC), carbon black (#111317), volt lime-coral (#E11D48), cobalt (#2563EB)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'StrideLab Running Co.' footwear storefront. Terrain filters (All Shoes, Road, Trail, Marathon Carbon), featured interactive shoe customizer card with colorway swatches, US/EU shoe size grid (8, 8.5, 9, 9.5, 10, 10.5, 11), stack height & heel-drop specs, fit reviews, Wishlist heart, and Shopping Bag drawer.",
+      "records": [
+        { "name": "Aero Tempo Carbon 3", "terrain": "Marathon", "priceUsd": 235, "dropMm": 8, "weightOz": 6.9, "colorways": ["Signal Coral / Chalk", "Cobalt / Carbon", "Triple Ekiden Mint"], "sizes": ["8.5", "9", "9.5", "10", "10.5", "11", "12"] },
+        { "name": "Granite Ridge Vibram Trail 2", "terrain": "Trail", "priceUsd": 175, "dropMm": 5, "weightOz": 9.4, "colorways": ["Basalt / Ochre", "Pine / Limestone"], "sizes": ["8", "9", "9.5", "10", "10.5", "11"] },
+        { "name": "Cadence Daily Mileage Trainer", "terrain": "Road", "priceUsd": 150, "dropMm": 6, "weightOz": 8.3, "colorways": ["Alabaster / Navy", "Graphite / Volt"], "sizes": ["8", "8.5", "9", "10", "10.5", "11"] },
+        { "name": "Scree Technical Skyrunner", "terrain": "Trail", "priceUsd": 190, "dropMm": 4, "weightOz": 8.6, "colorways": ["Cinder / Slate", "Glacier / Citron"], "sizes": ["9", "9.5", "10", "10.5", "11"] }
+      ]
+    },
+    "vinyl-record-marketplace": {
+      "brandName": "Needle & Sleeve — Independent Vinyl Crates",
+      "tagline": "Japanese Blue Note pressings, deep soul 45s, ambient electronics, and graded archival sleeves.",
+      "location": "1428 N Milwaukee Ave, Wicker Park, Chicago, IL 60622",
+      "contact": { "phone": "(773) 555-0162", "email": "crates@needleandsleeve.example", "promoCode": "CRATE10 (10% off 2+ LPs)" },
+      "palette": "Warm kraft sleeve (#F8F5EE), vinyl matte black (#151515), label orange (#D9532F), deep teal (#1E5F74)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Needle & Sleeve — Independent Vinyl Record Shop'. Genre crate tabs (All Crates, Jazz, Soul, Electronic, Indie & Rock) + Decade filter (1960s–2020s), LP cards showing Goldmine media/sleeve grades (NM / VG+), pressing year, Tracklist button, Add to Crate button, and Crate Cart drawer with promo code CRATE10.",
+      "records": [
+        { "album": "Midnight at Pit Inn (1978 Tokyo Pressing)", "artist": "Kenji Takahashi Quartet", "genre": "Jazz", "decade": "1970s", "grade": "NM / VG+ (With Obi)", "priceUsd": 54, "tracks": ["A1. Rain on Shinjuku (8:42)", "A2. Cedar Waltz (6:15)", "B1. Blue Lanterns (11:08)"] },
+        { "album": "Southside Brass & Velvet", "artist": "The Delmarva Seven", "genre": "Soul", "decade": "1960s", "grade": "VG+ / VG+", "priceUsd": 42, "tracks": ["A1. Hold the Line (3:28)", "A2. River Street Strut (4:05)", "B1. Sunday Train (5:12)"] },
+        { "album": "Subharmonic Tides LP", "artist": "Aether & Tape", "genre": "Electronic", "decade": "2020s", "grade": "M / M (180g Clear Vinyl)", "priceUsd": 31, "tracks": ["A1. Perigee (6:40)", "A2. Buchla Rain (5:55)", "B1. Salt Oscillator (9:18)"] },
+        { "album": "Paper Bridges Over Tyne", "artist": "The Harbourcoats", "genre": "Indie", "decade": "1990s", "grade": "NM / NM", "priceUsd": 36, "tracks": ["A1. Shipyard Bell (3:50)", "A2. Northbound Platform (4:12)", "B1. Greyhound Coat (4:44)"] }
+      ]
+    },
+    "team-collab-saas": {
+      "brandName": "Relaylane — Team Project & Release Workspace",
+      "tagline": "Unified project roadmaps, engineering release checklists, and async design sign-offs in one calm workspace.",
+      "location": "Relaylane Inc. · 548 Market St, Suite 41200, San Francisco, CA 94104",
+      "contact": { "email": "team@relaylane.example", "demoAccount": "avery@acme.example / Password123! (Workspace: Design Ops)" },
+      "palette": "Crisp SaaS alabaster (#F8FAFC), slate ink (#0F172A), indigo accent (#4338CA), emerald (#059669)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Relaylane — Team Collaboration SaaS'. Top bar with Features, Seat Pricing, Workspace Onboarding, and 'Open Demo Workspace' button; interactive seat-count slider with Monthly vs Annual (-20%) billing toggle ($14/seat/mo Starter, $26/seat/mo Scale), feature comparison matrix, and workspace member invite preview.",
+      "records": [
+        { "tier": "Starter Team", "monthlyPerSeatUsd": 14, "annualPerSeatUsd": 11, "included": "Unlimited projects, release checklists, 30-day audit history" },
+        { "tier": "Scale Organization", "monthlyPerSeatUsd": 26, "annualPerSeatUsd": 21, "included": "SAML SSO, custom approval gates, cross-team portfolio views, 1-year retention" },
+        { "demoWorkspace": "Design Ops (12 seats)", "members": ["Avery Stone (Admin)", "Maya Lin (Product)", "Devon Brooks (Systems)", "Priya Nair (QA)"] }
+      ]
+    },
+    "personal-budget-tracker": {
+      "brandName": "Ledgerleaf — Personal Cashflow & Category Budgets",
+      "tagline": "Clear checking & high-yield savings balances, envelope category caps, and searchable transaction ledgers.",
+      "location": "Demo Household Account: demo@budget.example / Password123!",
+      "contact": { "email": "support@ledgerleaf.example" },
+      "palette": "Warm ledger paper (#F9FAF8), deep forest slate (#111C18), emerald savings (#047857), amber warning (#B45309)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Ledgerleaf — Personal Budget & Expense Portal'. Top summary cards (Checking $4,820.40, High-Yield Savings $18,450.00, October Spend $2,140 / $3,200 Budget), quick 'Add Transaction' form, search/filter bar, transaction ledger table, and monthly category budget progress bars (Groceries, Dining, Transit, Utilities).",
+      "records": [
+        { "date": "2026-10-28", "description": "Ballard Farmers Market", "category": "Groceries", "account": "Checking", "type": "Expense", "amountUsd": -78.40 },
+        { "date": "2026-10-25", "description": "October Bi-Weekly Payroll Deposit", "category": "Income", "account": "Checking", "type": "Income", "amountUsd": 3450.00 },
+        { "date": "2026-10-23", "description": "Sound Transit ORCA Pass Reload", "category": "Transit", "account": "Checking", "type": "Expense", "amountUsd": -90.00 },
+        { "date": "2026-10-20", "description": "City Light & Water Utility", "category": "Utilities", "account": "Checking", "type": "Expense", "amountUsd": -134.25 },
+        { "budgetCategory": "Groceries", "monthlyLimitUsd": 650, "spentUsd": 412 }
+      ]
+    },
+    "flight-search-booking": {
+      "brandName": "Meridian Air (IATA: MA)",
+      "tagline": "Nonstop coast-to-coast & Pacific flights with transparent fare rules and complimentary seat selection.",
+      "location": "Meridian Air Operations · Sea-Tac Concourse C, Seattle, WA 98158",
+      "contact": { "phone": "1-800-555-0194", "email": "reservations@meridianair.example" },
+      "palette": "Sky alabaster (#F6F9FC), aviation midnight navy (#0B1F3A), horizon cobalt (#1D4ED8), boarding gold (#C67D24)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Meridian Air — Flight Search & Seat Booking'. Route search bar (Round-Trip / One-Way, SEA → JFK, Departure Date, Cabin Class), filter pills (Nonstop Only, Economy, Business, Morning Departure), outbound flight cards (MA 204 07:35 SEA→JFK $289 Nonstop, MA 418 11:20 SEA→JFK $319), interactive 2-2 / 3-3 cabin seat map (12A, 14C), and passenger itinerary summary.",
+      "records": [
+        { "flightNo": "MA 204", "origin": "SEA", "destination": "JFK", "depart": "07:35", "arrive": "15:52", "stops": "Nonstop", "aircraft": "Airbus A321neo", "economyUsd": 289, "businessUsd": 790 },
+        { "flightNo": "MA 418", "origin": "SEA", "destination": "JFK", "depart": "11:20", "arrive": "19:40", "stops": "Nonstop", "aircraft": "Boeing 787-9", "economyUsd": 319, "businessUsd": 860 },
+        { "flightNo": "MA 611", "origin": "SEA", "destination": "JFK", "depart": "14:05", "arrive": "23:50", "stops": "1 Stop (ORD)", "aircraft": "Airbus A220-300", "economyUsd": 234, "businessUsd": 640 },
+        { "flightNo": "MA 309", "origin": "SFO", "destination": "BOS", "depart": "08:15", "arrive": "16:55", "stops": "Nonstop", "aircraft": "Airbus A321neo", "economyUsd": 298, "businessUsd": 810 }
+      ]
+    },
+    "kanban-project-board": {
+      "brandName": "Northstar Studio — Q4 Product Launch Board",
+      "tagline": "Cross-functional Kanban workflow across Backlog, In Progress, Review, and Done.",
+      "location": "Workspace: Core Platform Release v4.2",
+      "contact": { "team": "Maya Lin, Devon Brooks, Priya Nair, Lucas Meyer" },
+      "palette": "Clean board canvas (#F4F6F9), slate ink (#0F172A), priority crimson (#DC2626), review violet (#6D28D9), done emerald (#059669)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Northstar Studio — Q4 Product Launch Kanban Board'. Top toolbar with '+ Add Task' button, Priority filter pills (All, Urgent, High, Medium, Low), Assignee filter avatars, Archive Completed button, and 4 crisp Kanban columns (Backlog, In Progress, Review, Done) containing task cards with IDs (NS-101), due dates, subtask counters (2/3), and priority tags.",
+      "records": [
+        { "id": "NS-101", "title": "Finalize Stripe webhook retry idempotency keys", "column": "In Progress", "priority": "High", "assignee": "Devon Brooks", "due": "2026-11-04", "subtasks": "2/3" },
+        { "id": "NS-102", "title": "Audit onboarding billing step copy & error states", "column": "Review", "priority": "Urgent", "assignee": "Maya Lin", "due": "2026-11-02", "subtasks": "3/3" },
+        { "id": "NS-103", "title": "Write customer migration guide for v4 API tokens", "column": "Backlog", "priority": "Medium", "assignee": "Priya Nair", "due": "2026-11-08", "subtasks": "0/2" },
+        { "id": "NS-104", "title": "Provision staging PostgreSQL read-replica snapshot", "column": "Done", "priority": "High", "assignee": "Lucas Meyer", "due": "2026-10-29", "subtasks": "2/2" },
+        { "id": "NS-105", "title": "Verify CSV export column headers on billing ledger", "column": "Backlog", "priority": "Low", "assignee": "Maya Lin", "due": "2026-11-11", "subtasks": "1/2" }
+      ]
+    },
+    "recipe-meal-planner": {
+      "brandName": "PantryWeek — 7-Day Meal Planner & Consolidated Grocery List",
+      "tagline": "Plan breakfast, lunch, and dinner across the week, scale servings, and check off aisle-grouped groceries.",
+      "location": "Household Kitchen Workspace",
+      "contact": { "defaultServings": 4 },
+      "palette": "Warm kitchen linen (#FAF8F3), cast-iron slate (#1E2220), tomato terracotta (#C84B31), basil green (#3B6E4C)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'PantryWeek — 7-Day Meal Planner & Grocery List'. Top switcher (Weekly Meal Grid, Recipe Book, Consolidated Grocery List, + New Recipe); 7-day Monday–Sunday Breakfast/Lunch/Dinner planner grid alongside recipe cards with serving scalers and an interactive checkable Shopping List panel (Olive Oil, Garlic, Crushed Tomatoes, Yellow Onion).",
+      "records": [
+        { "recipe": "Tuscan White Bean & Rosemary Ribollita", "meal": "Dinner", "servings": 4, "ingredients": ["2 tbsp Olive Oil", "4 cloves Garlic", "1 Yellow Onion", "28 oz Crushed Tomatoes", "2 cans Cannellini Beans", "1 bunch Tuscan Kale"] },
+        { "recipe": "Lemon Herb Chickpea & Roasted Pepper Grain Bowl", "meal": "Lunch", "servings": 2, "ingredients": ["1 cup Farro", "1 can Chickpeas", "2 tbsp Olive Oil", "1 Lemon", "Feta Cheese"] },
+        { "recipe": "Overnight Toasted Oat & Chia Compote", "meal": "Breakfast", "servings": 2, "ingredients": ["1 cup Rolled Oats", "2 tbsp Chia Seeds", "1 cup Greek Yogurt", "1 cup Tart Cherries"] },
+        { "recipe": "Miso Ginger Glazed Salmon & Bok Choy", "meal": "Dinner", "servings": 4, "ingredients": ["4 Wild Salmon Fillets", "2 tbsp White Miso", "4 heads Baby Bok Choy", "2 cloves Garlic", "1 cup Jasmine Rice"] }
+      ]
+    },
+    "pomodoro-study-workspace": {
+      "brandName": "Cadence Study — Focus Timer & Research Notebook",
+      "tagline": "25/5 focus & break intervals paired with tagged multi-folder study notes and session history.",
+      "location": "Academic Workspace",
+      "contact": { "folders": ["Physics 204", "Linear Algebra", "Economic History"] },
+      "palette": "Calm library ivory (#F8F7F3), deep ink (#191D24), focus indigo (#3730A3), break sage (#2F6F5E)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Cadence Study — Focus Timer & Notebook Workspace'. Left/top focus timer card (25:00 Focus, 05:00 Short Break, 15:00 Long Break, Start / Pause controls, Task Queue, Completed Sessions Today: 4), paired with a two-pane Study Notebook showing folders (Physics 204, Linear Algebra), tag search input, and markdown-style lecture notes.",
+      "records": [
+        { "title": "Thermodynamics Ch. 2: First Law & Adiabatic Expansion", "folder": "Physics 204", "tags": ["exam-1", "gas-laws"], "body": "Internal energy change dU = dQ - PdV; for ideal gas adiabatic process PV^gamma = constant." },
+        { "title": "Eigenvalues, Spectral Theorem & Symmetric Matrices", "folder": "Linear Algebra", "tags": ["proofs", "midterm"], "body": "Every real symmetric matrix A = Q Lambda Q^T has orthogonal eigenvectors and real eigenvalues." },
+        { "title": "Bretton Woods & Postwar Exchange Rate Regimes", "folder": "Economic History", "tags": ["seminar", "reading"], "body": "Triffin dilemma and reserve liquidity pressures between 1958 and 1971." }
+      ]
+    },
+    "minecraft-clone": {
+      "brandName": "TerraBlock — Voxel Island Sandbox",
+      "tagline": "Explore a terraced voxel island, switch hotbar block materials, build structures, and mine terrain.",
+      "location": "World Seed #482910 · Meadow & Stone Ridge Biome",
+      "contact": { "controls": "WASD Move · Space Jump · Left-Click Break · Right-Click / Action Place · 1–5 Select Block · Esc Pause Menu" },
+      "palette": "Sky horizon blue (#78B7E8), meadow grass (#5A9E3E), cobblestone (#7A8086), HUD dark slate (#14181F)",
+      "layoutMockupPrompt": "Clean desktop browser game UI mockup (1440x900 viewport, no browser frame) for 'TerraBlock — Voxel Block World Game'. First-person sunlit voxel block terrain with stepped green grass hills, oak trees, water cove, stone cliff, crosshair in center, crisp top-left HUD (Coordinates X/Y/Z, Biome, World Seed #482910, Pause/Settings button), and centered bottom 5-slot block hotbar (1 Grass, 2 Stone, 3 Wood Plank, 4 Glass, 5 Red Brick).",
+      "records": [
+        { "slot": 1, "block": "Grass Block", "color": "#5A9E3E" },
+        { "slot": 2, "block": "Cobblestone", "color": "#7A8086" },
+        { "slot": 3, "block": "Oak Wood Plank", "color": "#B6864C" },
+        { "slot": 4, "block": "Clear Glass", "color": "#BEE7F5" },
+        { "slot": 5, "block": "Kiln Red Brick", "color": "#A64438" }
+      ]
+    },
+    "browser-drum-synthesizer": {
+      "brandName": "PulseGrid TR-16 — Drum Machine & Bassline Synthesizer",
+      "tagline": "16-step polyphonic rhythm sequencer with synthesized Kick, Snare, Closed/Open Hat, Clap, and Acid Synth.",
+      "location": "Studio Hardware-Inspired Web Instrument",
+      "contact": { "defaultTempoBpm": 122 },
+      "palette": "Anodized studio charcoal (#14171C), brushed panel slate (#1F242D), step-active amber (#F59E0B), accent cyan (#06B6D4), transport emerald (#10B981)",
+      "layoutMockupPrompt": "Clean desktop web instrument UI mockup (1440x900 viewport, no browser frame) for 'PulseGrid TR-16 — 16-Step Drum Machine & Synthesizer'. Dark hardware-inspired studio rack with Play / Stop / Clear transport bar, BPM tempo control (122 BPM), Low-Pass Filter Cutoff & Resonance rotary controls, Preset selector (Deep House 122, Boom Bap 92, Detroit Techno 130, Electro Funk 110), and illuminated 6-track × 16-step grid (Kick, Snare, Closed Hat, Open Hat, Clap, Bass Synth).",
+      "records": [
+        { "preset": "Deep House 122", "bpm": 122, "kickSteps": [1, 5, 9, 13], "snareSteps": [5, 13], "hatSteps": [3, 7, 11, 15] },
+        { "preset": "Boom Bap 92", "bpm": 92, "kickSteps": [1, 8, 11], "snareSteps": [5, 13], "hatSteps": [1, 3, 5, 7, 9, 11, 13, 15] },
+        { "preset": "Detroit Techno 130", "bpm": 130, "kickSteps": [1, 5, 9, 13], "snareSteps": [5, 12, 13], "hatSteps": [2, 3, 6, 7, 10, 11, 14, 15] },
+        { "preset": "Electro Funk 110", "bpm": 110, "kickSteps": [1, 4, 11], "snareSteps": [5, 13], "hatSteps": [1, 3, 5, 7, 9, 11, 13, 15] }
+      ]
+    },
+    "pixel-art-studio": {
+      "brandName": "SpriteLoom — Pixel Art & Frame Animation Studio",
+      "tagline": "Crisp 16×16, 32×32, and 64×64 pixel canvas with layers, onion-skin animation frames, undo/redo, and PNG export.",
+      "location": "Creative Sprite Workspace",
+      "contact": { "defaultGrid": "32×32" },
+      "palette": "Dark studio slate (#15181E), elevated tool rail (#20252E), PICO-inspired 16-color palette swatches, accent coral (#F43F5E)",
+      "layoutMockupPrompt": "Clean desktop creative app UI mockup (1440x900 viewport, no browser frame) for 'SpriteLoom — Pixel Art Drawing & Animation Studio'. Left tool rail (Pencil, Bucket Fill, Eraser, Eyedropper, Line, Grid Size 16x16 / 32x32 / 64x64, Undo / Redo), center checkerboard pixel canvas displaying a colorful 32x32 pixel lantern/character sprite, right panel with 16-color palette swatches & Layers list, and bottom Animation Frames timeline with Play FPS & Export PNG button.",
+      "records": [
+        { "paletteName": "Loom-16 Palette", "swatches": ["#14181F", "#333C57", "#566C86", "#94B0C2", "#F4F4F4", "#B13E53", "#EF7D57", "#FFCD75", "#A7F070", "#38B764", "#257179", "#29366F", "#3B5DC9", "#41A6F6", "#73EFF7", "#5D275D"] }
+      ]
+    }
+  }
+}

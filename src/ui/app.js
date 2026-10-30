@@ -30,10 +30,22 @@ const state = {
   data: null,
   activeView: 'leaderboard',
   selectedMode: 'all',
+  selectedSpec: 'all',
   selectedCategory: 'all',
   leaderboardSortCol: 'composite',
   leaderboardSortDir: 'desc',
   lhCorpusFilter: 'all-failures',
+  lhSplitBy: 'none',
+  lhFamilyFilter: 'all',
+  lhLeadFilter: 'all',
+  lhSpecFilter: 'all',
+  lhSearchQuery: '',
+  inspectedLhAuditId: null,
+  lhModalStatusFilter: 'all',
+  lhModalFamilyFilter: 'all',
+  lhModalLeadFilter: 'all',
+  lhModalSpecFilter: 'all',
+  lhModalSearch: '',
   matrixCategory: 'all',
   matrixMetric: 'composite',
   selectedCohort: null,
@@ -45,6 +57,7 @@ const state = {
   inspectedCellId: null,
   inspectedCell: null,
   dialogTab: 'overview',
+  previewViewMode: 'live',
   lhCellFilter: 'all',
   transcriptFilter: 'all',
   transcriptQuery: '',
@@ -132,6 +145,22 @@ function modeBadgeHtml(mode) {
     : `<span class="mode-badge mode-oneshot">1-Shot</span>`;
 }
 
+function specBadgeHtml(spec) {
+  return spec === 'guided'
+    ? `<span class="spec-badge spec-guided" title="Guided spec: gemini-nano-banana-2.1 layout image + design.md + canonical seed data">Guided · Ref+Design+Data</span>`
+    : `<span class="spec-badge spec-freeform" title="Free-form spec: pure open 1-sentence prompt">Free-form</span>`;
+}
+
+function canEmbedCellLivePreview(summaryCell, detail) {
+  if (!state.data?.staticMode) {
+    return Boolean(detail ? detail.materialization?.ok : summaryCell?.buildSucceeded);
+  }
+  return Boolean(detail?.hasStaticPreview ?? summaryCell?.hasStaticPreview);
+}
+
+const PREVIEW_IFRAME_SANDBOX =
+  'allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-pointer-lock';
+
 async function copyCurrentUrlWithFeedback(btn) {
   const url = window.location.href;
   try {
@@ -158,10 +187,16 @@ async function copyCurrentUrlWithFeedback(btn) {
 function buildHashString({
   view = state.activeView,
   mode = state.selectedMode,
+  spec = state.selectedSpec,
   cat = state.selectedCategory,
   sortCol = state.leaderboardSortCol,
   sortDir = state.leaderboardSortDir,
   lhFilter = state.lhCorpusFilter,
+  lhSplit = state.lhSplitBy,
+  lhFamily = state.lhFamilyFilter,
+  lhLead = state.lhLeadFilter,
+  lhSpec = state.lhSpecFilter,
+  lhAudit = state.inspectedLhAuditId,
   mcat = state.matrixCategory,
   metric = state.matrixMetric,
   cohort = state.selectedCohort,
@@ -175,6 +210,7 @@ function buildHashString({
   const params = new URLSearchParams();
 
   if (mode && mode !== 'all') params.set('mode', mode);
+  if (spec && spec !== 'all') params.set('spec', spec);
 
   if (cleanView === 'leaderboard') {
     if (cat && cat !== 'all') params.set('cat', cat);
@@ -183,6 +219,10 @@ function buildHashString({
       params.set('dir', sortDir);
     }
     if (lhFilter && lhFilter !== 'all-failures') params.set('lh', lhFilter);
+    if (lhSplit && lhSplit !== 'none') params.set('lhsplit', lhSplit);
+    if (lhFamily && lhFamily !== 'all') params.set('lhfamily', lhFamily);
+    if (lhLead && lhLead !== 'all') params.set('lhlead', lhLead);
+    if (lhSpec && lhSpec !== 'all') params.set('lhspec', lhSpec);
   } else if (cleanView === 'matrix') {
     if (mcat && mcat !== 'all') params.set('mcat', mcat);
     if (metric && metric !== 'composite') params.set('metric', metric);
@@ -192,6 +232,10 @@ function buildHashString({
     if (arenaPrompt) params.set('prompt', arenaPrompt);
     if (arenaA) params.set('a', arenaA);
     if (arenaB) params.set('b', arenaB);
+  }
+
+  if (lhAudit) {
+    params.set('lhaudit', lhAudit);
   }
 
   if (cellId) {
@@ -209,6 +253,7 @@ function updateNavTabHrefs() {
     link.href = buildHashString({
       view: v,
       cellId: null,
+      lhAudit: null,
     });
   }
 }
@@ -239,6 +284,9 @@ function parseHashIntoState() {
   const modeParam = params.get('mode');
   state.selectedMode = modeParam === 'agent' || modeParam === 'oneshot' ? modeParam : 'all';
 
+  const specParam = params.get('spec');
+  state.selectedSpec = specParam === 'freeform' || specParam === 'guided' ? specParam : 'all';
+
   if (mappedView === 'leaderboard') {
     state.selectedCategory = params.get('cat') || 'all';
     const sortCol = params.get('sort');
@@ -251,6 +299,13 @@ function parseHashIntoState() {
       state.leaderboardSortDir = 'desc';
     }
     state.lhCorpusFilter = params.get('lh') || 'all-failures';
+    const lhSplitParam = params.get('lhsplit');
+    state.lhSplitBy = ['none', 'mode', 'family', 'spec', 'model'].includes(lhSplitParam) ? lhSplitParam : 'none';
+    state.lhFamilyFilter = params.get('lhfamily') || 'all';
+    const lhLeadParam = params.get('lhlead');
+    state.lhLeadFilter = lhLeadParam === 'agent' || lhLeadParam === 'oneshot' ? lhLeadParam : 'all';
+    const lhSpecParam = params.get('lhspec');
+    state.lhSpecFilter = lhSpecParam === 'freeform' || lhSpecParam === 'guided' ? lhSpecParam : 'all';
   } else if (mappedView === 'matrix') {
     state.matrixCategory = params.get('mcat') || 'all';
     state.matrixMetric = params.get('metric') || 'composite';
@@ -264,19 +319,35 @@ function parseHashIntoState() {
 
   const cellParam = params.get('cell');
   const dtabParam = params.get('dtab');
+  const lhAuditParam = params.get('lhaudit');
   return {
     cellId: cellParam || null,
     dtab: VALID_DIALOG_TABS.has(dtabParam) ? dtabParam : 'overview',
+    lhAuditId: lhAuditParam || null,
   };
 }
 
 async function applyUrlStateToUi() {
   state.suppressHashSync = true;
   try {
-    const { cellId, dtab } = parseHashIntoState();
+    const { cellId, dtab, lhAuditId } = parseHashIntoState();
 
     const modeSelect = document.getElementById('global-mode-select');
     if (modeSelect) modeSelect.value = state.selectedMode;
+
+    const specSelect = document.getElementById('global-spec-select');
+    if (specSelect) specSelect.value = state.selectedSpec;
+
+    const lhSplitSelect = document.getElementById('lh-split-select');
+    if (lhSplitSelect) lhSplitSelect.value = state.lhSplitBy;
+    const lhFamilySelect = document.getElementById('lh-family-select');
+    if (lhFamilySelect && Array.from(lhFamilySelect.options).some((o) => o.value === state.lhFamilyFilter)) {
+      lhFamilySelect.value = state.lhFamilyFilter;
+    }
+    const lhLeadSelect = document.getElementById('lh-lead-select');
+    if (lhLeadSelect) lhLeadSelect.value = state.lhLeadFilter;
+    const lhSpecSelect = document.getElementById('lh-spec-select');
+    if (lhSpecSelect) lhSpecSelect.value = state.lhSpecFilter;
 
     const matCatSelect = document.getElementById('matrix-category-select');
     if (matCatSelect && Array.from(matCatSelect.options).some((o) => o.value === state.matrixCategory)) {
@@ -294,6 +365,16 @@ async function applyUrlStateToUi() {
     renderTechObservatory();
     renderArenaSelectors();
     renderMethodology();
+
+    const lhDialog = document.getElementById('lh-audit-detail-dialog');
+    if (lhAuditId && !cellId) {
+      if (state.inspectedLhAuditId !== lhAuditId || !lhDialog?.open) {
+        openLighthouseAuditDialog(lhAuditId, { fromRouter: true });
+      }
+    } else if (lhDialog?.open && !lhAuditId) {
+      state.inspectedLhAuditId = null;
+      lhDialog.close();
+    }
 
     const dialog = document.getElementById('cell-detail-dialog');
     if (cellId) {
@@ -366,6 +447,8 @@ function renderHeaderKpis() {
   const cellCount = totals.cells || 0;
   const agentCount = totals.agentCells || 0;
   const oneshotCount = totals.oneshotCells || 0;
+  const guidedCount = totals.guidedCells || 0;
+  const specSuffix = guidedCount > 0 ? ` · ${guidedCount} guided` : '';
   const canary = d.summary?.canary;
   const canaryBadge = canary
     ? `<span>Canary: <strong>${escapeHtml(String(canary.status || 'stable').toUpperCase())}</strong> (${canary.browserMainThreadComputeMs ?? canary.nodeCpuComputeMs ?? '—'}ms)</span>`
@@ -373,7 +456,7 @@ function renderHeaderKpis() {
   el.innerHTML = `
     <span>Prompts: <strong>${d.prompts.length}</strong> (${d.categories.length} cats)</span>
     <span>Models: <strong>${d.models.length}</strong> (${readyCount} live)</span>
-    <span>Cells: <strong>${cellCount}</strong> (${agentCount} agent · ${oneshotCount} 1-shot)</span>
+    <span>Cells: <strong>${cellCount}</strong> (${agentCount} agent · ${oneshotCount} 1-shot${escapeHtml(specSuffix)})</span>
     ${canaryBadge}
   `;
 }
@@ -385,7 +468,7 @@ function getRowSortValue(row, col) {
     case 'label':
       return (row.label || row.modelKey || '').toLowerCase();
     case 'mode':
-      return row.mode || '';
+      return `${row.mode || ''}_${row.spec || 'freeform'}`;
     case 'dominantStack':
       return (row.dominantStack || '').toLowerCase();
     case 'cellsRun':
@@ -423,17 +506,26 @@ function computeFilteredLeaderboard() {
 
   const cat = state.selectedCategory;
   const modeFilter = state.selectedMode;
+  const specFilter = state.selectedSpec;
   let rows = summary.leaderboard
-    .filter((r) => modeFilter === 'all' || r.mode === modeFilter)
+    .filter(
+      (r) =>
+        (modeFilter === 'all' || r.mode === modeFilter) &&
+        (specFilter === 'all' || (r.spec || 'freeform') === specFilter)
+    )
     .map((r) => ({ ...r }));
 
   if (cat !== 'all') {
     const cells = (summary.cells || []).filter(
-      (c) => c.category === cat && (modeFilter === 'all' || c.mode === modeFilter)
+      (c) =>
+        c.category === cat &&
+        (modeFilter === 'all' || c.mode === modeFilter) &&
+        (specFilter === 'all' || (c.spec || 'freeform') === specFilter)
     );
     const byGroup = new Map();
     for (const c of cells) {
-      const gk = `${c.modelKey}__${c.mode || 'oneshot'}`;
+      const sp = c.spec || 'freeform';
+      const gk = sp === 'guided' ? `${c.modelKey}__${c.mode || 'oneshot'}__guided` : `${c.modelKey}__${c.mode || 'oneshot'}`;
       if (!byGroup.has(gk)) byGroup.set(gk, []);
       byGroup.get(gk).push(c);
     }
@@ -444,11 +536,17 @@ function computeFilteredLeaderboard() {
     rows = [];
     for (const [gk, list] of byGroup.entries()) {
       const sample = list[0];
+      const sp = sample.spec || 'freeform';
       const base =
-        summary.leaderboard.find((x) => x.rowId === gk || (x.modelKey === sample.modelKey && x.mode === sample.mode)) || {
+        summary.leaderboard.find(
+          (x) =>
+            x.rowId === gk ||
+            (x.modelKey === sample.modelKey && x.mode === sample.mode && (x.spec || 'freeform') === sp)
+        ) || {
           rowId: gk,
           modelKey: sample.modelKey,
           mode: sample.mode || 'oneshot',
+          spec: sp,
           label: sample.modelLabel || sample.modelKey,
           family: sample.family || '',
         };
@@ -469,6 +567,7 @@ function computeFilteredLeaderboard() {
 
       rows.push({
         ...base,
+        spec: sp,
         cellsRun: list.length,
         dominantStack,
         scores: {
@@ -534,35 +633,210 @@ function updateLeaderboardSortHeaders() {
   }
 }
 
+function cellMatchesCorpusLhSlice(cell) {
+  if (!cell?.lighthouseAudits) return false;
+  if (state.selectedCategory !== 'all' && cell.category !== state.selectedCategory) return false;
+  const famFilter = state.lhFamilyFilter;
+  if (famFilter && famFilter !== 'all') {
+    if (famFilter.startsWith('model:')) {
+      if (cell.modelKey !== famFilter.slice(6)) return false;
+    } else if ((cell.family || 'Other') !== famFilter) {
+      return false;
+    }
+  }
+  if (state.lhLeadFilter !== 'all' && cell.mode !== state.lhLeadFilter) return false;
+  if (state.lhSpecFilter !== 'all' && (cell.spec || 'freeform') !== state.lhSpecFilter) return false;
+  return true;
+}
+
+function getLhSplitBucket(cell, splitBy) {
+  if (splitBy === 'mode') {
+    return cell.mode === 'agent'
+      ? { key: 'agent', label: 'Agent · pi' }
+      : { key: 'oneshot', label: '1-Shot' };
+  }
+  if (splitBy === 'family') {
+    const fam = cell.family || 'Other';
+    return { key: fam, label: fam };
+  }
+  if (splitBy === 'spec') {
+    return cell.spec === 'guided'
+      ? { key: 'guided', label: 'Guided (Ref+Data)' }
+      : { key: 'freeform', label: 'Free-form' };
+  }
+  if (splitBy === 'model') {
+    return { key: cell.modelKey, label: cell.modelLabel || cell.modelKey };
+  }
+  return null;
+}
+
+function computeCorpusLighthouseAnalytics({ ignoreSliceFilters = false } = {}) {
+  const allCells = state.data?.summary?.cells || [];
+  const auditedCells = allCells.filter((c) =>
+    ignoreSliceFilters ? Boolean(c?.lighthouseAudits) : cellMatchesCorpusLhSlice(c)
+  );
+  const splitBy = state.lhSplitBy;
+  const bucketTotals = new Map();
+  const auditMap = new Map();
+
+  for (const c of auditedCells) {
+    const b = splitBy !== 'none' ? getLhSplitBucket(c, splitBy) : null;
+    if (b) {
+      const prevB = bucketTotals.get(b.key) || { key: b.key, label: b.label, total: 0 };
+      prevB.total++;
+      bucketTotals.set(b.key, prevB);
+    }
+
+    const recordCellAudit = (a, isFail) => {
+      const cats = getAuditCategories(a);
+      let entry = auditMap.get(a.id);
+      if (!entry) {
+        entry = {
+          id: a.id,
+          title: a.title || a.id,
+          description: a.description || '',
+          helpUrl: a.helpUrl || '',
+          category: cats[0],
+          categories: cats,
+          failCount: 0,
+          passCount: 0,
+          applicableCount: 0,
+          scores: [],
+          failScores: [],
+          failingCells: [],
+          passingCells: [],
+          allCellRecords: [],
+          bySplit: new Map(),
+        };
+        auditMap.set(a.id, entry);
+      } else {
+        if (!entry.description && a.description) entry.description = a.description;
+        if (!entry.helpUrl && a.helpUrl) entry.helpUrl = a.helpUrl;
+      }
+
+      const numericScore = a.score != null ? Number(a.score) : isFail ? 0 : 100;
+      entry.applicableCount++;
+      entry.scores.push(numericScore);
+
+      const cellRecord = {
+        cellId: c.cellId,
+        modelKey: c.modelKey,
+        modelLabel: c.modelLabel || c.modelKey,
+        family: c.family || 'Other',
+        mode: c.mode || 'oneshot',
+        spec: c.spec || 'freeform',
+        promptId: c.promptId,
+        promptTitle: c.promptTitle || c.promptId,
+        category: c.category,
+        categoryLabel: c.categoryLabel || c.category,
+        stack:
+          c.techStack?.primaryBackend && c.techStack.primaryBackend !== 'static-only'
+            ? `${c.techStack.primaryFramework} + ${c.techStack.primaryBackend}`
+            : c.techStack?.primaryFramework || 'vanilla',
+        status: isFail ? 'FAIL' : 'PASS',
+        score: numericScore,
+        displayValue: a.displayValue || null,
+        numericValue: a.numericValue ?? null,
+        items: Array.isArray(a.items) ? a.items : [],
+        cellLhScore: c.scores?.lighthouse ?? null,
+        cellComposite: c.scores?.composite ?? null,
+        mobileLcpMs: c.keyMetrics?.mobileLcpMs ?? null,
+        inpMs: c.keyMetrics?.inpMs ?? null,
+        hasStaticPreview: Boolean(c.hasStaticPreview),
+        hasDesktopScreenshot: Boolean(c.hasDesktopScreenshot),
+        buildSucceeded: Boolean(c.buildSucceeded),
+      };
+
+      entry.allCellRecords.push(cellRecord);
+      if (isFail) {
+        entry.failCount++;
+        entry.failScores.push(numericScore);
+        entry.failingCells.push(cellRecord);
+      } else {
+        entry.passCount++;
+        entry.passingCells.push(cellRecord);
+      }
+
+      if (b) {
+        const sb = entry.bySplit.get(b.key) || {
+          key: b.key,
+          label: b.label,
+          failCount: 0,
+          passCount: 0,
+          applicableCount: 0,
+        };
+        sb.applicableCount++;
+        if (isFail) sb.failCount++;
+        else sb.passCount++;
+        entry.bySplit.set(b.key, sb);
+      }
+    };
+
+    for (const f of c.lighthouseAudits.failingAudits || []) recordCellAudit(f, true);
+    for (const p of c.lighthouseAudits.passedAudits || []) recordCellAudit(p, false);
+  }
+
+  const avgNum = (arr) =>
+    arr.length > 0 ? Math.round((arr.reduce((s, x) => s + x, 0) / arr.length) * 10) / 10 : null;
+
+  const audits = Array.from(auditMap.values()).map((e) => {
+    const denom = Math.max(1, e.applicableCount);
+    return {
+      ...e,
+      failRatePct: Math.round((e.failCount / denom) * 1000) / 10,
+      passRatePct: Math.round((e.passCount / denom) * 1000) / 10,
+      avgScore: avgNum(e.scores),
+      avgFailScore: avgNum(e.failScores),
+    };
+  });
+
+  const splitColumns = Array.from(bucketTotals.values()).sort((a, b) => {
+    if (splitBy === 'mode') return a.key === 'agent' ? -1 : 1;
+    if (splitBy === 'spec') return a.key === 'freeform' ? -1 : 1;
+    return b.total - a.total || a.label.localeCompare(b.label);
+  });
+
+  return {
+    cellsAudited: auditedCells.length,
+    splitColumns,
+    auditMap,
+    failingAudits: audits
+      .filter((a) => a.failCount > 0)
+      .sort((a, b) => b.failCount - a.failCount || (a.avgFailScore ?? 0) - (b.avgFailScore ?? 0)),
+    universalPassingAudits: audits
+      .filter((a) => a.failCount === 0 && a.passCount > 0)
+      .sort((a, b) => b.passCount - a.passCount || a.id.localeCompare(b.id)),
+    allAudits: audits.sort((a, b) => b.failCount - a.failCount || a.id.localeCompare(b.id)),
+  };
+}
+
 function renderCorpusLighthouseBreakdown() {
   const panel = document.getElementById('lighthouse-corpus-panel');
   const pillsEl = document.getElementById('lh-corpus-filter-pills');
   const bodyEl = document.getElementById('lighthouse-corpus-body');
-  const lh = state.data?.summary?.lighthouseAuditBreakdown;
+  const anyAudited = (state.data?.summary?.cells || []).some((c) => c.lighthouseAudits);
 
-  if (!panel || !lh || !lh.cellsAudited) {
+  if (!panel || !anyAudited) {
     panel?.classList.add('hidden');
     return;
   }
   panel.classList.remove('hidden');
 
-  const failing = (lh.topFailingAudits || []).map((f) => {
-    const cats = getAuditCategories(f);
-    return { ...f, category: cats[0], categories: cats };
-  });
-  const passing = (lh.universalPassingAudits || []).map((p) => {
-    const cats = getAuditCategories(p);
-    return { ...p, category: cats[0], categories: cats };
-  });
+  const analytics = computeCorpusLighthouseAnalytics();
+  const failing = analytics.failingAudits;
+  const passing = analytics.universalPassingAudits;
+  const allChecks = analytics.allAudits;
+  const splitCols = analytics.splitColumns;
   const matchesCat = (item, cat) => (item.categories || [item.category]).includes(cat);
 
   const filters = [
-    { id: 'all-failures', label: `All Failing Checks (${failing.length})` },
+    { id: 'all-failures', label: `All Failing (${failing.length})` },
     { id: 'performance', label: `Perf Failures (${failing.filter((f) => matchesCat(f, 'performance')).length})` },
     { id: 'accessibility', label: `A11y Failures (${failing.filter((f) => matchesCat(f, 'accessibility')).length})` },
     { id: 'best-practices', label: `Best-Practice Failures (${failing.filter((f) => matchesCat(f, 'best-practices')).length})` },
     { id: 'seo', label: `SEO Failures (${failing.filter((f) => matchesCat(f, 'seo')).length})` },
     { id: 'universal-passes', label: `100% Universal Passes (${passing.length})` },
+    { id: 'all-checks', label: `All Checks (${allChecks.length})` },
   ];
 
   pillsEl.innerHTML = filters
@@ -580,9 +854,41 @@ function renderCorpusLighthouseBreakdown() {
     });
   }
 
+  if (analytics.cellsAudited === 0) {
+    bodyEl.innerHTML = `<p class="panel-sub">No audited cells match the active Family / Lead / Spec slice filters.</p>`;
+    return;
+  }
+
+  const q = state.lhSearchQuery.trim().toLowerCase();
+  const filterBySearch = (list) =>
+    !q
+      ? list
+      : list.filter(
+          (item) =>
+            item.id.toLowerCase().includes(q) ||
+            item.title.toLowerCase().includes(q) ||
+            (item.category || '').toLowerCase().includes(q)
+        );
+
+  const renderSplitBucketCell = (auditItem, sc, mode = 'fail') => {
+    const sb = auditItem.bySplit.get(sc.key);
+    if (!sb || sb.applicableCount === 0) {
+      return `<td class="num mono"><span class="score-badge score-na">—</span></td>`;
+    }
+    if (mode === 'pass') {
+      const pPct = Math.round((sb.passCount / sb.applicableCount) * 100);
+      const cls = pPct === 100 ? 'score-good' : pPct >= 75 ? 'score-warn' : 'score-bad';
+      return `<td class="num mono"><span class="score-badge ${cls}">${sb.passCount}/${sb.applicableCount} (${pPct}%)</span></td>`;
+    }
+    const fPct = Math.round((sb.failCount / sb.applicableCount) * 100);
+    const cls = sb.failCount === 0 ? 'score-good' : fPct >= 40 ? 'score-bad' : 'score-warn';
+    return `<td class="num mono"><span class="score-badge ${cls}">${sb.failCount}/${sb.applicableCount} fail (${fPct}%)</span></td>`;
+  };
+
   if (state.lhCorpusFilter === 'universal-passes') {
-    if (passing.length === 0) {
-      bodyEl.innerHTML = `<p class="panel-sub">Re-run Lighthouse audits with <code>--benchmarks=lighthouse-uplift</code> to populate full pass telemetry.</p>`;
+    const shownPasses = filterBySearch(passing);
+    if (shownPasses.length === 0) {
+      bodyEl.innerHTML = `<p class="panel-sub">No universal 100%-passing checks match this filter across ${analytics.cellsAudited} audited sites.</p>`;
       return;
     }
     bodyEl.innerHTML = `
@@ -591,22 +897,30 @@ function renderCorpusLighthouseBreakdown() {
           <thead>
             <tr>
               <th>Audit ID</th>
-              <th class="col-wrap">Lighthouse Check Title</th>
+              <th class="col-wrap">Lighthouse Check Title (click to verify all sites)</th>
               <th>Category</th>
-              <th class="num">Passed Sites</th>
+              <th class="num">Passed / Applicable</th>
               <th class="num">Pass Rate</th>
+              ${splitCols.map((sc) => `<th class="num">${escapeHtml(sc.label)} (${sc.total})</th>`).join('')}
+              <th>Verify</th>
             </tr>
           </thead>
           <tbody>
-            ${passing
+            ${shownPasses
               .map(
                 (p) => `
-                <tr>
+                <tr class="lh-audit-row" data-open-lhaudit="${escapeHtml(p.id)}">
                   <td class="mono">${escapeHtml(p.id)}</td>
-                  <td class="col-wrap"><strong>${escapeHtml(p.title)}</strong></td>
+                  <td class="col-wrap">
+                    <button type="button" class="lh-audit-title-btn" data-open-lhaudit="${escapeHtml(p.id)}">
+                      <strong>${escapeHtml(p.title)}</strong>
+                    </button>
+                  </td>
                   <td><span class="lh-audit-cat">${escapeHtml(p.category)}</span></td>
-                  <td class="num mono">${p.passCount} / ${lh.cellsAudited}</td>
+                  <td class="num mono">${p.passCount} / ${p.applicableCount}</td>
                   <td class="num"><span class="score-badge score-good">${p.passRatePct}% PASS</span></td>
+                  ${splitCols.map((sc) => renderSplitBucketCell(p, sc, 'pass')).join('')}
+                  <td><button type="button" class="btn btn-ghost" style="padding:3px 9px;font-size:0.76rem" data-open-lhaudit="${escapeHtml(p.id)}">Inspect ${p.applicableCount} →</button></td>
                 </tr>
               `
               )
@@ -615,74 +929,405 @@ function renderCorpusLighthouseBreakdown() {
         </table>
       </div>
     `;
+  } else {
+    let baseList = failing;
+    if (state.lhCorpusFilter === 'all-checks') baseList = allChecks;
+    else if (state.lhCorpusFilter !== 'all-failures') {
+      baseList = failing.filter((f) => matchesCat(f, state.lhCorpusFilter));
+    }
+    const filteredList = filterBySearch(baseList);
+
+    if (filteredList.length === 0) {
+      bodyEl.innerHTML = `<p class="panel-sub">Zero matching Lighthouse checks across ${analytics.cellsAudited} audited sites in this slice.</p>`;
+      return;
+    }
+
+    bodyEl.innerHTML = `
+      <div class="table-surface">
+        <table class="data-table lh-wrap-table">
+          <thead>
+            <tr>
+              <th>Audit ID</th>
+              <th class="col-wrap">Lighthouse Check (click row to cross-check all ${analytics.cellsAudited} sites)</th>
+              <th>Category</th>
+              <th class="num">Failed / Applicable</th>
+              <th class="num">Mean Score</th>
+              ${splitCols.map((sc) => `<th class="num">${escapeHtml(sc.label)} (${sc.total})</th>`).join('')}
+              <th class="col-wrap">Sample Failing Sites &amp; Cross-Check</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filteredList
+              .slice(0, 60)
+              .map((f) => {
+                const rateCls =
+                  f.failCount === 0
+                    ? 'score-good'
+                    : f.failRatePct >= 40
+                      ? 'score-bad'
+                      : f.failRatePct >= 15
+                        ? 'score-warn'
+                        : 'score-na';
+                return `
+                  <tr class="lh-audit-row" data-open-lhaudit="${escapeHtml(f.id)}">
+                    <td class="mono">${escapeHtml(f.id)}</td>
+                    <td class="col-wrap">
+                      <button type="button" class="lh-audit-title-btn" data-open-lhaudit="${escapeHtml(f.id)}">
+                        <strong>${escapeHtml(f.title)}</strong>
+                      </button>
+                    </td>
+                    <td><span class="lh-audit-cat">${escapeHtml(f.category)}</span></td>
+                    <td class="num"><span class="score-badge ${rateCls}">${f.failCount} / ${f.applicableCount} (${f.failRatePct}%)</span></td>
+                    <td class="num mono">${f.avgScore != null ? f.avgScore : '—'}</td>
+                    ${splitCols.map((sc) => renderSplitBucketCell(f, sc, 'fail')).join('')}
+                    <td class="col-sites">
+                      <div class="lh-chips-wrap">
+                        ${(f.failingCells || [])
+                          .slice(0, 5)
+                          .map(
+                            (fc) =>
+                              `<button type="button" class="lh-site-chip score-warn" data-lh-cell="${escapeHtml(fc.cellId)}" title="${escapeHtml(`${fc.modelLabel} (${fc.mode}, ${fc.spec}) — ${fc.promptTitle}${fc.displayValue ? ` · ${fc.displayValue}` : ''}`)}">${escapeHtml(fc.modelLabel)} · ${escapeHtml(fc.promptTitle.split(' ')[0])} [${fc.mode === 'agent' ? 'pi' : '1s'}${fc.spec === 'guided' ? '·G' : ''}]</button>`
+                          )
+                          .join('')}
+                        <button type="button" class="btn btn-secondary" style="padding:2px 8px;font-size:0.74rem" data-open-lhaudit="${escapeHtml(f.id)}">
+                          All ${f.applicableCount} results →
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                `;
+              })
+              .join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  for (const btn of bodyEl.querySelectorAll('[data-lh-cell]')) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openCellInspectionDialog(btn.dataset.lhCell, 'lighthouse');
+    });
+  }
+
+  for (const el of bodyEl.querySelectorAll('[data-open-lhaudit]')) {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('[data-lh-cell]')) return;
+      e.stopPropagation();
+      openLighthouseAuditDialog(el.dataset.openLhaudit);
+    });
+  }
+}
+
+function stripMarkdownLinksToPlainText(desc) {
+  if (!desc) return '';
+  return String(desc).replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '$1 ($2)');
+}
+
+function openLighthouseAuditDialog(auditId, { fromRouter = false } = {}) {
+  if (!auditId) return;
+  const dialog = document.getElementById('lh-audit-detail-dialog');
+  const body = document.getElementById('lh-audit-dialog-body');
+  const titleEl = document.getElementById('lh-audit-dialog-title');
+  const eyebrowEl = document.getElementById('lh-audit-dialog-eyebrow');
+  if (!dialog || !body) return;
+
+  state.inspectedLhAuditId = auditId;
+  state.lhModalStatusFilter = 'all';
+  state.lhModalFamilyFilter = state.lhFamilyFilter.startsWith('model:') ? 'all' : state.lhFamilyFilter;
+  state.lhModalLeadFilter = state.lhLeadFilter;
+  state.lhModalSpecFilter = state.lhSpecFilter;
+  state.lhModalSearch = '';
+  if (!fromRouter) syncUrlFromState({ push: true });
+
+  const fullCorpus = computeCorpusLighthouseAnalytics({ ignoreSliceFilters: true });
+  const audit = fullCorpus.auditMap.get(auditId);
+
+  if (!dialog.open) dialog.showModal();
+
+  if (!audit) {
+    eyebrowEl.textContent = 'Corpus Lighthouse Audit Verification';
+    titleEl.textContent = auditId;
+    body.innerHTML = `<div class="panel-card"><p>No cells in the current dataset recorded Lighthouse check <code>${escapeHtml(auditId)}</code>.</p></div>`;
     return;
   }
 
-  const filteredFails =
-    state.lhCorpusFilter === 'all-failures'
-      ? failing
-      : failing.filter((f) => matchesCat(f, state.lhCorpusFilter));
+  eyebrowEl.textContent = `Lighthouse Check · ${(audit.categories || [audit.category]).join(' / ')} · ${audit.id}`;
+  titleEl.textContent = audit.title;
 
-  if (filteredFails.length === 0) {
-    bodyEl.innerHTML = `<p class="panel-sub">Zero Lighthouse audit failures recorded in this category across ${lh.cellsAudited} audited sites.</p>`;
-    return;
-  }
+  const records = audit.allCellRecords.slice().sort((a, b) => {
+    if (a.status !== b.status) return a.status === 'FAIL' ? -1 : 1;
+    if (a.score !== b.score) return a.score - b.score;
+    return a.modelLabel.localeCompare(b.modelLabel) || a.promptTitle.localeCompare(b.promptTitle);
+  });
 
-  bodyEl.innerHTML = `
-    <div class="table-surface">
-      <table class="data-table lh-wrap-table">
-        <thead>
-          <tr>
-            <th>Audit ID</th>
-            <th class="col-wrap">Failing Lighthouse Check</th>
-            <th>Category</th>
-            <th class="num">Failed / Audited</th>
-            <th class="num">Avg Score</th>
-            <th class="col-wrap">Affected Sites (click to inspect)</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${filteredFails
-            .slice(0, 25)
-            .map((f) => {
-              const rateCls = f.failRatePct >= 40 ? 'score-bad' : f.failRatePct >= 15 ? 'score-warn' : 'score-na';
-              return `
-                <tr>
-                  <td class="mono">${escapeHtml(f.id)}</td>
-                  <td class="col-wrap"><strong>${escapeHtml(f.title)}</strong></td>
-                  <td><span class="lh-audit-cat">${escapeHtml(f.category)}</span></td>
-                  <td class="num"><span class="score-badge ${rateCls}">${f.failCount} / ${lh.cellsAudited} (${f.failRatePct}%)</span></td>
-                  <td class="num mono">${f.avgFailScore != null ? f.avgFailScore : '0'}</td>
-                  <td class="col-sites">
-                    <div class="lh-chips-wrap">
-                      ${(f.failingCells || [])
-                        .slice(0, 8)
-                        .map(
-                          (fc) =>
-                            `<button type="button" class="lh-site-chip score-warn" data-lh-cell="${escapeHtml(fc.cellId)}" title="${escapeHtml(`${fc.modelLabel} (${fc.mode}) — ${fc.promptTitle}${fc.displayValue ? ` · ${fc.displayValue}` : ''}`)}">${escapeHtml(fc.modelLabel)} · ${escapeHtml(fc.promptTitle.split(' ')[0])} [${fc.mode === 'agent' ? 'pi' : '1s'}]</button>`
-                        )
-                        .join('')}
-                    </div>
-                  </td>
-                </tr>
-              `;
-            })
-            .join('')}
-        </tbody>
-      </table>
+  const buildBreakdownItems = (groupFn) => {
+    const map = new Map();
+    for (const r of records) {
+      const { key, label } = groupFn(r);
+      const cur = map.get(key) || { key, label, fail: 0, pass: 0, total: 0 };
+      cur.total++;
+      if (r.status === 'FAIL') cur.fail++;
+      else cur.pass++;
+      map.set(key, cur);
+    }
+    return Array.from(map.values()).sort((a, b) => b.fail - a.fail || b.total - a.total);
+  };
+
+  const byFamily = buildBreakdownItems((r) => ({ key: r.family, label: r.family }));
+  const byLead = buildBreakdownItems((r) => ({
+    key: r.mode,
+    label: r.mode === 'agent' ? 'Agent-Led (pi + Server)' : '1-Shot Stream',
+  }));
+  const bySpec = buildBreakdownItems((r) => ({
+    key: r.spec,
+    label: r.spec === 'guided' ? 'Guided (Ref + Design + Data)' : 'Free-form (Open Prompt)',
+  }));
+
+  const families = Array.from(new Set(records.map((r) => r.family))).sort();
+
+  const renderSplitCardHtml = (heading, items) => `
+    <div class="lh-split-card">
+      <h4>${escapeHtml(heading)}</h4>
+      ${items
+        .map((it) => {
+          const failPct = Math.round((it.fail / Math.max(1, it.total)) * 100);
+          const badgeCls = it.fail === 0 ? 'score-good' : failPct >= 40 ? 'score-bad' : 'score-warn';
+          return `
+            <div class="lh-split-item">
+              <span><strong>${escapeHtml(it.label)}</strong></span>
+              <span class="score-badge ${badgeCls}">${it.fail} fail · ${it.pass} pass (${100 - failPct}% pass)</span>
+            </div>
+          `;
+        })
+        .join('')}
     </div>
   `;
 
-  for (const btn of bodyEl.querySelectorAll('[data-lh-cell]')) {
-    btn.addEventListener('click', () => openCellInspectionDialog(btn.dataset.lhCell, 'lighthouse'));
+  const descPlain = stripMarkdownLinksToPlainText(audit.description);
+
+  body.innerHTML = `
+    <div class="gauge-row">
+      <div class="mini-gauge"><div class="val">${audit.failCount} / ${audit.applicableCount}</div><div class="lbl">Failed / Applicable</div></div>
+      <div class="mini-gauge"><div class="val">${audit.passRatePct}%</div><div class="lbl">Corpus Pass Rate</div></div>
+      <div class="mini-gauge"><div class="val">${audit.avgScore ?? '—'}</div><div class="lbl">Mean Audit Score</div></div>
+      <div class="mini-gauge"><div class="val">${audit.avgFailScore ?? '—'}</div><div class="lbl">Mean Failing Score</div></div>
+    </div>
+
+    ${
+      descPlain || audit.helpUrl
+        ? `<div class="panel-card" style="margin-bottom:14px;padding:12px 15px">
+             <p style="margin:0;font-size:0.85rem;color:var(--ink-secondary)">
+               ${escapeHtml(descPlain)}
+               ${audit.helpUrl ? ` <a href="${escapeHtml(audit.helpUrl)}" target="_blank" rel="noopener">Lighthouse Docs ↗</a>` : ''}
+             </p>
+           </div>`
+        : ''
+    }
+
+    <div class="lh-split-grid">
+      ${renderSplitCardHtml('By Model Family', byFamily)}
+      ${renderSplitCardHtml('By Agent vs 1-Shot Lead', byLead)}
+      ${renderSplitCardHtml('By Prompt Spec Mode', bySpec)}
+    </div>
+
+    <div class="transcript-toolbar">
+      <div class="category-pills" style="margin:0" id="lh-modal-status-pills">
+        <button type="button" class="cat-pill active" data-lhm-status="all">All (${records.length})</button>
+        <button type="button" class="cat-pill" data-lhm-status="FAIL">Failing Only (${audit.failCount})</button>
+        <button type="button" class="cat-pill" data-lhm-status="PASS">Passing Only (${audit.passCount})</button>
+      </div>
+      <div class="lh-corpus-controls">
+        <label class="inline-select" for="lhm-family-sel">
+          <span>Family</span>
+          <select id="lhm-family-sel">
+            <option value="all">All Families</option>
+            ${families.map((f) => `<option value="${escapeHtml(f)}" ${state.lhModalFamilyFilter === f ? 'selected' : ''}>${escapeHtml(f)}</option>`).join('')}
+          </select>
+        </label>
+        <label class="inline-select" for="lhm-lead-sel">
+          <span>Lead</span>
+          <select id="lhm-lead-sel">
+            <option value="all" ${state.lhModalLeadFilter === 'all' ? 'selected' : ''}>All Leads</option>
+            <option value="agent" ${state.lhModalLeadFilter === 'agent' ? 'selected' : ''}>Agent-Led (pi)</option>
+            <option value="oneshot" ${state.lhModalLeadFilter === 'oneshot' ? 'selected' : ''}>1-Shot</option>
+          </select>
+        </label>
+        <label class="inline-select" for="lhm-spec-sel">
+          <span>Spec</span>
+          <select id="lhm-spec-sel">
+            <option value="all" ${state.lhModalSpecFilter === 'all' ? 'selected' : ''}>All Specs</option>
+            <option value="freeform" ${state.lhModalSpecFilter === 'freeform' ? 'selected' : ''}>Free-form</option>
+            <option value="guided" ${state.lhModalSpecFilter === 'guided' ? 'selected' : ''}>Guided</option>
+          </select>
+        </label>
+        <input id="lhm-search-input" class="transcript-search" type="search" placeholder="Filter model, prompt, value, selector..." />
+      </div>
+    </div>
+
+    <div id="lh-modal-results-slot"></div>
+  `;
+
+  const renderModalTable = () => {
+    const slot = document.getElementById('lh-modal-results-slot');
+    if (!slot) return;
+    const q = state.lhModalSearch.trim().toLowerCase();
+    const filtered = records.filter((r) => {
+      if (state.lhModalStatusFilter !== 'all' && r.status !== state.lhModalStatusFilter) return false;
+      if (state.lhModalFamilyFilter !== 'all' && r.family !== state.lhModalFamilyFilter) return false;
+      if (state.lhModalLeadFilter !== 'all' && r.mode !== state.lhModalLeadFilter) return false;
+      if (state.lhModalSpecFilter !== 'all' && r.spec !== state.lhModalSpecFilter) return false;
+      if (!q) return true;
+      const itemText = (r.items || [])
+        .map((it) => `${it.selector || ''} ${it.url || ''} ${it.nodeLabel || ''} ${it.snippet || ''}`)
+        .join(' ');
+      const hay = `${r.modelLabel} ${r.family} ${r.promptTitle} ${r.categoryLabel} ${r.stack} ${r.displayValue || ''} ${itemText}`.toLowerCase();
+      return hay.includes(q);
+    });
+
+    if (filtered.length === 0) {
+      slot.innerHTML = `<div class="panel-card"><p class="panel-sub" style="margin:0">No cell results match the selected filters.</p></div>`;
+      return;
+    }
+
+    const isLiveStudio = !state.data?.staticMode;
+
+    slot.innerHTML = `
+      <div class="table-surface">
+        <table class="data-table lh-wrap-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th class="num">Audit Score</th>
+              <th>Model &amp; Family</th>
+              <th>Lead &amp; Spec</th>
+              <th class="col-wrap">Prompt &amp; Stack</th>
+              <th class="col-wrap">Measured Value &amp; Evidence</th>
+              <th class="num">Cell LH / LCP</th>
+              <th>Cross-Check &amp; Verify</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered
+              .map((r) => {
+                const badgeCls = r.status === 'PASS' ? 'score-good' : r.score >= 50 ? 'score-warn' : 'score-bad';
+                const canOpenSite = isLiveStudio ? r.buildSucceeded : r.hasStaticPreview;
+                const siteHref = isLiveStudio
+                  ? `./preview/${encodeURIComponent(r.cellId)}/`
+                  : `./preview/${encodeURIComponent(r.cellId)}/index.html`;
+                const evidenceHtml =
+                  r.items && r.items.length > 0
+                    ? `<ul class="lh-evidence-list">
+                        ${r.items
+                          .slice(0, 4)
+                          .map((it) => {
+                            const parts = [
+                              it.selector || it.nodeLabel || '',
+                              it.url || '',
+                              it.wastedBytes ? `wasted ${Math.round(it.wastedBytes / 1024)}KB` : '',
+                              it.wastedMs ? `${it.wastedMs}ms` : '',
+                            ].filter(Boolean);
+                            return `<li>${escapeHtml(parts.join(' · ') || it.snippet || '')}</li>`;
+                          })
+                          .join('')}
+                      </ul>`
+                    : '';
+                return `
+                  <tr>
+                    <td><span class="score-badge ${badgeCls}">${r.status}</span></td>
+                    <td class="num mono"><strong>${r.score}</strong></td>
+                    <td>
+                      <span class="model-cell-title">${escapeHtml(r.modelLabel)}</span>
+                      <span class="model-cell-sub">${escapeHtml(r.family)}</span>
+                    </td>
+                    <td>
+                      <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
+                        ${modeBadgeHtml(r.mode)}
+                        ${specBadgeHtml(r.spec)}
+                      </div>
+                    </td>
+                    <td class="col-wrap">
+                      <strong>${escapeHtml(r.promptTitle)}</strong>
+                      <span class="model-cell-sub">${escapeHtml(r.categoryLabel)} · <span class="fw-tag">${escapeHtml(r.stack)}</span></span>
+                    </td>
+                    <td class="col-wrap">
+                      <span class="mono">${escapeHtml(r.displayValue || (r.status === 'PASS' ? 'Passed' : 'Failed check'))}</span>
+                      ${evidenceHtml}
+                    </td>
+                    <td class="num mono">${fmtScore(r.cellLhScore)} / ${fmtMs(r.mobileLcpMs)}</td>
+                    <td>
+                      <div style="display:flex;flex-wrap:wrap;gap:5px">
+                        <button type="button" class="btn btn-primary" style="padding:3px 8px;font-size:0.74rem" data-lhm-open-cell="${escapeHtml(r.cellId)}" data-dtab="lighthouse">Cell LH →</button>
+                        <button type="button" class="btn btn-secondary" style="padding:3px 8px;font-size:0.74rem" data-lhm-open-cell="${escapeHtml(r.cellId)}" data-dtab="overview">Overview →</button>
+                        ${
+                          canOpenSite
+                            ? `<a class="btn btn-ghost" style="padding:3px 8px;font-size:0.74rem" href="${escapeHtml(siteHref)}" target="_blank" rel="noopener">Site ↗</a>`
+                            : ''
+                        }
+                        ${
+                          r.hasDesktopScreenshot
+                            ? `<a class="btn btn-ghost" style="padding:3px 8px;font-size:0.74rem" href="./artifacts/${encodeURIComponent(r.cellId)}/screenshots/desktop.png" target="_blank" rel="noopener">Shot ↗</a>`
+                            : ''
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                `;
+              })
+              .join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    for (const btn of slot.querySelectorAll('[data-lhm-open-cell]')) {
+      btn.addEventListener('click', () => {
+        const cid = btn.dataset.lhmOpenCell;
+        const tab = btn.dataset.dtab || 'lighthouse';
+        dialog.close();
+        openCellInspectionDialog(cid, tab);
+      });
+    }
+  };
+
+  renderModalTable();
+
+  for (const btn of body.querySelectorAll('[data-lhm-status]')) {
+    btn.addEventListener('click', () => {
+      state.lhModalStatusFilter = btn.dataset.lhmStatus;
+      for (const b of body.querySelectorAll('[data-lhm-status]')) {
+        b.classList.toggle('active', b.dataset.lhmStatus === state.lhModalStatusFilter);
+      }
+      renderModalTable();
+    });
   }
+  document.getElementById('lhm-family-sel')?.addEventListener('change', (e) => {
+    state.lhModalFamilyFilter = e.target.value;
+    renderModalTable();
+  });
+  document.getElementById('lhm-lead-sel')?.addEventListener('change', (e) => {
+    state.lhModalLeadFilter = e.target.value;
+    renderModalTable();
+  });
+  document.getElementById('lhm-spec-sel')?.addEventListener('change', (e) => {
+    state.lhModalSpecFilter = e.target.value;
+    renderModalTable();
+  });
+  document.getElementById('lhm-search-input')?.addEventListener('input', (e) => {
+    state.lhModalSearch = e.target.value;
+    renderModalTable();
+  });
 }
 
 function renderLeaderboard() {
   const pillBar = document.getElementById('category-filter-bar');
   const cats = state.data?.categories || [];
+  const hasGuidedAny = (state.data?.summary?.cells || []).some((c) => c.spec === 'guided');
   const modeCells = (state.data?.summary?.cells || []).filter(
-    (c) => state.selectedMode === 'all' || c.mode === state.selectedMode
+    (c) =>
+      (state.selectedMode === 'all' || c.mode === state.selectedMode) &&
+      (state.selectedSpec === 'all' || (c.spec || 'freeform') === state.selectedSpec)
   );
   pillBar.innerHTML = [
     `<button type="button" class="cat-pill ${state.selectedCategory === 'all' ? 'active' : ''}" data-cat="all">All Categories (${modeCells.length})</button>`,
@@ -716,6 +1361,7 @@ function renderLeaderboard() {
 
     tbody.innerHTML = rows
       .map((r, idx) => {
+        const rowSpec = r.spec || 'freeform';
         const stackLabel =
           r.dominantStack ||
           (r.techDefaults?.reactSharePct >= r.techDefaults?.vanillaSharePct && r.techDefaults?.reactSharePct > 0
@@ -733,16 +1379,17 @@ function renderLeaderboard() {
           r.averages?.generationMs != null
             ? `${(r.averages.generationMs / 1000).toFixed(1)}s`
             : '—';
-        // Find top cell for this model+mode so clicking a row can inspect or jump to matrix
+        // Find top cell for this model+mode+spec so clicking a row can inspect or jump to matrix
         const sampleCell = (state.data?.summary?.cells || []).find(
           (c) =>
             c.modelKey === r.modelKey &&
             c.mode === r.mode &&
+            (c.spec || 'freeform') === rowSpec &&
             (state.selectedCategory === 'all' || c.category === state.selectedCategory)
         );
         const modelLinkHref = sampleCell
           ? buildHashString({ cellId: sampleCell.cellId, dtab: 'overview' })
-          : buildHashString({ view: 'matrix', mode: r.mode, cellId: null });
+          : buildHashString({ view: 'matrix', mode: r.mode, spec: rowSpec, cellId: null });
 
         return `
           <tr>
@@ -755,7 +1402,12 @@ function renderLeaderboard() {
                 </span>
               </a>
             </td>
-            <td>${modeBadgeHtml(r.mode)}</td>
+            <td>
+              <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+                ${modeBadgeHtml(r.mode)}
+                ${hasGuidedAny || rowSpec === 'guided' ? specBadgeHtml(rowSpec) : ''}
+              </div>
+            </td>
             <td class="num">${r.cellsRun}</td>
             <td class="num"><span class="score-badge ${scoreClass(r.scores.composite)}">${fmtScore(r.scores.composite)}</span></td>
             <td class="num"><span class="score-badge ${scoreClass(r.scores.lighthouse)}">${fmtScore(r.scores.lighthouse)}</span></td>
@@ -788,7 +1440,9 @@ function renderLeaderboard() {
   // Paired Agent vs 1-Shot Head-to-Head panel
   const h2hPanel = document.getElementById('mode-head-to-head-panel');
   const h2hTbody = document.getElementById('mode-h2h-tbody');
-  const pairs = state.data?.summary?.modeComparison?.pairedHeadToHead || [];
+  const pairs = (state.data?.summary?.modeComparison?.pairedHeadToHead || []).filter(
+    (p) => state.selectedSpec === 'all' || (p.spec || 'freeform') === state.selectedSpec
+  );
   if (pairs.length === 0) {
     h2hPanel.classList.add('hidden');
   } else {
@@ -797,11 +1451,11 @@ function renderLeaderboard() {
       .map((p) => {
         const deltaSign = p.deltaComposite > 0 ? `+${p.deltaComposite}` : `${p.deltaComposite}`;
         const deltaCls = p.deltaComposite >= 2 ? 'score-good' : p.deltaComposite <= -2 ? 'score-bad' : 'score-warn';
-        const agentCellId = `${p.modelKey}__${p.promptId}__agent`;
-        const oneshotCellId = `${p.modelKey}__${p.promptId}__oneshot`;
+        const agentCellId = p.agentCellId || `${p.modelKey}__${p.promptId}__agent`;
+        const oneshotCellId = p.oneshotCellId || `${p.modelKey}__${p.promptId}__oneshot`;
         return `
           <tr>
-            <td><strong>${escapeHtml(p.modelLabel)}</strong></td>
+            <td><strong>${escapeHtml(p.modelLabel)}</strong> ${p.spec === 'guided' ? specBadgeHtml('guided') : ''}</td>
             <td>${escapeHtml(p.promptTitle)}</td>
             <td class="num"><button type="button" class="matrix-cell-btn ${scoreClass(p.agentComposite)}" data-h2h-cell="${escapeHtml(agentCellId)}">${fmtScore(p.agentComposite)}</button></td>
             <td class="num"><button type="button" class="matrix-cell-btn ${scoreClass(p.oneshotComposite)}" data-h2h-cell="${escapeHtml(oneshotCellId)}">${fmtScore(p.oneshotComposite)}</button></td>
@@ -817,6 +1471,38 @@ function renderLeaderboard() {
       .join('');
     for (const btn of h2hTbody.querySelectorAll('[data-h2h-cell]')) {
       btn.addEventListener('click', () => openCellInspectionDialog(btn.dataset.h2hCell, 'overview'));
+    }
+  }
+
+  // Paired Free-form vs Guided Spec Head-to-Head panel
+  const specH2hPanel = document.getElementById('spec-head-to-head-panel');
+  const specH2hTbody = document.getElementById('spec-h2h-tbody');
+  const specPairs = (state.data?.summary?.specComparison?.pairedSpecHeadToHead || []).filter(
+    (p) => state.selectedMode === 'all' || p.mode === state.selectedMode
+  );
+  if (!specH2hPanel || specPairs.length === 0) {
+    specH2hPanel?.classList.add('hidden');
+  } else {
+    specH2hPanel.classList.remove('hidden');
+    specH2hTbody.innerHTML = specPairs
+      .map((p) => {
+        const deltaSign = p.deltaComposite > 0 ? `+${p.deltaComposite}` : `${p.deltaComposite}`;
+        const deltaCls = p.deltaComposite >= 2 ? 'score-good' : p.deltaComposite <= -2 ? 'score-bad' : 'score-warn';
+        return `
+          <tr>
+            <td><strong>${escapeHtml(p.modelLabel)}</strong> ${modeBadgeHtml(p.mode)}</td>
+            <td>${escapeHtml(p.promptTitle)}</td>
+            <td class="num"><button type="button" class="matrix-cell-btn ${scoreClass(p.freeformComposite)}" data-spec-h2h-cell="${escapeHtml(p.freeformCellId)}">${fmtScore(p.freeformComposite)}</button></td>
+            <td class="num"><button type="button" class="matrix-cell-btn ${scoreClass(p.guidedComposite)}" data-spec-h2h-cell="${escapeHtml(p.guidedCellId)}">${fmtScore(p.guidedComposite)}</button></td>
+            <td class="num"><span class="score-badge ${deltaCls}">${deltaSign}</span></td>
+            <td class="num mono">${fmtMs(p.freeformLcpMs)} / ${fmtMs(p.freeformInpMs)}</td>
+            <td class="num mono">${fmtMs(p.guidedLcpMs)} / ${fmtMs(p.guidedInpMs)}</td>
+          </tr>
+        `;
+      })
+      .join('');
+    for (const btn of specH2hTbody.querySelectorAll('[data-spec-h2h-cell]')) {
+      btn.addEventListener('click', () => openCellInspectionDialog(btn.dataset.specH2hCell, 'overview'));
     }
   }
 
@@ -836,18 +1522,29 @@ function renderMatrix() {
   const catFilter = state.matrixCategory;
   const metric = state.matrixMetric;
   const modeFilter = state.selectedMode;
-  const filteredCells = summary.cells.filter((c) => modeFilter === 'all' || c.mode === modeFilter);
+  const specFilter = state.selectedSpec;
+  const hasGuidedAny = summary.cells.some((c) => c.spec === 'guided');
+  const filteredCells = summary.cells.filter(
+    (c) =>
+      (modeFilter === 'all' || c.mode === modeFilter) &&
+      (specFilter === 'all' || (c.spec || 'freeform') === specFilter)
+  );
 
   const prompts = state.data.prompts.filter(
     (p) =>
       (catFilter === 'all' || p.category === catFilter) &&
       filteredCells.some((c) => c.promptId === p.id)
   );
-  const models = summary.leaderboard.filter((m) => modeFilter === 'all' || m.mode === modeFilter);
+  const models = summary.leaderboard.filter(
+    (m) =>
+      (modeFilter === 'all' || m.mode === modeFilter) &&
+      (specFilter === 'all' || (m.spec || 'freeform') === specFilter)
+  );
 
   const cellLookup = new Map();
   for (const c of filteredCells) {
-    cellLookup.set(`${c.modelKey}__${c.promptId}__${c.mode || 'oneshot'}`, c);
+    const sp = c.spec || 'freeform';
+    cellLookup.set(`${c.modelKey}__${c.promptId}__${c.mode || 'oneshot'}__${sp}`, c);
   }
 
   let html = `<table class="matrix-table"><thead><tr><th>Model &amp; Track \\ Prompt</th>`;
@@ -857,9 +1554,11 @@ function renderMatrix() {
   html += `</tr></thead><tbody>`;
 
   for (const m of models) {
-    html += `<tr><td><span class="model-cell-title">${escapeHtml(m.label)}</span> <span class="model-cell-sub">${m.mode === 'agent' ? 'Agent · pi' : '1-Shot'}</span></td>`;
+    const rowSpec = m.spec || 'freeform';
+    const specSuffix = hasGuidedAny || rowSpec === 'guided' ? ` · ${rowSpec === 'guided' ? 'Guided' : 'Free-form'}` : '';
+    html += `<tr><td><span class="model-cell-title">${escapeHtml(m.label)}</span> <span class="model-cell-sub">${m.mode === 'agent' ? 'Agent · pi' : '1-Shot'}${escapeHtml(specSuffix)}</span></td>`;
     for (const p of prompts) {
-      const lookupKey = `${m.modelKey}__${p.id}__${m.mode}`;
+      const lookupKey = `${m.modelKey}__${p.id}__${m.mode}__${rowSpec}`;
       const cell = cellLookup.get(lookupKey);
       if (!cell) {
         html += `<td><span class="score-badge score-na">—</span></td>`;
@@ -931,7 +1630,9 @@ function filterCellsMatchingCohort(cells, cohortKey) {
   return cells.filter((c) => {
     if (!c.buildSucceeded) return false;
     if (state.selectedMode !== 'all' && c.mode !== state.selectedMode) return false;
+    if (state.selectedSpec !== 'all' && (c.spec || 'freeform') !== state.selectedSpec) return false;
     if (kind === 'mode') return c.mode === val;
+    if (kind === 'spec') return (c.spec || 'freeform') === val;
     if (kind === 'framework') return (c.techStack?.primaryFramework || 'vanilla') === val;
     if (kind === 'backend') return (c.techStack?.primaryBackend || 'static-only') === val;
     if (kind === 'delivery') return (c.techStack?.deliveryPattern || '') === val;
@@ -948,6 +1649,11 @@ function describeCohortKey(cohortKey) {
     return val === 'agent'
       ? 'Mode Cohort: Autonomous pi Agent Loop + Real $PORT Server'
       : 'Mode Cohort: Self-Contained 1-Shot Stream';
+  }
+  if (kind === 'spec') {
+    return val === 'guided'
+      ? 'Spec Cohort: Guided (gemini-nano-banana-2.1 Layout + design.md + Seed Data)'
+      : 'Spec Cohort: Free-form (Pure Open Prompt)';
   }
   if (kind === 'framework') return `Frontend Framework Cohort: ${val}`;
   if (kind === 'backend') return `Backend Server Cohort: ${val}`;
@@ -987,7 +1693,7 @@ function renderCohortDrilldownPanel(cohorts) {
     </div>
     ${
       matching.length === 0
-        ? `<p class="panel-sub">No built sites match <code>${escapeHtml(state.selectedCohort)}</code> under the current Track filter (${escapeHtml(state.selectedMode)}).</p>`
+        ? `<p class="panel-sub">No built sites match <code>${escapeHtml(state.selectedCohort)}</code> under the current Track/Spec filters (${escapeHtml(state.selectedMode)} / ${escapeHtml(state.selectedSpec)}).</p>`
         : `<div class="cohort-sites-grid">
             ${matching
               .map((c) => {
@@ -1010,6 +1716,7 @@ function renderCohortDrilldownPanel(cohorts) {
                       </div>
                       <div class="cohort-site-meta">
                         ${modeBadgeHtml(c.mode)}
+                        ${c.spec === 'guided' ? specBadgeHtml('guided') : ''}
                         <span class="fw-tag">${escapeHtml(stackStr)}</span>
                         <span class="fw-tag">${escapeHtml(c.techStack?.primaryCss || 'css')}</span>
                         <span>${escapeHtml(c.categoryLabel)}</span>
@@ -1079,7 +1786,9 @@ function renderTechObservatory() {
   }
 
   const lbRows = summary.leaderboard.filter(
-    (m) => state.selectedMode === 'all' || m.mode === state.selectedMode
+    (m) =>
+      (state.selectedMode === 'all' || m.mode === state.selectedMode) &&
+      (state.selectedSpec === 'all' || (m.spec || 'freeform') === state.selectedSpec)
   );
 
   modelBarsEl.innerHTML = lbRows
@@ -1092,7 +1801,7 @@ function renderTechObservatory() {
       const pVue = pct('vue');
       const pSvelte = pct('svelte');
       const pOther = Math.max(0, 100 - pVanilla - pReact - pVue - pSvelte);
-      const tag = m.mode === 'agent' ? ' [pi]' : ' [1s]';
+      const tag = `${m.mode === 'agent' ? ' [pi' : ' [1s'}${m.spec === 'guided' ? '·G]' : ']'}`;
 
       return `
         <div class="stack-row">
@@ -1152,6 +1861,11 @@ function renderTechObservatory() {
     ...(summary.modeComparison?.byMode || []).map((r) => ({
       cohortKey: `mode:${r.mode}`,
       label: `Mode: ${r.mode === 'agent' ? 'Agent Loop (pi + $PORT Server)' : '1-Shot Stream'}`,
+      ...r,
+    })),
+    ...(summary.specComparison?.bySpec || []).map((r) => ({
+      cohortKey: `spec:${r.spec}`,
+      label: `Spec: ${r.spec === 'guided' ? 'Guided (Ref Layout + design.md + Seed Data)' : 'Free-form (Open Prompt)'}`,
       ...r,
     })),
     ...(summary.techObservatory?.byFramework || []).map((r) => ({
@@ -1238,23 +1952,39 @@ function renderArenaSelectors() {
     state.arenaPrompt = promptSel.value;
   }
 
-  const models = state.data?.summary?.leaderboard || [];
+  const hasGuidedAny = cells.some((c) => c.spec === 'guided');
+  const models = (state.data?.summary?.leaderboard || []).filter(
+    (m) =>
+      (state.selectedMode === 'all' || m.mode === state.selectedMode) &&
+      (state.selectedSpec === 'all' || (m.spec || 'freeform') === state.selectedSpec)
+  );
   const modOptions = models
     .map((m) => {
-      const val = `${m.modelKey}__${m.mode}`;
-      const tag = m.mode === 'agent' ? 'Agent · pi' : '1-Shot';
+      const sp = m.spec || 'freeform';
+      const val = `${m.modelKey}__${m.mode}__${sp}`;
+      const tag = `${m.mode === 'agent' ? 'Agent · pi' : '1-Shot'}${hasGuidedAny || sp === 'guided' ? ` · ${sp === 'guided' ? 'Guided' : 'Free-form'}` : ''}`;
       return `<option value="${escapeHtml(val)}">${escapeHtml(m.label)} [${tag}]</option>`;
     })
     .join('');
   modASel.innerHTML = modOptions;
   modBSel.innerHTML = modOptions;
 
-  if (state.arenaModelA && Array.from(modASel.options).some((o) => o.value === state.arenaModelA)) {
-    modASel.value = state.arenaModelA;
-  }
-  if (state.arenaModelB && Array.from(modBSel.options).some((o) => o.value === state.arenaModelB)) {
-    modBSel.value = state.arenaModelB;
-  } else if (models.length > 1) {
+  const matchArenaOption = (sel, val) => {
+    if (!val) return false;
+    if (Array.from(sel.options).some((o) => o.value === val)) {
+      sel.value = val;
+      return true;
+    }
+    const legacy = `${val}__freeform`;
+    if (Array.from(sel.options).some((o) => o.value === legacy)) {
+      sel.value = legacy;
+      return true;
+    }
+    return false;
+  };
+
+  matchArenaOption(modASel, state.arenaModelA);
+  if (!matchArenaOption(modBSel, state.arenaModelB) && models.length > 1) {
     modBSel.selectedIndex = 1;
   }
 
@@ -1274,40 +2004,84 @@ function renderArenaComparison() {
 
   const promptObj = (state.data?.prompts || []).find((p) => p.id === promptId);
   const banner = document.getElementById('arena-prompt-banner');
-  banner.innerHTML = promptObj
-    ? `<strong>${escapeHtml(promptObj.categoryLabel)} — ${escapeHtml(promptObj.title)}:</strong> “${escapeHtml(promptObj.prompt)}”`
-    : '';
+  if (promptObj) {
+    const refImg = (promptObj.guidedReferenceImages || promptObj.referenceImages || [])[0];
+    const seed = promptObj.seedData || null;
+    const refStripHtml =
+      refImg || seed
+        ? `<div class="arena-ref-strip">
+             ${
+               refImg
+                 ? `<a href="./${escapeHtml(String(refImg.path || '').replace(/^\/+/, ''))}" target="_blank" rel="noopener" title="Open full-size gemini-nano-banana-2.1 proposed layout reference">
+                      <img class="arena-ref-thumb" loading="lazy" src="./${escapeHtml(String(refImg.path || '').replace(/^\/+/, ''))}" alt="${escapeHtml(refImg.label || 'Reference layout')}" />
+                    </a>`
+                 : ''
+             }
+             <div style="flex:1;min-width:220px;font-size:0.82rem;color:var(--ink-secondary)">
+               <strong style="color:var(--ink-primary)">Guided Reference Spec (${escapeHtml(promptObj.id)}):</strong>
+               ${seed ? `Brand: <strong>${escapeHtml(seed.brandName || '')}</strong>${seed.tagline ? ` — <em>${escapeHtml(seed.tagline)}</em>` : ''}` : ''}
+               ${seed?.address ? `<br/>Address: <span class="mono">${escapeHtml(seed.address)}</span>${seed.phone ? ` · ${escapeHtml(seed.phone)}` : ''}${seed.hours ? ` · ${escapeHtml(seed.hours)}` : ''}` : ''}
+               <br/><span style="color:var(--ink-muted)">Attached in <code>--spec=guided</code> alongside <code>prompts/design.md</code> &amp; starter domain records; omitted in <code>--spec=freeform</code>.</span>
+             </div>
+           </div>`
+        : '';
+    banner.innerHTML = `<div><strong>${escapeHtml(promptObj.categoryLabel)} — ${escapeHtml(promptObj.title)}:</strong> “${escapeHtml(promptObj.prompt)}”</div>${refStripHtml}`;
+  } else {
+    banner.innerHTML = '';
+  }
 
   const grid = document.getElementById('arena-split-grid');
   const cells = state.data?.summary?.cells || [];
 
   const renderPane = (rowSelector) => {
     if (!rowSelector) return '';
-    const [modelKey, mode] = rowSelector.split('__');
+    const [modelKey, mode, specRaw] = rowSelector.split('__');
+    const wantSpec = specRaw === 'guided' ? 'guided' : 'freeform';
     const cell = cells.find(
-      (c) => c.modelKey === modelKey && c.promptId === promptId && (c.mode || 'oneshot') === (mode || 'oneshot')
+      (c) =>
+        c.modelKey === modelKey &&
+        c.promptId === promptId &&
+        (c.mode || 'oneshot') === (mode || 'oneshot') &&
+        (c.spec || 'freeform') === wantSpec
     );
     if (!cell) {
       return `<div class="arena-pane"><div class="panel-card"><p>No generated build yet for <code>${escapeHtml(rowSelector)}</code> on this prompt.</p></div></div>`;
     }
     const isLiveStudio = !state.data?.staticMode;
+    const canEmbed = canEmbedCellLivePreview(cell, null);
     const iframeSrc = isLiveStudio
       ? `./preview/${encodeURIComponent(cell.cellId)}/`
       : `./preview/${encodeURIComponent(cell.cellId)}/index.html`;
-    const sandboxAttr = isLiveStudio
-      ? 'allow-scripts allow-same-origin allow-forms allow-modals allow-popups'
-      : 'allow-scripts allow-forms allow-modals allow-popups';
     const stackBadge =
       cell.techStack?.primaryBackend && cell.techStack.primaryBackend !== 'static-only'
         ? `${cell.techStack.primaryFramework} + ${cell.techStack.primaryBackend}`
         : cell.techStack?.primaryFramework || 'vanilla';
 
+    let previewPaneBody = '';
+    if (!cell.buildSucceeded) {
+      previewPaneBody = `<div class="panel-card"><p>Build failed: ${escapeHtml(cell.generationError || 'Unrunnable output')}</p></div>`;
+    } else if (canEmbed) {
+      previewPaneBody = `<iframe class="arena-iframe" sandbox="${PREVIEW_IFRAME_SANDBOX}" src="${escapeHtml(iframeSrc)}" title="${escapeHtml(cell.modelLabel)} preview"></iframe>`;
+    } else if (cell.hasDesktopScreenshot) {
+      previewPaneBody = `
+        <div style="background:var(--bg-subtle);border-top:1px solid var(--border-subtle)">
+          <div style="padding:8px 12px;font-size:0.78rem;color:var(--ink-secondary);display:flex;justify-content:space-between;align-items:center">
+            <span>Server-rendered runtime snapshot (no static bundle exported for this older run — re-export or run locally to interact live)</span>
+            <a href="./artifacts/${encodeURIComponent(cell.cellId)}/screenshots/desktop.png" target="_blank" rel="noopener">Full PNG ↗</a>
+          </div>
+          <img src="./artifacts/${encodeURIComponent(cell.cellId)}/screenshots/desktop.png" alt="${escapeHtml(cell.modelLabel)} captured screenshot" style="width:100%;display:block" />
+        </div>`;
+    } else {
+      previewPaneBody = `<div class="panel-card"><p>No static preview bundle recorded for <code>${escapeHtml(cell.cellId)}</code>.</p></div>`;
+    }
+
     return `
       <div class="arena-pane">
         <div class="arena-pane-header">
-          <div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             <strong>${escapeHtml(cell.modelLabel)}</strong>
             ${modeBadgeHtml(cell.mode)}
+            ${specBadgeHtml(cell.spec || 'freeform')}
             <span class="fw-tag">${escapeHtml(stackBadge)}</span>
           </div>
           <div style="display:flex;gap:6px;align-items:center">
@@ -1324,11 +2098,7 @@ function renderArenaComparison() {
           <span>Heap: <strong>${cell.keyMetrics.baselineHeapMb ?? '—'} MB</strong></span>
           <span>Leaks: <strong>${cell.keyMetrics.detachedDomDelta ?? 0} DOM</strong></span>
         </div>
-        ${
-          cell.buildSucceeded
-            ? `<iframe class="arena-iframe" sandbox="${sandboxAttr}" src="${iframeSrc}" title="${escapeHtml(cell.modelLabel)} preview"></iframe>`
-            : `<div class="panel-card"><p>Build failed: ${escapeHtml(cell.generationError || 'Unrunnable output')}</p></div>`
-        }
+        ${previewPaneBody}
       </div>
     `;
   };
@@ -1356,6 +2126,7 @@ function renderMethodology() {
   const canary = state.data?.summary?.canary || null;
   const nodeVersion = state.data?.nodeVersion || 'v22+';
   const piSourceLabel = piRuntime.source || piRuntime.piSource || 'local-npm-runtime';
+  const designDoc = state.data?.designDoc || '';
 
   el.innerHTML = `
     <div class="methodology-grid">
@@ -1382,43 +2153,49 @@ function renderMethodology() {
       </article>
 
       <article class="panel-card">
-        <h3>2. Two-Track Architecture: Why 1-Shot Uses One Self-Contained Document</h3>
-        <p class="panel-sub">Comparing goal-oriented autonomous software engineering against single-pass code completion without artificial multi-file truncation failures.</p>
+        <h3>2. Two-Track × Two-Spec Architecture (Free-form vs. Guided)</h3>
+        <p class="panel-sub">Comparing unconstrained model priors (<code>freeform</code>) against structurally controlled apples-to-apples layouts (<code>guided</code>).</p>
         <div class="form-stack">
           <div class="turn-card">
             <div class="turn-card-header">
-              <strong>Track A — Autonomous <code>pi</code> Agent Loop + Real <code>$PORT</code> Server</strong>
-              ${modeBadgeHtml('agent')}
+              <strong>Track A / B — Agent Loop (<code>pi</code> + <code>$PORT</code>) vs. 1-Shot Stream</strong>
+              <div>${modeBadgeHtml('agent')} ${modeBadgeHtml('oneshot')}</div>
             </div>
-            <p style="margin:0;font-size:0.85rem;color:var(--ink-secondary)">
-              ${escapeHtml(cr.modeDesignRationale?.agent || 'Runs multi-turn inside a fresh directory with read/bash/edit/write tools, scaffolds any frontend/backend architecture it chooses, builds a real HTTP server bound to $PORT, and self-verifies HTTP 200 responses before finishing.')}
+            <p style="margin:0;font-size:0.84rem;color:var(--ink-secondary)">
+              ${escapeHtml(cr.modeDesignRationale?.agent || 'Agent mode runs multi-turn with read/bash/edit/write tools and a real HTTP server bound to $PORT (plus an auto-captured static preview mirror for GitHub Pages); 1-Shot emits one self-contained HTML document.')}
             </p>
           </div>
           <div class="turn-card">
             <div class="turn-card-header">
-              <strong>Track B — Self-Contained 1-Shot HTML Stream</strong>
-              ${modeBadgeHtml('oneshot')}
+              <strong>Spec 1 vs. Spec 2 — Free-form Open Prompt vs. Guided Reference Spec</strong>
+              <div>${specBadgeHtml('freeform')} ${specBadgeHtml('guided')}</div>
             </div>
-            <p style="margin:0;font-size:0.85rem;color:var(--ink-secondary)">
-              ${escapeHtml(cr.modeDesignRationale?.oneshot || 'Single-pass completion with zero tools. Asking a 1-shot completion for multiple separate files frequently causes models to truncate mid-fence or emit root-relative /styles.css and /app.js links that 404 without a bundler. Requesting one self-contained HTML document with inline styles and scripts eliminates multi-file framing artifacts while leaving framework/CDN choices 100% unsteered.')}
+            <p style="margin:0;font-size:0.84rem;color:var(--ink-secondary)">
+              <strong>Free-form (<code>--spec=freeform</code>):</strong> Dispatches only the natural 1-sentence prompt to observe raw visual &amp; architectural defaults.<br/>
+              <strong>Guided (<code>--spec=guided</code>):</strong> Attaches a 1440×900 <code>gemini-nano-banana-2.1</code> proposed layout image + canonical company/domain seed data (<code>prompts/seed-data.json</code>) + stack-neutral <code>prompts/design.md</code> so CWV, INP, and memory comparisons hold visual complexity and content volume constant.
             </p>
           </div>
         </div>
       </article>
 
       <article class="panel-card">
-        <h3>3. Multimodal Reference Style Images for Cross-Model Visual Consistency</h3>
-        <p class="panel-sub">Controlling for visual complexity when comparing Core Web Vitals, bundle weight, and memory usage across models.</p>
-        <p style="font-size:0.86rem;line-height:1.6;margin-top:0">
-          Without a visual anchor, one model may emit a sparse wireframe (artificially lowering LCP and DOM size) while another builds a rich editorial layout. Every prompt in the registry supports optional <code>referenceImages: [{ path, label }]</code>:
-        </p>
-        <ul style="font-size:0.84rem;line-height:1.6;color:var(--ink-secondary);padding-left:18px;margin-top:6px">
-          <li><strong>Agent Mode (<code>pi</code> CLI):</strong> Reference images are copied into <code>.bench-reference/</code> and passed natively as multimodal <code>@file</code> attachments alongside the prompt.</li>
-          <li><strong>1-Shot Mode (<code>pi-ai</code>):</strong> Reference images are base64-encoded into multimodal <code>{ type: "image", mimeType, data }</code> content blocks in the user message.</li>
-          <li><strong>Zero Tech/Perf Steering:</strong> Reference image labels and instructions are validated against the exact same banned-keyword rules (no mentions of frameworks, Lighthouse, CWV, or speed).</li>
+        <h3>3. Guided Multimodal Assets: <code>gemini-nano-banana-2.1</code> + <code>seed-data.json</code> + <code>design.md</code></h3>
+        <p class="panel-sub">Controlling for layout density and content payload across all 37 prompts with zero framework or speed steering.</p>
+        <ul style="font-size:0.84rem;line-height:1.6;color:var(--ink-secondary);padding-left:18px;margin-top:4px">
+          <li><strong>37 Proposed Layout Images:</strong> Pre-generated with <code>models/gemini-nano-banana-2.1</code> under <code>assets/reference-images/&lt;promptId&gt;.jpg</code> and attached multimodally in <code>guided</code> runs.</li>
+          <li><strong>Canonical Company &amp; Domain Seed Data:</strong> Consistent brand name, street address, phone, email, hours, palette tokens, and starter records per prompt so models render identical text/card density.</li>
+          <li><strong>Zero-Bias Validation:</strong> Every word of <code>prompts/index.json</code>, <code>prompts/design.md</code>, and <code>prompts/seed-data.json</code> passes <code>npm run validate</code> with zero framework, Lighthouse, or CWV hints.</li>
         </ul>
-        <p class="panel-sub" style="margin-bottom:4px"><strong>Verbatim Visual Reference Instruction (appended only when reference images are attached):</strong></p>
+        <p class="panel-sub" style="margin-bottom:4px"><strong>Verbatim Visual Reference Instruction (Guided Mode):</strong></p>
         <div class="prompt-verbatim-box">${escapeHtml(gen.visualReferenceInstruction || '')}</div>
+        ${
+          designDoc
+            ? `<details style="margin-top:8px">
+                 <summary style="cursor:pointer;font-weight:600;font-size:0.85rem">View Verbatim <code>prompts/design.md</code> Specification</summary>
+                 <pre class="code-viewer" style="max-height:220px;margin-top:8px;white-space:pre-wrap">${escapeHtml(designDoc)}</pre>
+               </details>`
+            : ''
+        }
       </article>
 
       <article class="panel-card">
@@ -1473,10 +2250,8 @@ function renderMethodology() {
         <pre class="code-viewer" style="max-height:115px"># Bootstrap portable .pi-runtime + pinned Chrome for Testing on any VM:
 npm run setup:vm -- --with-chrome
 
-# Install clean-room provider transport bridges (-e entrypoint + --no-extensions):
-npm run bridges:install -- antigravity
-npm run bridges:install -- claude-bridge ./path/to/claude-ext
-npm run bridges:install -- muse git+https://github.com/org/pi-muse.git</pre>
+# Regenerate 37 layout reference mockups via gemini-nano-banana-2.1:
+npm run generate:refs</pre>
       </article>
 
       <article class="panel-card">
@@ -1496,11 +2271,11 @@ npm run bridges:install -- muse git+https://github.com/org/pi-muse.git</pre>
               </div>`
             : `<p class="panel-sub">Run <code>npm run canary</code> or an audit pass to record host hardware calibration.</p>`
         }
-        <pre class="code-viewer" style="max-height:115px"># Stage 1 (Cheap parallel cloud workers, secrets scoped per provider, zero Chrome):
-npm run bench:generate -- --pilot --mode=agent
+        <pre class="code-viewer" style="max-height:115px"># Stage 1 (Free-form + Guided side-by-side generation, zero Chrome):
+npm run bench:generate -- --pilot --mode=agent --spec=both
 
-# Stage 2 (Dedicated runner, ZERO LLM secrets, Canary + Median-of-3 browser audits):
-npm run bench:audit -- --pilot --audit-runs=3 --markdown-summary=summary.md</pre>
+# Stage 2 (Dedicated runner, ZERO LLM secrets, Canary + Static Pages Mirror):
+npm run bench:audit -- --pilot --spec=both --audit-runs=3</pre>
       </article>
     </div>
   `;
@@ -1547,7 +2322,7 @@ function renderRunnerControls() {
                 (p) => `
                 <label class="check-item" for="chk-prompt-${escapeHtml(p.id)}" title="${escapeHtml(p.prompt)}">
                   <input type="checkbox" id="chk-prompt-${escapeHtml(p.id)}" name="promptId" value="${escapeHtml(p.id)}" ${p.pilot ? 'checked' : ''} />
-                  <span>${escapeHtml(p.title)}${p.requiresAuth ? ' 🔒' : ''}${(p.referenceImages || []).length ? ' 🖼' : ''}</span>
+                  <span>${escapeHtml(p.title)}${p.requiresAuth ? ' 🔒' : ''}${(p.guidedReferenceImages || p.referenceImages || []).length ? ' 🖼' : ''}</span>
                 </label>
               `
               )
@@ -1575,9 +2350,12 @@ function renderRunnerControls() {
     const pCount = document.querySelectorAll('input[name="promptId"]:checked').length;
     const bCount = document.querySelectorAll('input[name="benchmarkId"]:checked').length;
     const modeVal = document.getElementById('opt-gen-mode')?.value || 'agent';
-    const mult = modeVal === 'both' ? 2 : 1;
-    const modeDesc = modeVal === 'both' ? ' × 2 tracks (agent + oneshot)' : ` (${modeVal})`;
-    document.getElementById('run-scope-estimate').textContent = `${mCount} models × ${pCount} prompts${modeDesc} = ${mCount * pCount * mult} cells (${bCount} pillars)`;
+    const specVal = document.getElementById('opt-spec-mode')?.value || 'freeform';
+    const modeMult = modeVal === 'both' ? 2 : 1;
+    const specMult = specVal === 'both' ? 2 : 1;
+    const modeDesc = modeVal === 'both' ? ' × 2 leads' : ` (${modeVal})`;
+    const specDesc = specVal === 'both' ? ' × 2 specs (freeform+guided)' : ` [${specVal}]`;
+    document.getElementById('run-scope-estimate').textContent = `${mCount} models × ${pCount} prompts${modeDesc}${specDesc} = ${mCount * pCount * modeMult * specMult} cells (${bCount} pillars)`;
   };
 
   const form = document.getElementById('runner-form');
@@ -1655,7 +2433,8 @@ function renderDialogSubtabs(detail, summaryCell) {
   if (!tabsNav) return;
 
   const cellId = detail.cellId;
-  const cellMode = detail.generation?.mode === 'agent' || cellId.endsWith('__agent') ? 'agent' : 'oneshot';
+  const cellMode =
+    detail.generation?.mode === 'agent' || cellId.includes('__agent') ? 'agent' : 'oneshot';
   const lhu = detail.benchmarks?.['lighthouse-uplift']?.lighthouse?.mobile;
   const failCount = lhu?.auditCounts?.failed ?? (lhu?.failingAudits || []).length;
   const passCount = lhu?.auditCounts?.passed ?? (lhu?.passedAudits || []).length;
@@ -1701,12 +2480,19 @@ function renderCellOverviewTab(detail, summaryCell) {
   const cellId = detail.cellId;
   const isLiveStudio = !state.data?.staticMode;
   const isProdServer = !state.data?.staticMode && detail.materialization?.serverArchitecture === 'production-server';
+  const canEmbedLive = canEmbedCellLivePreview(summaryCell, detail);
+  const hasDesktopShot = Boolean(summaryCell?.hasDesktopScreenshot);
+  const hasMobileShot = Boolean(summaryCell?.hasMobileScreenshot);
   const previewHref = isLiveStudio
     ? detail.livePreviewUrl || `./preview/${encodeURIComponent(cellId)}/`
     : `./preview/${encodeURIComponent(cellId)}/index.html`;
-  const sandboxAttr = isLiveStudio
-    ? 'allow-scripts allow-same-origin allow-forms allow-modals allow-popups'
-    : 'allow-scripts allow-forms allow-modals allow-popups';
+
+  let effectiveViewMode = state.previewViewMode || 'live';
+  if (effectiveViewMode === 'live' && !canEmbedLive) {
+    effectiveViewMode = hasDesktopShot ? 'desktop-shot' : hasMobileShot ? 'mobile-shot' : 'live';
+  }
+  if (effectiveViewMode === 'desktop-shot' && !hasDesktopShot) effectiveViewMode = canEmbedLive ? 'live' : 'mobile-shot';
+  if (effectiveViewMode === 'mobile-shot' && !hasMobileShot) effectiveViewMode = canEmbedLive ? 'live' : 'desktop-shot';
 
   const dp = detail.benchmarks?.['deep-perf'];
   const srv = dp?.serverTelemetry;
@@ -1735,6 +2521,30 @@ function renderCellOverviewTab(detail, summaryCell) {
   const lhFails = lhMobile?.auditCounts?.failed ?? (lhMobile?.failingAudits || []).length;
   const lhPasses = lhMobile?.auditCounts?.passed ?? (lhMobile?.passedAudits || []).length;
 
+  let previewFrameHtml = '';
+  if (!detail.materialization?.ok) {
+    previewFrameHtml = `<div class="panel-card"><p>Materialization failed: ${escapeHtml(detail.materialization?.error || 'Unknown error')}</p></div>`;
+  } else if (effectiveViewMode === 'live' && canEmbedLive) {
+    previewFrameHtml = `<iframe sandbox="${PREVIEW_IFRAME_SANDBOX}" src="${escapeHtml(previewHref)}" title="Live generated webpage"></iframe>`;
+  } else if (effectiveViewMode === 'mobile-shot' && hasMobileShot) {
+    previewFrameHtml = `<div style="background:var(--bg-subtle);display:flex;justify-content:center;padding:12px"><img src="./artifacts/${encodeURIComponent(cellId)}/screenshots/mobile.png" alt="Captured mobile audit screenshot" style="max-height:430px;width:auto;border-radius:8px;box-shadow:var(--shadow-sm)" /></div>`;
+  } else if (hasDesktopShot) {
+    previewFrameHtml = `
+      ${
+        !canEmbedLive
+          ? `<div style="padding:7px 12px;font-size:0.77rem;background:var(--bg-subtle);color:var(--ink-secondary);border-bottom:1px solid var(--border-subtle)">
+               Showing audit desktop screenshot (re-export this run to bundle interactive static Pages mirror for full-stack server workspaces).
+             </div>`
+          : ''
+      }
+      <img src="./artifacts/${encodeURIComponent(cellId)}/screenshots/desktop.png" alt="Captured desktop audit preview" style="width:100%;display:block" />
+    `;
+  } else {
+    previewFrameHtml = `<div class="panel-card"><p>No hosted static preview or screenshot recorded for this cell.</p></div>`;
+  }
+
+  const showViewModePills = detail.materialization?.ok && (canEmbedLive ? hasDesktopShot || hasMobileShot : hasDesktopShot && hasMobileShot);
+
   body.innerHTML = `
     <div class="gauge-row">
       <div class="mini-gauge"><div class="val">${fmtScore(summaryCell?.scores?.composite)}</div><div class="lbl">Composite</div></div>
@@ -1752,15 +2562,23 @@ function renderCellOverviewTab(detail, summaryCell) {
 
     <div class="detail-grid-2">
       <div>
-        <h3>Interactive Live Preview ${isProdServer ? '<span class="mode-badge mode-agent">Live $PORT Production Server</span>' : '<span class="mode-badge mode-oneshot">Isolated Ephemeral Origin</span>'}</h3>
-        <div class="preview-frame-box">
+        <div class="preview-header-bar">
+          <h3 style="margin:0">
+            Interactive Live Preview
+            ${isProdServer ? '<span class="mode-badge mode-agent">Live $PORT Production Server</span>' : canEmbedLive ? '<span class="mode-badge mode-oneshot">Hosted Preview Bundle</span>' : '<span class="fw-tag">Captured Audit Snapshot</span>'}
+          </h3>
           ${
-            detail.materialization?.ok
-              ? state.data?.staticMode && detail.materialization?.serverArchitecture === 'production-server' && summaryCell?.hasDesktopScreenshot
-                ? `<img src="./artifacts/${encodeURIComponent(cellId)}/screenshots/desktop.png" alt="Captured desktop preview" style="width:100%;display:block" />`
-                : `<iframe sandbox="${sandboxAttr}" src="${escapeHtml(previewHref)}" title="Live generated webpage"></iframe>`
-              : `<div class="panel-card"><p>Materialization failed: ${escapeHtml(detail.materialization?.error || 'Unknown error')}</p></div>`
+            showViewModePills
+              ? `<div class="preview-mode-pills">
+                  ${canEmbedLive ? `<button type="button" class="preview-mode-pill ${effectiveViewMode === 'live' ? 'active' : ''}" data-pview="live">Live Site</button>` : ''}
+                  ${hasDesktopShot ? `<button type="button" class="preview-mode-pill ${effectiveViewMode === 'desktop-shot' ? 'active' : ''}" data-pview="desktop-shot">Desktop Shot</button>` : ''}
+                  ${hasMobileShot ? `<button type="button" class="preview-mode-pill ${effectiveViewMode === 'mobile-shot' ? 'active' : ''}" data-pview="mobile-shot">Mobile Shot</button>` : ''}
+                </div>`
+              : ''
           }
+        </div>
+        <div class="preview-frame-box">
+          ${previewFrameHtml}
         </div>
 
         <h3 class="mt-lg">Default Full-Stack &amp; Server Telemetry</h3>
@@ -1796,7 +2614,7 @@ function renderCellOverviewTab(detail, summaryCell) {
 
         <div class="panel-card mt-lg">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-            <strong>Exact Prompt Summary</strong>
+            <span><strong>Exact Prompt Summary</strong> ${specBadgeHtml(detail.exactPrompt?.spec || detail.generation?.spec || 'freeform')}</span>
             <button type="button" class="btn btn-secondary" data-jump-dtab="prompt" style="padding:4px 10px;font-size:0.78rem">View Full Prompt &amp; Clean-Room Spec →</button>
           </div>
           <p style="margin:8px 0 0;font-size:0.86rem;color:var(--ink-secondary)">“${escapeHtml(detail.exactPrompt?.userPrompt || detail.promptEntry?.prompt || '')}”</p>
@@ -1897,6 +2715,13 @@ function renderCellOverviewTab(detail, summaryCell) {
     </div>
   `;
 
+  for (const pbtn of body.querySelectorAll('[data-pview]')) {
+    pbtn.addEventListener('click', () => {
+      state.previewViewMode = pbtn.dataset.pview;
+      renderCellOverviewTab(detail, summaryCell);
+    });
+  }
+
   for (const jump of body.querySelectorAll('[data-jump-dtab]')) {
     jump.addEventListener('click', () => {
       state.dialogTab = jump.dataset.jumpDtab;
@@ -1912,30 +2737,53 @@ function renderCellPromptTab(detail) {
   const env = detail.harnessEnvironment || {};
   const gen = detail.generation || {};
   const refImages = ep.referenceImages || [];
+  const cellSpec = ep.spec || gen.spec || 'freeform';
+  const seedData = ep.seedData || (cellSpec === 'guided' ? detail.promptEntry?.seedData : null);
+  const designDoc = cellSpec === 'guided' ? state.data?.designDoc || '' : '';
 
   body.innerHTML = `
     <div class="detail-grid-2">
       <div>
-        <h3>Exact Natural User Prompt</h3>
+        <h3>Exact Natural User Prompt ${specBadgeHtml(cellSpec)}</h3>
         <p class="panel-sub">Zero speed, framework, Lighthouse, or quality keywords allowed.</p>
         <div class="prompt-verbatim-box">${escapeHtml(ep.userPrompt || detail.promptEntry?.prompt || '')}</div>
 
         ${
           refImages.length > 0
-            ? `<h3>Attached Multimodal Style Reference Image(s)</h3>
+            ? `<h3>Attached Multimodal Reference Layout Image(s) (<code>gemini-nano-banana-2.1</code>)</h3>
                <div class="ref-images-grid">
                  ${refImages
                    .map(
                      (img) => `
                      <div class="ref-image-card">
-                       <img src="./${escapeHtml(String(img.path || '').replace(/^\/+/, ''))}" alt="${escapeHtml(img.label || 'Style reference')}" />
+                       <a href="./${escapeHtml(String(img.path || '').replace(/^\/+/, ''))}" target="_blank" rel="noopener">
+                         <img src="./${escapeHtml(String(img.path || '').replace(/^\/+/, ''))}" alt="${escapeHtml(img.label || 'Style reference')}" />
+                       </a>
                        <p class="panel-sub" style="margin:6px 0 0">${escapeHtml(img.label || img.path)}</p>
                      </div>
                    `
                    )
                    .join('')}
                </div>`
-            : `<p class="panel-sub"><em>Reference Style Images:</em> None attached to this prompt (unconstrained visual design).</p>`
+            : `<p class="panel-sub"><em>Reference Style Images:</em> None attached in <code>freeform</code> mode (unconstrained visual design — run with <code>--spec=guided</code> to attach the <code>gemini-nano-banana-2.1</code> layout reference, <code>design.md</code>, and canonical seed data).</p>`
+        }
+
+        ${
+          seedData
+            ? `<details style="margin-top:12px" open>
+                 <summary style="cursor:pointer;font-weight:600;font-size:0.88rem">Canonical Brand, Address &amp; Domain Seed Data (<code>prompts/seed-data.json</code>)</summary>
+                 <pre class="code-viewer" style="max-height:220px;margin-top:8px;white-space:pre-wrap">${escapeHtml(JSON.stringify(seedData, null, 2))}</pre>
+               </details>`
+            : ''
+        }
+
+        ${
+          designDoc
+            ? `<details style="margin-top:12px">
+                 <summary style="cursor:pointer;font-weight:600;font-size:0.88rem">Attached UI Design Specification (<code>prompts/design.md</code>)</summary>
+                 <pre class="code-viewer" style="max-height:220px;margin-top:8px;white-space:pre-wrap">${escapeHtml(designDoc)}</pre>
+               </details>`
+            : ''
         }
 
         <h3 class="mt-lg">${ep.mode === 'agent' ? 'Workspace Deployment Contract' : '1-Shot Neutral System Prompt'}</h3>
@@ -1956,6 +2804,7 @@ function renderCellPromptTab(detail) {
             <table class="data-table">
               <tbody>
                 <tr><td><strong>Execution Track</strong></td><td>${modeBadgeHtml(ep.mode === 'agent' ? 'agent' : 'oneshot')}</td></tr>
+                <tr><td><strong>Prompt Spec Mode</strong></td><td>${specBadgeHtml(cellSpec)}</td></tr>
                 <tr><td><strong>Provider / Model ID</strong></td><td class="mono">${escapeHtml(gen.provider || '—')} / ${escapeHtml(gen.modelId || '—')}</td></tr>
                 <tr><td><strong>pi Harness Version</strong></td><td class="mono">${escapeHtml(env.piVersion || state.data?.piVersion || '—')}</td></tr>
                 <tr><td><strong>Skills Loaded</strong></td><td><span class="score-badge score-good">${env.skillsLoaded ?? 0}</span></td></tr>
@@ -2277,7 +3126,8 @@ function renderCellLighthouseTab(detail) {
               <th>Audit ID</th>
               <th class="col-wrap">Lighthouse Audit Title</th>
               <th class="num">Score</th>
-              <th class="col-wrap">Measured Value</th>
+              <th class="col-wrap">Measured Value &amp; Evidence</th>
+              <th>Corpus Cross-Check</th>
             </tr>
           </thead>
           <tbody>
@@ -2288,6 +3138,23 @@ function renderCellLighthouseTab(detail) {
                 const catBadges = (a.categories || [a.category])
                   .map((c) => `<span class="lh-audit-cat">${escapeHtml(c)}</span>`)
                   .join(' ');
+                const evidenceHtml =
+                  Array.isArray(a.items) && a.items.length > 0
+                    ? `<ul class="lh-evidence-list">
+                        ${a.items
+                          .slice(0, 4)
+                          .map((it) => {
+                            const parts = [
+                              it.selector || it.nodeLabel || '',
+                              it.url || '',
+                              it.wastedBytes ? `wasted ${Math.round(it.wastedBytes / 1024)}KB` : '',
+                              it.wastedMs ? `${it.wastedMs}ms` : '',
+                            ].filter(Boolean);
+                            return `<li>${escapeHtml(parts.join(' · ') || it.snippet || '')}</li>`;
+                          })
+                          .join('')}
+                      </ul>`
+                    : '';
                 return `
                   <tr>
                     <td><span class="score-badge ${badgeCls}">${a.status}</span></td>
@@ -2295,7 +3162,15 @@ function renderCellLighthouseTab(detail) {
                     <td class="mono">${escapeHtml(a.id)}</td>
                     <td class="col-wrap"><strong>${escapeHtml(a.title)}</strong></td>
                     <td class="num mono">${a.score ?? (a.status === 'PASS' ? 100 : 0)}</td>
-                    <td class="mono col-wrap">${escapeHtml(a.displayValue || '—')}</td>
+                    <td class="col-wrap">
+                      <span class="mono">${escapeHtml(a.displayValue || '—')}</span>
+                      ${evidenceHtml}
+                    </td>
+                    <td>
+                      <button type="button" class="btn btn-ghost" style="padding:3px 9px;font-size:0.75rem" data-cell-crosscheck-lh="${escapeHtml(a.id)}">
+                        All Models →
+                      </button>
+                    </td>
                   </tr>
                 `;
               })
@@ -2304,6 +3179,14 @@ function renderCellLighthouseTab(detail) {
         </table>
       </div>
     `;
+
+    for (const btn of slot.querySelectorAll('[data-cell-crosscheck-lh]')) {
+      btn.addEventListener('click', () => {
+        const aid = btn.dataset.cellCrosscheckLh;
+        document.getElementById('cell-detail-dialog')?.close();
+        openLighthouseAuditDialog(aid);
+      });
+    }
   };
 
   const cPerf = countCat('performance');
@@ -2414,6 +3297,7 @@ async function openCellInspectionDialog(cellId, initialTab = 'overview', { fromR
   const rerunBtn = document.getElementById('rerun-single-cell-btn');
 
   state.inspectedCellId = cellId;
+  state.previewViewMode = 'live';
   state.dialogTab = VALID_DIALOG_TABS.has(initialTab) ? initialTab : 'overview';
   if (!fromRouter) syncUrlFromState({ push: true });
 
@@ -2433,17 +3317,31 @@ async function openCellInspectionDialog(cellId, initialTab = 'overview', { fromR
   state.inspectedCell = detail;
 
   const summaryCell = (state.data?.summary?.cells || []).find((c) => c.cellId === cellId);
-  const cellMode = detail.generation?.mode === 'agent' || cellId.endsWith('__agent') ? 'agent' : 'oneshot';
+  const cellMode =
+    detail.generation?.mode === 'agent' || cellId.includes('__agent') ? 'agent' : 'oneshot';
+  const cellSpec = detail.generation?.spec || (cellId.endsWith('__guided') ? 'guided' : 'freeform');
   const modeLabel = cellMode === 'agent' ? 'Agent Loop (pi + $PORT Server)' : '1-Shot Stream';
-  eyebrowEl.textContent = `${modeLabel} · ${detail.promptEntry?.categoryLabel || ''} · ${detail.generation?.provider}/${detail.generation?.modelId}`;
+  const specLabel = cellSpec === 'guided' ? 'Guided Spec' : 'Free-form Spec';
+  eyebrowEl.textContent = `${modeLabel} · ${specLabel} · ${detail.promptEntry?.categoryLabel || ''} · ${detail.generation?.provider}/${detail.generation?.modelId}`;
   titleEl.textContent = `${summaryCell?.modelLabel || detail.generation?.modelKey} — ${detail.promptEntry?.title || detail.generation?.promptId}`;
 
   const isLiveStudio = !state.data?.staticMode;
+  const canEmbedLive = canEmbedCellLivePreview(summaryCell, detail);
   const previewHref = isLiveStudio
     ? detail.livePreviewUrl || `./preview/${encodeURIComponent(cellId)}/`
     : `./preview/${encodeURIComponent(cellId)}/index.html`;
 
-  openTabLink.href = previewHref;
+  if (canEmbedLive) {
+    openTabLink.href = previewHref;
+    openTabLink.textContent = 'Open Site ↗';
+    openTabLink.classList.remove('hidden');
+  } else if (summaryCell?.hasDesktopScreenshot) {
+    openTabLink.href = `./artifacts/${encodeURIComponent(cellId)}/screenshots/desktop.png`;
+    openTabLink.textContent = 'Open Screenshot ↗';
+    openTabLink.classList.remove('hidden');
+  } else {
+    openTabLink.classList.add('hidden');
+  }
   rerunBtn.classList.toggle('hidden', Boolean(state.data?.staticMode));
 
   const transcriptUrl = `./artifacts/${encodeURIComponent(cellId)}/pi-transcript.html`;
@@ -2470,6 +3368,7 @@ function readFileAsDataUrl(file) {
 function populateStaticDropdowns() {
   const matCat = document.getElementById('matrix-category-select');
   const promptCat = document.getElementById('new-prompt-category');
+  const lhFamilySel = document.getElementById('lh-family-select');
   const cats = state.data?.categories || [];
 
   matCat.innerHTML =
@@ -2480,6 +3379,34 @@ function populateStaticDropdowns() {
   promptCat.innerHTML = cats
     .map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`)
     .join('');
+
+  if (lhFamilySel) {
+    const cells = state.data?.summary?.cells || [];
+    const families = Array.from(new Set(cells.map((c) => c.family || 'Other').filter(Boolean))).sort();
+    const modelsMap = new Map();
+    for (const c of cells) {
+      if (c.modelKey && !modelsMap.has(c.modelKey)) {
+        modelsMap.set(c.modelKey, c.modelLabel || c.modelKey);
+      }
+    }
+    lhFamilySel.innerHTML =
+      `<option value="all">All Model Families</option>` +
+      (families.length > 0
+        ? `<optgroup label="Model Families">` +
+          families.map((f) => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join('') +
+          `</optgroup>`
+        : '') +
+      (modelsMap.size > 0
+        ? `<optgroup label="Individual Models">` +
+          Array.from(modelsMap.entries())
+            .map(([k, lbl]) => `<option value="model:${escapeHtml(k)}">${escapeHtml(lbl)}</option>`)
+            .join('') +
+          `</optgroup>`
+        : '');
+    if (Array.from(lhFamilySel.options).some((o) => o.value === state.lhFamilyFilter)) {
+      lhFamilySel.value = state.lhFamilyFilter;
+    }
+  }
 }
 
 function renderAll() {
@@ -2514,6 +3441,9 @@ async function init() {
   document.getElementById('copy-cell-link-btn')?.addEventListener('click', (e) => {
     copyCurrentUrlWithFeedback(e.currentTarget);
   });
+  document.getElementById('copy-lh-audit-link-btn')?.addEventListener('click', (e) => {
+    copyCurrentUrlWithFeedback(e.currentTarget);
+  });
 
   // Primary navigation <a class="tab-btn" href="#/..."> links (preserve modifier-clicks for open-in-new-tab!)
   for (const link of document.querySelectorAll('.tab-btn[data-view]')) {
@@ -2521,6 +3451,7 @@ async function init() {
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
       e.preventDefault();
       state.inspectedCellId = null;
+      state.inspectedLhAuditId = null;
       switchView(link.dataset.view, { push: true });
     });
   }
@@ -2540,21 +3471,62 @@ async function init() {
     });
   }
 
-  // Clear cell URL param when dialog closes
+  // Clear cell / Lighthouse audit URL params when dialogs close
   document.getElementById('cell-detail-dialog')?.addEventListener('close', () => {
     if (state.inspectedCellId) {
       state.inspectedCellId = null;
       syncUrlFromState({ push: false });
     }
   });
+  document.getElementById('lh-audit-detail-dialog')?.addEventListener('close', () => {
+    if (state.inspectedLhAuditId) {
+      state.inspectedLhAuditId = null;
+      syncUrlFromState({ push: false });
+    }
+  });
 
-  // Global Mode + Matrix controls
+  // Global Mode + Spec + Matrix + Lighthouse Corpus controls
   document.getElementById('global-mode-select').addEventListener('change', (e) => {
     state.selectedMode = e.target.value;
     syncUrlFromState({ push: false });
     renderLeaderboard();
     renderMatrix();
     renderTechObservatory();
+    renderArenaSelectors();
+  });
+
+  document.getElementById('global-spec-select')?.addEventListener('change', (e) => {
+    state.selectedSpec = e.target.value;
+    syncUrlFromState({ push: false });
+    renderLeaderboard();
+    renderMatrix();
+    renderTechObservatory();
+    renderArenaSelectors();
+  });
+
+  document.getElementById('lh-split-select')?.addEventListener('change', (e) => {
+    state.lhSplitBy = e.target.value;
+    syncUrlFromState({ push: false });
+    renderCorpusLighthouseBreakdown();
+  });
+  document.getElementById('lh-family-select')?.addEventListener('change', (e) => {
+    state.lhFamilyFilter = e.target.value;
+    syncUrlFromState({ push: false });
+    renderCorpusLighthouseBreakdown();
+  });
+  document.getElementById('lh-lead-select')?.addEventListener('change', (e) => {
+    state.lhLeadFilter = e.target.value;
+    syncUrlFromState({ push: false });
+    renderCorpusLighthouseBreakdown();
+  });
+  document.getElementById('lh-spec-select')?.addEventListener('change', (e) => {
+    state.lhSpecFilter = e.target.value;
+    syncUrlFromState({ push: false });
+    renderCorpusLighthouseBreakdown();
+  });
+  document.getElementById('lh-search-input')?.addEventListener('input', (e) => {
+    state.lhSearchQuery = e.target.value;
+    renderCorpusLighthouseBreakdown();
   });
 
   document.getElementById('matrix-category-select').addEventListener('change', (e) => {
@@ -2672,6 +3644,7 @@ async function init() {
       force: document.getElementById('opt-force-rerun').checked,
       skipJudge: document.getElementById('opt-skip-judge').checked,
       mode: document.getElementById('opt-gen-mode').value,
+      spec: document.getElementById('opt-spec-mode')?.value || 'freeform',
       stage: document.getElementById('opt-run-stage')?.value || 'all',
       auditRuns: Number(document.getElementById('opt-audit-runs')?.value || 1),
     });
@@ -2690,6 +3663,7 @@ async function init() {
       modelKeys: [state.inspectedCell.generation.modelKey],
       promptIds: [state.inspectedCell.generation.promptId],
       mode: state.inspectedCell.generation.mode || 'agent',
+      spec: state.inspectedCell.generation.spec || 'freeform',
       force: true,
     });
   });

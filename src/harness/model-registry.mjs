@@ -192,19 +192,88 @@ export function matchesModelSelector(model, rawSelector) {
   return false;
 }
 
+const PROVIDER_FAMILY_LABELS = {
+  anthropic: 'Claude (Anthropic)',
+  google: 'Gemini (Google)',
+  openai: 'OpenAI',
+  'openai-codex': 'OpenAI',
+  deepseek: 'DeepSeek',
+  xai: 'Grok (xAI)',
+  'qwen-token-plan': 'Qwen (Alibaba)',
+  groq: 'Groq',
+  zai: 'GLM (Z.ai)',
+  'kimi-coding': 'Kimi (Moonshot)',
+  minimax: 'MiniMax',
+};
+
 export function selectModels(runtime, { keys = null, pilot = false, onlyReady = true } = {}) {
   let list = runtime.models.filter((m) => m.enabled !== false);
   const unknownKeys = [];
   if (keys && keys.length > 0) {
     const matchedKeySet = new Set();
+    const dynamicAdditions = [];
+
     for (const reqKey of keys) {
       const hits = runtime.models.filter((m) => matchesModelSelector(m, reqKey));
-      if (hits.length === 0) {
-        unknownKeys.push(reqKey);
-      } else {
-        // Prefer exact key match if present, otherwise first route/alias match
+      if (hits.length > 0) {
         const exact = hits.find((m) => m.key.toLowerCase() === String(reqKey).trim().toLowerCase());
         matchedKeySet.add((exact || hits[0]).key);
+        continue;
+      }
+
+      // Fallback: match built-in pi-ai catalog models (e.g. gpt-5.4, claude-opus-4-8, claude-haiku-4-5)
+      const sel = String(reqKey || '').trim();
+      const lowerSel = sel.toLowerCase();
+      const slugSel = lowerSel.replace(/[./\s]+/g, '-');
+      let foundDynamic = null;
+
+      if (runtime.piModels) {
+        for (const prov of ['anthropic', 'openai', 'google', 'deepseek', 'xai', 'groq', 'zai', 'kimi-coding']) {
+          const provObj = runtime.piModels.getProvider(prov);
+          if (!provObj) continue;
+          const builtinHit = (provObj.getModels() || []).find(
+            (bm) =>
+              bm.id.toLowerCase() === lowerSel ||
+              `${prov}/${bm.id.toLowerCase()}` === lowerSel ||
+              bm.id.toLowerCase().replace(/[./\s]+/g, '-') === slugSel
+          );
+          if (builtinHit) {
+            const dynKey = builtinHit.id.replace(/[^a-zA-Z0-9_-]+/g, '-').toLowerCase();
+            const hasCred = runtime.models.some((m) => m.ready && m.activeRoute?.provider === prov);
+            const activeRoute = hasCred
+              ? {
+                  provider: prov,
+                  modelId: builtinHit.id,
+                  api: builtinHit.api,
+                  transport: 'pi-ai',
+                  via: `${prov} (pi-ai (api_key))`,
+                  piModel: builtinHit,
+                }
+              : null;
+            foundDynamic = {
+              key: dynKey,
+              label: builtinHit.name || builtinHit.id,
+              family: PROVIDER_FAMILY_LABELS[prov] || prov,
+              tier: 'builtin',
+              pilot: false,
+              enabled: true,
+              routes: [{ provider: prov, modelId: builtinHit.id, api: builtinHit.api }],
+              ready: Boolean(activeRoute),
+              activeRoute,
+              missingProviders: [prov],
+            };
+            break;
+          }
+        }
+      }
+
+      if (foundDynamic) {
+        dynamicAdditions.push(foundDynamic);
+        runtime.models.push(foundDynamic);
+        runtime.byKey?.set(foundDynamic.key, foundDynamic);
+        matchedKeySet.add(foundDynamic.key);
+      } else {
+        unknownKeys.push(reqKey);
       }
     }
     list = runtime.models.filter((m) => matchedKeySet.has(m.key));

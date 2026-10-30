@@ -491,9 +491,9 @@
     {
       "key": "grok-4-7",
       "label": "Grok 4.7",
-      "family": "Frontier Peers",
+      "family": "Grok (xAI)",
       "tier": "flagship",
-      "pilot": false,
+      "pilot": true,
       "enabled": true,
       "releaseDate": "2026-09-21",
       "routes": [

@@ -15,6 +15,7 @@ export function parseCliArgs(argv) {
     benchmarkIds: null,
     pilot: false,
     mode: null,
+    spec: null,
     stage: 'all',
     auditRuns: 1,
     skipCanary: false,
@@ -39,6 +40,7 @@ export function parseCliArgs(argv) {
     else if (arg.startsWith('--category=')) opts.categories = arg.slice(11).split(',').filter(Boolean);
     else if (arg.startsWith('--benchmarks=')) opts.benchmarkIds = arg.slice(13).split(',').filter(Boolean);
     else if (arg.startsWith('--mode=')) opts.mode = arg.slice(7);
+    else if (arg.startsWith('--spec=')) opts.spec = arg.slice(7);
     else if (arg.startsWith('--stage=')) opts.stage = arg.slice(8);
     else if (arg.startsWith('--audit-runs=')) opts.auditRuns = Math.max(1, Number(arg.slice(13)) || 1);
     else if (arg.startsWith('--markdown-summary=')) opts.markdownSummaryPath = arg.slice(19);
@@ -102,8 +104,9 @@ export function formatMarkdownSummary(summary) {
     );
     lines.push('|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|');
     for (const r of summary.leaderboard) {
+      const modeLabel = r.spec === 'guided' ? `${r.mode} · guided` : r.mode;
       lines.push(
-        `| **${r.label}** | \`${r.mode}\` | ${r.cellsRun} | **${r.scores.composite}** | ${r.scores.lighthouse ?? '—'} | ${r.scores.uplift ?? '—'} | ${r.scores.deepPerf ?? '—'} | ${r.scores.memory ?? '—'} | ${r.averages.mobileLcpMs != null ? `${r.averages.mobileLcpMs}ms` : '—'} | ${r.averages.inpMs != null ? `${r.averages.inpMs}ms` : '—'} | ${r.averages.burstP95TtfbMs != null ? `${r.averages.burstP95TtfbMs}ms` : '—'} | \`${r.dominantStack}\` |`
+        `| **${r.label}** | \`${modeLabel}\` | ${r.cellsRun} | **${r.scores.composite}** | ${r.scores.lighthouse ?? '—'} | ${r.scores.uplift ?? '—'} | ${r.scores.deepPerf ?? '—'} | ${r.scores.memory ?? '—'} | ${r.averages.mobileLcpMs != null ? `${r.averages.mobileLcpMs}ms` : '—'} | ${r.averages.inpMs != null ? `${r.averages.inpMs}ms` : '—'} | ${r.averages.burstP95TtfbMs != null ? `${r.averages.burstP95TtfbMs}ms` : '—'} | \`${r.dominantStack}\` |`
       );
     }
     lines.push('');
@@ -185,6 +188,10 @@ Options:
                                    agent   (default) Autonomous pi coding loop + real $PORT server + saved transcript
                                    oneshot           Single-shot pi-ai generateText baseline
                                    both              Run both agent and oneshot head-to-head
+  --spec=freeform|guided|both    Prompt specification mode:
+                                   freeform (default) Open 1-sentence prompt only (unconstrained layout & content)
+                                   guided             Attach gemini-nano-banana-2.1 layout image + design.md + seedData
+                                   both               Run both freeform and guided head-to-head
   --pilot                        Run pilot matrix (10 categories x pilot models)
   --models=<k1,k2,...>           Filter by model keys (e.g. gemini-4-argon,deepseek-flash)
   --prompts=<p1,p2,...>          Filter by prompt IDs (e.g. plumbing-appointment,filmmakers-community)
@@ -257,8 +264,9 @@ async function main() {
   }
 
   emitter.on('job:start', (info) => {
+    const specsDesc = info.specs ? `, specs=${info.specs.join(', ')}` : '';
     console.log(
-      `\n[${clockNow()}] [bench] Starting ${info.jobId} (stage=${info.stage}, auditRuns=${info.auditRuns}, modes=${info.modes.join(', ')}, totalCells=${info.totalCells})`
+      `\n[${clockNow()}] [bench] Starting ${info.jobId} (stage=${info.stage}, auditRuns=${info.auditRuns}, modes=${info.modes.join(', ')}${specsDesc}, totalCells=${info.totalCells})`
     );
     console.log(`[${clockNow()}] [bench] Models (${info.models.length}): ${info.models.join(', ') || '(none)'}`);
     if (info.skippedModels.length > 0) {

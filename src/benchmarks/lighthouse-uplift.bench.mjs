@@ -128,6 +128,32 @@ export async function runLighthousePass(url, formFactor = 'mobile', sharedPort =
         continue;
       }
       const cats = auditCategoriesMap.get(a.id) || ['other'];
+      const rawDesc = typeof a.description === 'string' ? a.description : '';
+      const linkMatch = rawDesc.match(/\(https?:\/\/[^)\s]+\)/);
+      const helpUrl = linkMatch ? linkMatch[0].slice(1, -1) : null;
+      const cleanDescription = rawDesc
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 260);
+
+      let detailItems = undefined;
+      if (a.score < 0.9 && Array.isArray(a.details?.items) && a.details.items.length > 0) {
+        detailItems = a.details.items.slice(0, 5).map((it) => {
+          const node = it?.node || it?.element || null;
+          const compact = {};
+          if (node?.selector) compact.selector = String(node.selector).slice(0, 140);
+          if (node?.nodeLabel) compact.nodeLabel = String(node.nodeLabel).slice(0, 120);
+          if (node?.snippet) compact.snippet = String(node.snippet).slice(0, 160);
+          if (typeof it?.url === 'string') compact.url = it.url.slice(0, 180);
+          if (typeof it?.source?.url === 'string' && !compact.url) compact.url = it.source.url.slice(0, 180);
+          if (typeof it?.wastedBytes === 'number') compact.wastedBytes = Math.round(it.wastedBytes);
+          if (typeof it?.wastedMs === 'number') compact.wastedMs = Math.round(it.wastedMs);
+          if (typeof it?.totalBytes === 'number') compact.totalBytes = Math.round(it.totalBytes);
+          return compact;
+        }).filter((obj) => Object.keys(obj).length > 0);
+      }
+
       const item = {
         id: a.id,
         title: a.title,
@@ -135,6 +161,12 @@ export async function runLighthousePass(url, formFactor = 'mobile', sharedPort =
         categories: cats,
         score: Math.round((a.score ?? 0) * 100),
         displayValue: a.displayValue || null,
+        ...(typeof a.numericValue === 'number' && Number.isFinite(a.numericValue)
+          ? { numericValue: Math.round(a.numericValue * 100) / 100 }
+          : {}),
+        ...(cleanDescription ? { description: cleanDescription } : {}),
+        ...(helpUrl ? { helpUrl } : {}),
+        ...(detailItems && detailItems.length > 0 ? { items: detailItems } : {}),
       };
       if (a.score < 0.9) {
         failingAudits.push(item);

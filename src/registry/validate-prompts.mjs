@@ -29,6 +29,17 @@ export const BANNED_STEERING_PATTERNS = [
   { pattern: /\bsingle[- ]file\b|\bindex\.html\b/i, reason: 'file-structure steering' },
 ];
 
+export function findSteeringViolations(text) {
+  const hits = [];
+  if (typeof text !== 'string' || !text) return hits;
+  for (const rule of BANNED_STEERING_PATTERNS) {
+    if (rule.pattern.test(text)) {
+      hits.push(rule.reason);
+    }
+  }
+  return hits;
+}
+
 export function validateSinglePrompt(entry, knownCategories = null) {
   const errors = [];
   if (!entry || typeof entry !== 'object') {
@@ -48,10 +59,8 @@ export function validateSinglePrompt(entry, knownCategories = null) {
   }
 
   if (!entry.allowSteeringControl && typeof entry.prompt === 'string') {
-    for (const rule of BANNED_STEERING_PATTERNS) {
-      if (rule.pattern.test(entry.prompt)) {
-        errors.push(`Prompt "${entry.id}" violates zero-bias neutrality (${rule.reason}): "${entry.prompt}"`);
-      }
+    for (const reason of findSteeringViolations(entry.prompt)) {
+      errors.push(`Prompt "${entry.id}" violates zero-bias neutrality (${reason}): "${entry.prompt}"`);
     }
   }
 
@@ -69,22 +78,33 @@ export function validateSinglePrompt(entry, knownCategories = null) {
     errors.push(`Prompt "${entry.id}": missing leakLoop definition for memory leak testing`);
   }
 
-  if (entry.referenceImages !== undefined) {
-    if (!Array.isArray(entry.referenceImages)) {
-      errors.push(`Prompt "${entry.id}": referenceImages must be an array when provided`);
-    } else {
-      for (const img of entry.referenceImages) {
-        if (!img || typeof img.path !== 'string' || !img.path.trim() || img.path.includes('..')) {
-          errors.push(`Prompt "${entry.id}": each referenceImage requires a safe relative path`);
-        }
-        if (!entry.allowSteeringControl && typeof img?.label === 'string') {
-          for (const rule of BANNED_STEERING_PATTERNS) {
-            if (rule.pattern.test(img.label)) {
-              errors.push(`Prompt "${entry.id}": referenceImage label violates zero-bias (${rule.reason})`);
+  for (const fieldName of ['referenceImages', 'guidedReferenceImages']) {
+    if (entry[fieldName] !== undefined) {
+      if (!Array.isArray(entry[fieldName])) {
+        errors.push(`Prompt "${entry.id}": ${fieldName} must be an array when provided`);
+      } else {
+        for (const img of entry[fieldName]) {
+          if (!img || typeof img.path !== 'string' || !img.path.trim() || img.path.includes('..')) {
+            errors.push(`Prompt "${entry.id}": each ${fieldName} item requires a safe relative path`);
+          }
+          if (!entry.allowSteeringControl && typeof img?.label === 'string') {
+            for (const reason of findSteeringViolations(img.label)) {
+              errors.push(`Prompt "${entry.id}": ${fieldName} label violates zero-bias (${reason})`);
             }
           }
         }
       }
+    }
+  }
+
+  if (entry.isBuiltin && (!entry.seedData || !entry.seedData.brandName || !Array.isArray(entry.seedData.records))) {
+    errors.push(`Prompt "${entry.id}": missing canonical guided seedData (brandName + records) in prompts/seed-data.json`);
+  }
+
+  if (entry.seedData && !entry.allowSteeringControl) {
+    const serializedSeed = JSON.stringify(entry.seedData);
+    for (const reason of findSteeringViolations(serializedSeed)) {
+      errors.push(`Prompt "${entry.id}": seedData violates zero-bias neutrality (${reason})`);
     }
   }
 
@@ -96,6 +116,14 @@ export function validatePromptRegistry(registry = loadPromptRegistry()) {
   const categoryIds = new Set((registry.categories || []).map((c) => c.id));
   if (categoryIds.size < 6) {
     errors.push(`Expected at least 6 website categories, found ${categoryIds.size}`);
+  }
+
+  if (!registry.designDoc || registry.designDoc.trim().length < 200) {
+    errors.push('Missing or incomplete prompts/design.md UI design specification');
+  } else {
+    for (const reason of findSteeringViolations(registry.designDoc)) {
+      errors.push(`prompts/design.md violates zero-bias neutrality (${reason})`);
+    }
   }
 
   const seenIds = new Set();

@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       models:
-        description: 'Comma-separated models (e.g. deepseek-flash,gemini-3.8-flash,claude-sonnet-5-5)'
+        description: 'Comma-separated models (e.g. deepseek-flash,gemini-3.8-flash,grok-4.7,claude-sonnet-5,gpt-6-astra)'
         required: true
-        default: 'deepseek-flash,gemini-3.8-flash'
+        default: 'deepseek-flash,gemini-3.8-flash,grok-4.7,claude-sonnet-5,gpt-6-astra'
         type: string
       prompt_scope:
         description: 'Which prompts to generate & audit across all 4 benchmark test pillars'
@@ -31,6 +31,15 @@ on:
           - agent
           - oneshot
           - both
+      spec:
+        description: 'Prompt spec mode: freeform (open prompt), guided (reference image + design.md + seed data), or both'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - freeform
+          - guided
       reuse_generation_run_id:
         description: 'Optional: Prior workflow Run ID to reuse generated cells from (skips Stage 1 LLM generation)'
         required: false
@@ -97,6 +106,7 @@ jobs:
           INPUT_SCOPE: ${{ inputs.prompt_scope }}
           INPUT_PROMPTS: ${{ inputs.prompts }}
           INPUT_MODE: ${{ inputs.mode }}
+          INPUT_SPEC: ${{ inputs.spec }}
           INPUT_AUDIT_RUNS: ${{ inputs.audit_runs }}
           INPUT_REUSE_RUN_ID: ${{ inputs.reuse_generation_run_id }}
           INPUT_REUSE_AUDIT_RUN_ID: ${{ inputs.reuse_audit_run_id }}
@@ -113,16 +123,17 @@ jobs:
               promptScope: process.env.INPUT_SCOPE,
               customPromptsRaw: process.env.INPUT_PROMPTS,
               mode: process.env.INPUT_MODE,
+              spec: process.env.INPUT_SPEC || "freeform",
               auditRuns: Number(process.env.INPUT_AUDIT_RUNS || 1),
               reuseGenerationRunId: process.env.INPUT_REUSE_RUN_ID || reuseAuditRunId,
             });
 
             const skipGenerate = plan.skipGenerate || skipAudit;
             const genMatrix = skipGenerate
-              ? [{ shardId: "skipped", label: "reusing-prior-run", model: plan.models[0], mode: plan.modes[0], promptFlag: "" }]
+              ? [{ shardId: "skipped", label: "reusing-prior-run", model: plan.models[0], mode: plan.modes[0], spec: plan.specs[0], promptFlag: "" }]
               : plan.generateShards;
             const auditMatrix = skipAudit
-              ? [{ shardId: "skipped", label: "reusing-prior-audit-run", model: plan.models[0], mode: plan.modes[0], promptFlag: "", artifactPattern: "generated-cells-*" }]
+              ? [{ shardId: "skipped", label: "reusing-prior-audit-run", model: plan.models[0], mode: plan.modes[0], spec: plan.specs[0], promptFlag: "", artifactPattern: "generated-cells-*" }]
               : plan.auditShards;
 
             appendFileSync(process.env.GITHUB_OUTPUT, `skip_generate=${skipGenerate ? "true" : "false"}\n`);
@@ -172,12 +183,14 @@ jobs:
       - name: Run clean-room generation shard (${{ matrix.shard.label }})
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || secrets.GOOGLE_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           QWEN_TOKEN_PLAN_API_KEY: ${{ secrets.QWEN_TOKEN_PLAN_API_KEY }}
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY || secrets.GROK_API_KEY }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
           ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
@@ -188,6 +201,7 @@ jobs:
             --stage=generate \
             --force \
             --mode="${{ matrix.shard.mode }}" \
+            --spec="${{ matrix.shard.spec }}" \
             --models="${{ matrix.shard.model }}" \
             ${{ matrix.shard.promptFlag }}
 
@@ -300,6 +314,7 @@ jobs:
             --skip-judge \
             --audit-runs="${{ inputs.audit_runs }}" \
             --mode="${{ matrix.shard.mode }}" \
+            --spec="${{ matrix.shard.spec }}" \
             --models="${{ matrix.shard.model }}" \
             ${{ matrix.shard.promptFlag }} \
             --markdown-summary="$GITHUB_STEP_SUMMARY"
@@ -308,6 +323,7 @@ jobs:
         env:
           SHARD_ID: ${{ matrix.shard.shardId }}
           SHARD_MODE: ${{ matrix.shard.mode }}
+          SHARD_SPEC: ${{ matrix.shard.spec }}
           SHARD_PROMPT_FLAG: ${{ matrix.shard.promptFlag }}
         run: |
           node --input-type=module -e '
@@ -316,6 +332,7 @@ jobs:
 
             const shardId = process.env.SHARD_ID || "shard";
             const shardMode = process.env.SHARD_MODE || "agent";
+            const shardSpec = process.env.SHARD_SPEC || "freeform";
             const promptIds = new Set(
               String(process.env.SHARD_PROMPT_FLAG || "")
                 .replace(/^--prompts=/, "")
@@ -335,9 +352,11 @@ jobs:
                 const cellDir = join(cellsRoot, entry);
                 if (!statSync(cellDir).isDirectory()) continue;
                 const parts = entry.split("__");
+                const isGuided = parts.length >= 4 && parts[parts.length - 1] === "guided";
+                const cellSpec = isGuided ? "guided" : "freeform";
+                const mode = isGuided ? (parts[parts.length - 2] || "") : (parts[2] || "");
                 const promptId = parts[1] || "";
-                const mode = parts[2] || "";
-                if (mode !== shardMode || (promptIds.size > 0 && !promptIds.has(promptId))) continue;
+                if (mode !== shardMode || cellSpec !== shardSpec || (promptIds.size > 0 && !promptIds.has(promptId))) continue;
                 if (
                   !existsSync(join(cellDir, "results")) &&
                   !existsSync(join(cellDir, "materialization.json")) &&
