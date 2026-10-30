@@ -9,9 +9,9 @@ on:
         default: 'deepseek-flash,gemini-3.8-flash,grok-4.7,claude-sonnet-5,gpt-6-astra'
         type: string
       prompt_scope:
-        description: 'Which prompts to generate & audit across all 4 benchmark test pillars'
+        description: 'Prompt corpus scope: "all" runs all 37 prompts across 10 categories; "pilot" runs 10 prompts (1 per category)'
         required: true
-        default: 'pilot'
+        default: 'all'
         type: choice
         options:
           - all

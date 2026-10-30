@@ -19,6 +19,12 @@ import {
   captureStaticPreviewMirror,
   prepareExportedStaticPreview,
 } from '../src/materialize/static-mirror.mjs';
+import {
+  prepareCellRuntime,
+  normalizeShellScriptCommand,
+} from '../src/materialize/server-runner.mjs';
+import { extractGeneratedFiles } from '../src/materialize/extract-files.mjs';
+import { loadModelRegistryConfig, matchesModelSelector } from '../src/harness/model-registry.mjs';
 import { planWorkflowShards } from '../src/runner/shard-planner.mjs';
 
 test('all 37 prompts have valid zero-bias design.md, seed-data.json, and gemini-nano-banana-2.1 reference JPEGs', () => {
@@ -221,4 +227,72 @@ test('planWorkflowShards supports freeform, guided, and both spec modes', () => 
   assert.equal(bothPlan.totalCells, 40);
   assert.deepEqual(bothPlan.specs, ['freeform', 'guided']);
   assert.equal(bothPlan.generateShards.length, 12);
+});
+
+test('prepareCellRuntime handles bash pipefail start.sh, missing data/ dir, and non-fatal build warnings', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'bench-mat-resilience-'));
+  try {
+    // 1. Verify bash pipefail normalization + missing data/ directory + non-fatal broken build script
+    const cellDir = join(tmp, 'claude__photo-portfolio__agent');
+    const ws = join(cellDir, 'agent-workspace');
+    mkdirSync(ws, { recursive: true });
+
+    // Note: intentionally do NOT create `ws/data` and do NOT chmod +x `start.sh`
+    writeFileSync(
+      join(ws, 'package.json'),
+      JSON.stringify({
+        name: 'resilience-test',
+        private: true,
+        scripts: {
+          build: 'node scripts/missing-build.js',
+          start: 'node server.js',
+        },
+      }),
+      'utf8'
+    );
+    writeFileSync(
+      join(ws, '.bench-runtime.json'),
+      JSON.stringify({
+        buildCommand: 'npm run build',
+        startCommand: 'sh ./start.sh',
+        healthPath: '/',
+      }),
+      'utf8'
+    );
+    writeFileSync(
+      join(ws, 'start.sh'),
+      `#!/usr/bin/env bash\nset -euo pipefail\ncd "$(dirname "$0")"\nexec node server.js\n`,
+      { encoding: 'utf8', mode: 0o644 }
+    );
+    writeFileSync(
+      join(ws, 'db.js'),
+      `const fs = require('node:fs');\nconst path = require('node:path');\nconst dbFile = path.join(__dirname, 'data', 'portfolio.db');\nfs.writeFileSync(dbFile, 'ok');\nmodule.exports = { dbFile };\n`,
+      'utf8'
+    );
+    writeFileSync(
+      join(ws, 'server.js'),
+      `const http = require('node:http');\nrequire('./db');\nconst port = Number(process.env.PORT || 3000);\nhttp.createServer((req, res) => { res.writeHead(200, {'content-type':'text/html'}); res.end('<!doctype html><html><body>Booted OK</body></html>'); }).listen(port, '127.0.0.1');\n`,
+      'utf8'
+    );
+
+    if (existsSync('/bin/bash')) {
+      assert.equal(normalizeShellScriptCommand('sh ./start.sh'), 'bash ./start.sh');
+      assert.equal(normalizeShellScriptCommand('./start.sh'), 'bash ./start.sh');
+    }
+
+    const extraction = extractGeneratedFiles({ cellDir });
+    const mat = await prepareCellRuntime({ cellDir, extraction, forceBuild: true });
+    assert.equal(mat.ok, true, `Expected prepareCellRuntime to succeed, got: ${mat.error}`);
+    assert.equal(mat.serverArchitecture, 'production-server');
+    assert.ok(mat.warning && mat.warning.includes('MODULE_NOT_FOUND'), 'Expected missing build script to be logged as warning');
+    assert.equal(existsSync(join(ws, 'data', 'portfolio.db')), true, 'Expected missing data/ dir to be auto-created before boot');
+
+    // 2. Verify model shorthand aliases (e.g. gpt-6-sol -> gpt-6-1-sol)
+    const cfg = loadModelRegistryConfig();
+    const gptSol = cfg.models.find((m) => m.key === 'gpt-6-1-sol');
+    assert.ok(gptSol);
+    assert.equal(matchesModelSelector(gptSol, 'gpt-6-sol'), true);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });

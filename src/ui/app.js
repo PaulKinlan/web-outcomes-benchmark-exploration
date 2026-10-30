@@ -47,6 +47,7 @@ const state = {
   lhModalSpecFilter: 'all',
   lhModalSearch: '',
   matrixCategory: 'all',
+  matrixPromptScope: 'all',
   matrixMetric: 'composite',
   selectedCohort: null,
   arenaPrompt: '',
@@ -1530,11 +1531,25 @@ function renderMatrix() {
       (specFilter === 'all' || (c.spec || 'freeform') === specFilter)
   );
 
-  const prompts = state.data.prompts.filter(
-    (p) =>
-      (catFilter === 'all' || p.category === catFilter) &&
-      filteredCells.some((c) => c.promptId === p.id)
+  const allCategoryPrompts = state.data.prompts.filter(
+    (p) => catFilter === 'all' || p.category === catFilter
   );
+  const evaluatedPromptSet = new Set(filteredCells.map((c) => c.promptId));
+  const evaluatedCount = allCategoryPrompts.filter((p) => evaluatedPromptSet.has(p.id)).length;
+
+  const scopeSel = document.getElementById('matrix-scope-select');
+  if (scopeSel) {
+    const optAll = scopeSel.querySelector('option[value="all"]');
+    const optEval = scopeSel.querySelector('option[value="evaluated"]');
+    if (optAll) optAll.textContent = `All Corpus Prompts (${allCategoryPrompts.length})`;
+    if (optEval) optEval.textContent = `Evaluated in Run (${evaluatedCount}/${allCategoryPrompts.length})`;
+    scopeSel.value = state.matrixPromptScope || 'all';
+  }
+
+  const prompts =
+    state.matrixPromptScope === 'evaluated'
+      ? allCategoryPrompts.filter((p) => evaluatedPromptSet.has(p.id))
+      : allCategoryPrompts;
   const models = summary.leaderboard.filter(
     (m) =>
       (modeFilter === 'all' || m.mode === modeFilter) &&
@@ -1547,7 +1562,14 @@ function renderMatrix() {
     cellLookup.set(`${c.modelKey}__${c.promptId}__${c.mode || 'oneshot'}__${sp}`, c);
   }
 
-  let html = `<table class="matrix-table"><thead><tr><th>Model &amp; Track \\ Prompt</th>`;
+  const scopeBannerHtml =
+    evaluatedCount < allCategoryPrompts.length
+      ? `<div class="panel-sub" style="padding:8px 12px;border-bottom:1px solid var(--border-subtle)">
+           Current run evaluated <strong>${evaluatedCount} of ${allCategoryPrompts.length}</strong> prompts${evaluatedCount === 10 && catFilter === 'all' ? ' (<code>prompt_scope: pilot</code> — 1 per category)' : ''}. Run with <code>prompt_scope: all</code> to populate all 37 prompts.
+         </div>`
+      : '';
+
+  let html = `${scopeBannerHtml}<table class="matrix-table"><thead><tr><th>Model &amp; Track \\ Prompt</th>`;
   for (const p of prompts) {
     html += `<th title="${escapeHtml(p.prompt)}">${escapeHtml(p.title)}<span class="model-cell-sub">${escapeHtml(p.categoryLabel)}</span></th>`;
   }
@@ -1939,16 +1961,40 @@ function renderArenaSelectors() {
   const modBSel = document.getElementById('arena-model-b');
   const cells = state.data?.summary?.cells || [];
 
-  const promptsWithCells = (state.data?.prompts || []).filter((p) => cells.some((c) => c.promptId === p.id));
-  const listPrompts = promptsWithCells.length > 0 ? promptsWithCells : state.data?.prompts || [];
+  const allPrompts = state.data?.prompts || [];
+  const countByPrompt = new Map();
+  for (const c of cells) {
+    countByPrompt.set(c.promptId, (countByPrompt.get(c.promptId) || 0) + 1);
+  }
+  const promptsWithCells = allPrompts.filter((p) => (countByPrompt.get(p.id) || 0) > 0);
+  const promptsWithoutCells = allPrompts.filter((p) => (countByPrompt.get(p.id) || 0) === 0);
 
-  promptSel.innerHTML = listPrompts
-    .map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.title)} (${escapeHtml(p.categoryLabel)})</option>`)
-    .join('');
+  const renderPromptOption = (p) => {
+    const cnt = countByPrompt.get(p.id) || 0;
+    const countSuffix =
+      cells.length > 0 ? (cnt > 0 ? ` · ${cnt} builds` : ' · not yet run') : '';
+    return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.title)} (${escapeHtml(p.categoryLabel)}${escapeHtml(countSuffix)})</option>`;
+  };
 
-  if (state.arenaPrompt && listPrompts.some((p) => p.id === state.arenaPrompt)) {
+  if (promptsWithCells.length > 0 && promptsWithoutCells.length > 0) {
+    promptSel.innerHTML = [
+      `<optgroup label="Evaluated in Current Run (${promptsWithCells.length} of ${allPrompts.length})">`,
+      ...promptsWithCells.map(renderPromptOption),
+      `</optgroup>`,
+      `<optgroup label="Other Corpus Prompts — Run with prompt_scope=all (${promptsWithoutCells.length})">`,
+      ...promptsWithoutCells.map(renderPromptOption),
+      `</optgroup>`,
+    ].join('');
+  } else {
+    promptSel.innerHTML = allPrompts.map(renderPromptOption).join('');
+  }
+
+  if (state.arenaPrompt && allPrompts.some((p) => p.id === state.arenaPrompt)) {
     promptSel.value = state.arenaPrompt;
-  } else if (listPrompts.length > 0) {
+  } else if (promptsWithCells.length > 0) {
+    promptSel.value = promptsWithCells[0].id;
+    state.arenaPrompt = promptSel.value;
+  } else if (allPrompts.length > 0) {
     state.arenaPrompt = promptSel.value;
   }
 
@@ -2020,7 +2066,7 @@ function renderArenaComparison() {
              <div style="flex:1;min-width:220px;font-size:0.82rem;color:var(--ink-secondary)">
                <strong style="color:var(--ink-primary)">Guided Reference Spec (${escapeHtml(promptObj.id)}):</strong>
                ${seed ? `Brand: <strong>${escapeHtml(seed.brandName || '')}</strong>${seed.tagline ? ` — <em>${escapeHtml(seed.tagline)}</em>` : ''}` : ''}
-               ${seed?.address ? `<br/>Address: <span class="mono">${escapeHtml(seed.address)}</span>${seed.phone ? ` · ${escapeHtml(seed.phone)}` : ''}${seed.hours ? ` · ${escapeHtml(seed.hours)}` : ''}` : ''}
+               ${seed?.location || seed?.address ? `<br/>Location: <span class="mono">${escapeHtml(seed.location || seed.address)}</span>${seed.contact?.phone || seed.phone ? ` · ${escapeHtml(seed.contact?.phone || seed.phone)}` : ''}${seed.contact?.hours || seed.hours ? ` · ${escapeHtml(seed.contact?.hours || seed.hours)}` : ''}` : ''}
                <br/><span style="color:var(--ink-muted)">Attached in <code>--spec=guided</code> alongside <code>prompts/design.md</code> &amp; starter domain records; omitted in <code>--spec=freeform</code>.</span>
              </div>
            </div>`
@@ -3527,6 +3573,11 @@ async function init() {
   document.getElementById('lh-search-input')?.addEventListener('input', (e) => {
     state.lhSearchQuery = e.target.value;
     renderCorpusLighthouseBreakdown();
+  });
+
+  document.getElementById('matrix-scope-select')?.addEventListener('change', (e) => {
+    state.matrixPromptScope = e.target.value;
+    renderMatrix();
   });
 
   document.getElementById('matrix-category-select').addEventListener('change', (e) => {

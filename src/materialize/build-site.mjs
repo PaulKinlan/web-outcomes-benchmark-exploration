@@ -62,12 +62,12 @@ function dirByteSize(dir) {
   return total;
 }
 
-async function runCmd(cmd, args, cwd, timeoutMs = 120000) {
+async function runCmd(cmd, args, cwd, timeoutMs = 120000, extraEnv = {}) {
   return execFileAsync(cmd, args, {
     cwd,
     timeout: timeoutMs,
     maxBuffer: 8 * 1024 * 1024,
-    env: { ...process.env, CI: 'true', NODE_ENV: 'production' },
+    env: { ...process.env, CI: 'true', NODE_ENV: 'production', ...extraEnv },
   });
 }
 
@@ -189,7 +189,13 @@ export async function materializeSite({ cellDir, extraction, onProgress = () => 
       ];
 
       onProgress({ stage: 'materializing', detail: `Installing & building model's package.json (${installedPackages.length} deps)` });
-      await runCmd('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps'], buildWorkDir, 150000);
+      await runCmd(
+        'npm',
+        ['install', '--include=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps'],
+        buildWorkDir,
+        150000,
+        { NODE_ENV: 'development', npm_config_production: 'false' }
+      );
 
       if (pkg.scripts?.build) {
         await runCmd('npm', ['run', 'build'], buildWorkDir, 120000);
@@ -347,7 +353,13 @@ export async function materializeSite({ cellDir, extraction, onProgress = () => 
         stage: 'materializing',
         detail: `Synthesizing Vite bundle for bare component (${Object.keys(dependencies).join(', ')})`,
       });
-      await runCmd('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps'], synthDir, 150000);
+      await runCmd(
+        'npm',
+        ['install', '--include=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps'],
+        synthDir,
+        150000,
+        { NODE_ENV: 'development', npm_config_production: 'false' }
+      );
       const viteCmd = existsSync(LOCAL_VITE_BIN) ? LOCAL_VITE_BIN : 'npx';
       const viteArgs = existsSync(LOCAL_VITE_BIN)
         ? ['build', '--config', 'vite.config.mjs']

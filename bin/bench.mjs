@@ -263,7 +263,9 @@ async function main() {
     }
   }
 
+  let lastStartInfo = null;
   emitter.on('job:start', (info) => {
+    lastStartInfo = info;
     const specsDesc = info.specs ? `, specs=${info.specs.join(', ')}` : '';
     console.log(
       `\n[${clockNow()}] [bench] Starting ${info.jobId} (stage=${info.stage}, auditRuns=${info.auditRuns}, modes=${info.modes.join(', ')}${specsDesc}, totalCells=${info.totalCells})`
@@ -333,6 +335,28 @@ async function main() {
   console.log(
     `[${clockNow()}] [bench] Finished (${res.stage}) in ${fmtSec(res.durationMs)}: ${res.completedCells} succeeded, ${res.failedCells} failed.`
   );
+
+  if (
+    opts.modelKeys?.length > 0 &&
+    lastStartInfo &&
+    lastStartInfo.models.length === 0 &&
+    res.stage !== 'audit'
+  ) {
+    const reasons = [];
+    if (lastStartInfo.unknownModels?.length > 0) {
+      reasons.push(`unrecognized model slug(s): ${lastStartInfo.unknownModels.join(', ')}`);
+    }
+    if (lastStartInfo.skippedModels?.length > 0) {
+      reasons.push(
+        `missing API credentials for: ${lastStartInfo.skippedModels.map((s) => `${s.key} (${(s.missingProviders || []).join('/')})`).join(', ')}`
+      );
+    }
+    const msg = `Zero runnable models resolved for --models=${opts.modelKeys.join(',')} (${reasons.join('; ') || 'no matching ready routes'}).`;
+    if (isGitHubActions) {
+      console.log(`::error title=Zero Runnable Models::${msg}`);
+    }
+    throw new Error(msg);
+  }
 
   const mdOut = opts.markdownSummaryPath || process.env.BENCH_STEP_SUMMARY_PATH || null;
   if (mdOut) {

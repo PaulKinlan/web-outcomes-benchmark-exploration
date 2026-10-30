@@ -5,6 +5,8 @@ import {
   readdirSync,
   statSync,
   lstatSync,
+  mkdirSync,
+  cpSync,
   rmSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -12,11 +14,98 @@ import { createServer as createNetServer } from 'node:net';
 import http from 'node:http';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { materializeSite } from './build-site.mjs';
+import { materializeSite, rewriteRootRelativeLocalAssets } from './build-site.mjs';
+import { resolveCellStaticPreviewSource } from './static-mirror.mjs';
 import { serveStaticDirectory } from './serve-site.mjs';
 import { sleep } from '../util/env.mjs';
 
 const execFileAsync = promisify(execFile);
+const PREFERRED_SHELL = existsSync('/bin/bash') ? '/bin/bash' : '/bin/sh';
+
+/**
+ * Normalizes shell script invocations (`sh ./start.sh`, `./start.sh`, `sh start.sh`) so
+ * scripts containing `#!/usr/bin/env bash` and `set -euo pipefail` run under `bash` rather
+ * than Ubuntu `/bin/sh` (`dash`, which exits 2 with `Illegal option -o pipefail`) and never
+ * fail if `actions/upload-artifact` stripped `+x` file permission bits.
+ */
+export function normalizeShellScriptCommand(cmd) {
+  const trimmed = String(cmd || '').trim();
+  if (!trimmed) return '';
+  if (!existsSync('/bin/bash')) return trimmed;
+  // Rewrite leading `sh <script>.sh` -> `bash <script>.sh`
+  if (/^sh\s+\S+\.sh(?:\s|$)/.test(trimmed)) {
+    return trimmed.replace(/^sh\s+/, 'bash ');
+  }
+  // Rewrite bare `./<script>.sh` (which fails if +x bit was stripped by artifact zipping) -> `bash ./<script>.sh`
+  if (/^\.\/\S+\.sh(?:\s|$)/.test(trimmed)) {
+    return `bash ${trimmed}`;
+  }
+  return trimmed;
+}
+
+/**
+ * Ensures common local runtime storage directories (`data/`, `db/`, `storage/`, `uploads/`, `tmp/`)
+ * exist before booting a workspace server. `actions/upload-artifact` omits empty directories,
+ * which otherwise causes `new Database(path.join(__dirname, 'data', 'app.db'))` (`better-sqlite3`
+ * / `sqlite3`) to crash at startup when `data/` was empty after Stage 1.
+ */
+export function ensureWorkspaceRuntimeDirs(workspaceDir) {
+  if (!workspaceDir || !existsSync(workspaceDir)) return;
+  const candidateDirs = new Set(['data']);
+
+  const scanFileForDirs = (filePath) => {
+    try {
+      const txt = readFileSync(filePath, 'utf8');
+      for (const dirName of ['data', 'db', 'database', 'storage', 'uploads', 'var', 'tmp']) {
+        const re = new RegExp(`['"\`](?:\\.\\/)?${dirName}(?:['"\`/\\\\])`);
+        if (re.test(txt)) candidateDirs.add(dirName);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  try {
+    for (const entry of readdirSync(workspaceDir)) {
+      if (SKIP_SIZE_DIRS.has(entry) || entry.startsWith('.')) continue;
+      const full = join(workspaceDir, entry);
+      let st;
+      try {
+        st = statSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isFile() && st.size <= 200_000 && /\.(?:m?js|cjs|ts|py|go)$/i.test(entry)) {
+        scanFileForDirs(full);
+      } else if (st.isDirectory() && ['server', 'lib', 'src', 'backend', 'app'].includes(entry)) {
+        try {
+          for (const sub of readdirSync(full)) {
+            const subFull = join(full, sub);
+            const subSt = statSync(subFull);
+            if (subSt.isFile() && subSt.size <= 200_000 && /\.(?:m?js|cjs|ts|py|go)$/i.test(sub)) {
+              scanFileForDirs(subFull);
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  for (const dirName of candidateDirs) {
+    const target = join(workspaceDir, dirName);
+    if (!existsSync(target)) {
+      try {
+        mkdirSync(target, { recursive: true });
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
 
 const SKIP_SIZE_DIRS = new Set(['node_modules', '.git', '.venv', 'venv', '__pycache__', 'target']);
 
@@ -123,8 +212,9 @@ export function resolveRuntimeContract(workspaceDir) {
       const raw = JSON.parse(readFileSync(manifestPath, 'utf8'));
       if (raw && typeof raw.startCommand === 'string' && raw.startCommand.trim()) {
         return {
-          buildCommand: typeof raw.buildCommand === 'string' ? raw.buildCommand.trim() : '',
-          startCommand: raw.startCommand.trim(),
+          buildCommand:
+            typeof raw.buildCommand === 'string' ? normalizeShellScriptCommand(raw.buildCommand) : '',
+          startCommand: normalizeShellScriptCommand(raw.startCommand),
           healthPath: typeof raw.healthPath === 'string' && raw.healthPath.startsWith('/') ? raw.healthPath : '/',
           contractCompliance: true,
         };
@@ -137,7 +227,7 @@ export function resolveRuntimeContract(workspaceDir) {
   if (existsSync(join(workspaceDir, 'start.sh'))) {
     return {
       buildCommand: '',
-      startCommand: 'sh ./start.sh',
+      startCommand: normalizeShellScriptCommand('./start.sh'),
       healthPath: '/',
       contractCompliance: true,
     };
@@ -165,7 +255,21 @@ export function resolveRuntimeContract(workspaceDir) {
     }
   }
 
-  for (const nodeEntry of ['server.mjs', 'server.js', 'app.mjs', 'app.js', 'src/server.mjs', 'src/server.js', 'index.js']) {
+  for (const nodeEntry of [
+    'server.mjs',
+    'server.js',
+    'app.mjs',
+    'app.js',
+    'server/index.mjs',
+    'server/index.js',
+    'server/server.mjs',
+    'server/server.js',
+    'src/server.mjs',
+    'src/server.js',
+    'backend/server.js',
+    'backend/index.js',
+    'index.js',
+  ]) {
     if (existsSync(join(workspaceDir, nodeEntry))) {
       return {
         buildCommand: '',
@@ -199,20 +303,21 @@ export function resolveRuntimeContract(workspaceDir) {
   return null;
 }
 
-function runShellCommand(command, cwd, timeoutMs = 150000) {
+function runShellCommand(command, cwd, timeoutMs = 150000, extraEnv = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn('/bin/sh', ['-c', command], {
+    const normalizedCmd = normalizeShellScriptCommand(command);
+    const child = spawn(PREFERRED_SHELL, ['-c', normalizedCmd], {
       cwd,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: buildSanitizedServerEnv({ CI: 'true', NODE_ENV: 'production' }),
+      env: buildSanitizedServerEnv({ CI: 'true', NODE_ENV: 'production', ...extraEnv }),
     });
 
     let stdout = '';
     let stderr = '';
     const timer = setTimeout(async () => {
       await killProcessGroup(child.pid);
-      reject(new Error(`Command timed out after ${timeoutMs}ms: ${command}`));
+      reject(new Error(`Command timed out after ${timeoutMs}ms: ${normalizedCmd}`));
     }, timeoutMs);
 
     child.stdout.on('data', (d) => (stdout += d.toString('utf8')));
@@ -328,36 +433,63 @@ export async function prepareCellRuntime({
   if (contract && workspaceDir) {
     const t0 = performance.now();
     let buildError = null;
+    let buildWarning = null;
     let probeSrv = null;
 
     try {
+      const npmInstallEnv = { NODE_ENV: 'development', npm_config_production: 'false' };
+      const npmInstallCmd = 'npm install --include=dev --prefer-offline --no-audit --no-fund --legacy-peer-deps';
+
+      const installDirIfNeeded = async (dir, label) => {
+        if (!existsSync(join(dir, 'package.json'))) return;
+        if (hasBrokenNodeModules(dir)) {
+          onProgress({ stage: 'materializing', detail: `Repairing zipped ${label} node_modules symlinks` });
+          rmSync(join(dir, 'node_modules'), { recursive: true, force: true });
+        }
+        if (!existsSync(join(dir, 'node_modules'))) {
+          onProgress({ stage: 'materializing', detail: `Installing ${label} dependencies (including build/dev tools)` });
+          await runShellCommand(npmInstallCmd, dir, 150000, npmInstallEnv);
+        }
+      };
+
       const hasPkgJson = existsSync(join(workspaceDir, 'package.json'));
-      if (hasPkgJson && hasBrokenNodeModules(workspaceDir)) {
-        onProgress({ stage: 'materializing', detail: 'Repairing zipped workspace node_modules symlinks' });
-        rmSync(join(workspaceDir, 'node_modules'), { recursive: true, force: true });
+      await installDirIfNeeded(workspaceDir, 'workspace');
+
+      // Also install nested client/server package.json manifests if agent used a split directory layout
+      for (const sub of ['client', 'frontend', 'web', 'server', 'backend', 'api']) {
+        const subDir = join(workspaceDir, sub);
+        if (existsSync(join(subDir, 'package.json'))) {
+          await installDirIfNeeded(subDir, `${sub}/`);
+        }
       }
 
-      // Install npm dependencies only if package.json exists and node_modules is missing
-      if (hasPkgJson && !existsSync(join(workspaceDir, 'node_modules'))) {
-        onProgress({ stage: 'materializing', detail: 'Installing workspace dependencies' });
-        await runShellCommand('npm install --prefer-offline --no-audit --no-fund --legacy-peer-deps', workspaceDir, 120000);
-      }
+      // Recreate empty runtime directories (e.g. `data/` for SQLite) omitted by CI artifact zipping
+      ensureWorkspaceRuntimeDirs(workspaceDir);
 
       if (contract.buildCommand && forceBuild) {
         onProgress({ stage: 'materializing', detail: `Running production build: ${contract.buildCommand}` });
-        await runShellCommand(contract.buildCommand, workspaceDir, 120000);
+        try {
+          await runShellCommand(contract.buildCommand, workspaceDir, 120000);
+        } catch (bErr) {
+          // Do not abort yet: Stage 1 may have already produced dist/ or buildCommand may be an optional check script
+          buildWarning = bErr.message || String(bErr);
+          onProgress({
+            stage: 'materializing',
+            detail: `Build step exited non-zero (${buildWarning.slice(0, 80)}); attempting server boot anyway`,
+          });
+        }
       }
 
       // Smoke-boot the production server once to verify it binds $PORT and returns <500!
       onProgress({ stage: 'materializing', detail: `Verifying production server start (${contract.startCommand})` });
       try {
-        probeSrv = await bootProductionWorkspaceServer({ workspaceDir, contract, timeoutMs: 15000 });
+        probeSrv = await bootProductionWorkspaceServer({ workspaceDir, contract, timeoutMs: 18000 });
       } catch (firstBootErr) {
         // If agent didn't run buildCommand yet, run buildCommand now and retry boot once
         if (contract.buildCommand && !forceBuild) {
           onProgress({ stage: 'materializing', detail: `Running build (${contract.buildCommand}) and retrying server boot` });
           await runShellCommand(contract.buildCommand, workspaceDir, 120000);
-          probeSrv = await bootProductionWorkspaceServer({ workspaceDir, contract, timeoutMs: 15000 });
+          probeSrv = await bootProductionWorkspaceServer({ workspaceDir, contract, timeoutMs: 18000 });
         } else {
           throw firstBootErr;
         }
@@ -397,6 +529,7 @@ export async function prepareCellRuntime({
         installedPackages,
         buildDurationMs: Math.round(performance.now() - t0),
         distBytes: workspaceByteSize(workspaceDir),
+        warning: buildWarning,
         error: null,
       };
       writeFileSync(join(cellDir, 'materialization.json'), JSON.stringify(result, null, 2) + '\n', 'utf8');
@@ -409,14 +542,48 @@ export async function prepareCellRuntime({
         await probeSrv.close().catch(() => {});
         probeSrv = null;
       }
-      buildError = err.message || String(err);
+      buildError = buildWarning ? `${err.message || err} (after build error: ${buildWarning})` : err.message || String(err);
       onProgress({
         stage: 'materializing',
         detail: `Production server failed (${buildError.slice(0, 90)}); checking static fallback`,
       });
     }
 
-    // If workspace had no working server and also no static fallback, record failure cleanly
+    // Static fallback A: check if agent-workspace already contains a built static root (`dist/`, `public/`, etc.)
+    const prebuiltStatic = resolveCellStaticPreviewSource(cellDir);
+    if (prebuiltStatic && prebuiltStatic.source !== 'static-preview') {
+      const distDir = join(cellDir, 'dist');
+      if (prebuiltStatic.dir !== distDir) {
+        rmSync(distDir, { recursive: true, force: true });
+        mkdirSync(distDir, { recursive: true });
+        cpSync(prebuiltStatic.dir, distDir, {
+          recursive: true,
+          filter: (s) => !s.includes('node_modules') && !s.includes('.git'),
+        });
+        rewriteRootRelativeLocalAssets(distDir);
+      }
+      if (existsSync(join(distDir, 'index.html'))) {
+        const rescued = {
+          ok: true,
+          distDir,
+          outputShape: extraction.outputShape || 'fullstack-workspace',
+          serverArchitecture: 'static-harness',
+          materializeTier: 'static-workspace-rescue',
+          contractCompliance: false,
+          runnableWithoutBuildStep: true,
+          synthesizedWrapper: false,
+          installedPackages: [],
+          buildDurationMs: Math.round(performance.now() - t0),
+          distBytes: workspaceByteSize(distDir),
+          serverFallbackReason: buildError,
+          error: null,
+        };
+        writeFileSync(join(cellDir, 'materialization.json'), JSON.stringify(rescued, null, 2) + '\n', 'utf8');
+        return rescued;
+      }
+    }
+
+    // Static fallback B: run materializeSite over extracted files
     const staticFallback = await materializeSite({ cellDir, extraction, onProgress });
     if (staticFallback.ok) {
       const merged = {
@@ -460,16 +627,18 @@ export async function prepareCellRuntime({
 }
 
 async function bootProductionWorkspaceServer({ workspaceDir, contract, timeoutMs = 25000 }) {
+  ensureWorkspaceRuntimeDirs(workspaceDir);
   const port = await findFreePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const healthUrl = `${baseUrl}${contract.healthPath || '/'}`;
+  const startCmd = normalizeShellScriptCommand(contract.startCommand);
 
   const t0 = performance.now();
   let stderrTail = '';
   let exitedEarly = false;
   let exitCode = null;
 
-  const child = spawn('/bin/sh', ['-c', contract.startCommand], {
+  const child = spawn(PREFERRED_SHELL, ['-c', startCmd], {
     cwd: workspaceDir,
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -500,7 +669,7 @@ async function bootProductionWorkspaceServer({ workspaceDir, contract, timeoutMs
     if (exitedEarly) {
       await killProcessGroup(child.pid);
       throw new Error(
-        `Server exited prematurely (code ${exitCode}) running "${contract.startCommand}": ${stderrTail.trim()}`
+        `Server exited prematurely (code ${exitCode}) running "${startCmd}": ${stderrTail.trim()}`
       );
     }
     try {
@@ -520,7 +689,7 @@ async function bootProductionWorkspaceServer({ workspaceDir, contract, timeoutMs
   if (!booted) {
     await killProcessGroup(child.pid);
     throw new Error(
-      `Server did not respond on PORT=${port} within ${timeoutMs}ms ("${contract.startCommand}"): ${stderrTail.trim()}`
+      `Server did not respond on PORT=${port} within ${timeoutMs}ms ("${startCmd}"): ${stderrTail.trim()}`
     );
   }
 

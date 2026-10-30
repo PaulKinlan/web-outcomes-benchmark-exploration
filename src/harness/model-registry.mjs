@@ -177,11 +177,30 @@ export async function initializeModelRuntime() {
   };
 }
 
+const MODEL_SHORTHAND_ALIASES = {
+  'gpt-6-sol': 'gpt-6-1-sol',
+  'gpt-6.0-sol': 'gpt-6-1-sol',
+  'gpt-6-terra': 'gpt-6-1-terra',
+  'gpt-6-terra-pro': 'gpt-6-1-terra-pro',
+  'claude-sonnet': 'claude-sonnet-5',
+  'claude-opus': 'claude-opus-5',
+  'gemini-flash': 'gemini-3-8-flash',
+  grok: 'grok-4-7',
+  'grok-4': 'grok-4-7',
+};
+
 export function matchesModelSelector(model, rawSelector) {
   if (!rawSelector || !model) return false;
-  const sel = String(rawSelector).trim().toLowerCase();
+  const rawLower = String(rawSelector).trim().toLowerCase();
+  const sel = MODEL_SHORTHAND_ALIASES[rawLower] || rawLower;
   const slugSel = sel.replace(/[./\s]+/g, '-');
   if (model.key.toLowerCase() === sel || model.key.toLowerCase() === slugSel) return true;
+  if (Array.isArray(model.aliases)) {
+    for (const al of model.aliases) {
+      const lowAl = String(al || '').toLowerCase();
+      if (lowAl === sel || lowAl.replace(/[./\s]+/g, '-') === slugSel) return true;
+    }
+  }
   for (const r of model.routes || []) {
     const mid = String(r.modelId || '').toLowerCase();
     const full = `${String(r.provider || '').toLowerCase()}/${mid}`;
