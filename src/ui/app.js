@@ -1,11 +1,13 @@
 // Studio Frontend Application (Vanilla ES Module)
-const VALID_VIEWS = new Set(['leaderboard', 'matrix', 'observatory', 'arena', 'methodology', 'run']);
+const VALID_VIEWS = new Set(['leaderboard', 'matrix', 'observatory', 'arena', 'prompts', 'methodology', 'run']);
 const VIEW_ALIASES = {
   tech: 'observatory',
+  visualizer: 'prompts',
+  targets: 'prompts',
   runner: 'run',
   cleanroom: 'methodology',
 };
-const VALID_DIALOG_TABS = new Set(['overview', 'prompt', 'transcript', 'lighthouse', 'source']);
+const VALID_DIALOG_TABS = new Set(['overview', 'judge', 'console', 'prompt', 'transcript', 'lighthouse', 'source']);
 
 // Default sort directions when clicking a column for the first time
 const DEFAULT_SORT_DIR = {
@@ -14,6 +16,8 @@ const DEFAULT_SORT_DIR = {
   dominantStack: 'asc',
   cellsRun: 'desc',
   composite: 'desc',
+  judge: 'desc',
+  consoleErrors: 'desc',
   lighthouse: 'desc',
   uplift: 'desc',
   deepPerf: 'desc',
@@ -29,6 +33,7 @@ const DEFAULT_SORT_DIR = {
 const state = {
   data: null,
   activeView: 'leaderboard',
+  selectedHarness: 'all',
   selectedMode: 'all',
   selectedSpec: 'all',
   selectedCategory: 'all',
@@ -36,12 +41,14 @@ const state = {
   leaderboardSortDir: 'desc',
   lhCorpusFilter: 'all-failures',
   lhSplitBy: 'none',
+  lhHarnessFilter: 'all',
   lhFamilyFilter: 'all',
   lhLeadFilter: 'all',
   lhSpecFilter: 'all',
   lhSearchQuery: '',
   inspectedLhAuditId: null,
   lhModalStatusFilter: 'all',
+  lhModalHarnessFilter: 'all',
   lhModalFamilyFilter: 'all',
   lhModalLeadFilter: 'all',
   lhModalSpecFilter: 'all',
@@ -53,6 +60,10 @@ const state = {
   arenaPrompt: '',
   arenaModelA: '',
   arenaModelB: '',
+  promptsCategory: 'all',
+  promptsScope: 'all',
+  promptsSearch: '',
+  inspectedPromptId: null,
   activeRunId: null,
   activeEventSource: null,
   inspectedCellId: null,
@@ -140,16 +151,51 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-function modeBadgeHtml(mode) {
-  return mode === 'agent'
-    ? `<span class="mode-badge mode-agent">Agent · pi</span>`
-    : `<span class="mode-badge mode-oneshot">1-Shot</span>`;
+function harnessShortName(harness = 'pi') {
+  if (harness === 'claude-acp') return 'Claude ACP';
+  if (harness === 'codex-acp') return 'Codex ACP';
+  if (harness === 'custom-acp') return 'Custom ACP';
+  return 'pi';
+}
+
+function harnessBadgeHtml(harness = 'pi') {
+  if (harness === 'claude-acp') {
+    return `<span class="harness-badge harness-claude-acp" title="Claude Code driven via Agent Client Protocol (ACP v1)">Claude ACP</span>`;
+  }
+  if (harness === 'codex-acp') {
+    return `<span class="harness-badge harness-codex-acp" title="OpenAI Codex driven via Agent Client Protocol (ACP v1)">Codex ACP</span>`;
+  }
+  if (harness && harness !== 'pi') {
+    return `<span class="harness-badge" title="ACP Coding Harness: ${escapeHtml(harness)}">${escapeHtml(harness)}</span>`;
+  }
+  return `<span class="harness-badge" title="Clean-Room pi Harness (0 skills · 0 extensions)">pi</span>`;
+}
+
+function modeBadgeHtml(mode, harness = 'pi') {
+  if (mode === 'agent') {
+    const hShort = harnessShortName(harness);
+    const cls = harness && harness !== 'pi' ? `mode-badge mode-agent` : `mode-badge mode-agent`;
+    return `<span class="${cls}">Agent · ${escapeHtml(hShort)}</span>`;
+  }
+  return `<span class="mode-badge mode-oneshot">1-Shot</span>`;
 }
 
 function specBadgeHtml(spec) {
   return spec === 'guided'
     ? `<span class="spec-badge spec-guided" title="Guided spec: gemini-nano-banana-2.1 layout image + design.md + canonical seed data">Guided · Ref+Design+Data</span>`
     : `<span class="spec-badge spec-freeform" title="Free-form spec: pure open 1-sentence prompt">Free-form</span>`;
+}
+
+function disqualifiedBadgeHtml(cellOrVerdict) {
+  const cat =
+    cellOrVerdict?.judgeVerdict?.failureCategory ||
+    cellOrVerdict?.failureCategory ||
+    'off-topic';
+  const rationale =
+    cellOrVerdict?.judgeVerdict?.rationale ||
+    cellOrVerdict?.rationale ||
+    'Disqualified by On-Topic & Functional Judge (Composite = 0)';
+  return `<span class="disqualified-badge" title="${escapeHtml(rationale)}">DISQ · ${escapeHtml(cat)}</span>`;
 }
 
 function canEmbedCellLivePreview(summaryCell, detail) {
@@ -187,6 +233,7 @@ async function copyCurrentUrlWithFeedback(btn) {
 
 function buildHashString({
   view = state.activeView,
+  harness = state.selectedHarness,
   mode = state.selectedMode,
   spec = state.selectedSpec,
   cat = state.selectedCategory,
@@ -194,6 +241,7 @@ function buildHashString({
   sortDir = state.leaderboardSortDir,
   lhFilter = state.lhCorpusFilter,
   lhSplit = state.lhSplitBy,
+  lhHarness = state.lhHarnessFilter,
   lhFamily = state.lhFamilyFilter,
   lhLead = state.lhLeadFilter,
   lhSpec = state.lhSpecFilter,
@@ -204,12 +252,16 @@ function buildHashString({
   arenaPrompt = state.arenaPrompt,
   arenaA = state.arenaModelA,
   arenaB = state.arenaModelB,
+  pcat = state.promptsCategory,
+  pscope = state.promptsScope,
+  pvis = state.inspectedPromptId,
   cellId = state.inspectedCellId,
   dtab = state.dialogTab,
 } = {}) {
   const cleanView = VIEW_ALIASES[view] || (VALID_VIEWS.has(view) ? view : 'leaderboard');
   const params = new URLSearchParams();
 
+  if (harness && harness !== 'all') params.set('harness', harness);
   if (mode && mode !== 'all') params.set('mode', mode);
   if (spec && spec !== 'all') params.set('spec', spec);
 
@@ -221,6 +273,7 @@ function buildHashString({
     }
     if (lhFilter && lhFilter !== 'all-failures') params.set('lh', lhFilter);
     if (lhSplit && lhSplit !== 'none') params.set('lhsplit', lhSplit);
+    if (lhHarness && lhHarness !== 'all') params.set('lhharness', lhHarness);
     if (lhFamily && lhFamily !== 'all') params.set('lhfamily', lhFamily);
     if (lhLead && lhLead !== 'all') params.set('lhlead', lhLead);
     if (lhSpec && lhSpec !== 'all') params.set('lhspec', lhSpec);
@@ -233,6 +286,13 @@ function buildHashString({
     if (arenaPrompt) params.set('prompt', arenaPrompt);
     if (arenaA) params.set('a', arenaA);
     if (arenaB) params.set('b', arenaB);
+  } else if (cleanView === 'prompts') {
+    if (pcat && pcat !== 'all') params.set('pcat', pcat);
+    if (pscope && pscope !== 'all') params.set('pscope', pscope);
+  }
+
+  if (pvis) {
+    params.set('pvis', pvis);
   }
 
   if (lhAudit) {
@@ -255,6 +315,7 @@ function updateNavTabHrefs() {
       view: v,
       cellId: null,
       lhAudit: null,
+      pvis: null,
     });
   }
 }
@@ -282,6 +343,11 @@ function parseHashIntoState() {
   const mappedView = VIEW_ALIASES[rawView] || (VALID_VIEWS.has(rawView) ? rawView : 'leaderboard');
   state.activeView = mappedView;
 
+  const harnessParam = params.get('harness');
+  state.selectedHarness = ['pi', 'claude-acp', 'codex-acp', 'custom-acp'].includes(harnessParam)
+    ? harnessParam
+    : 'all';
+
   const modeParam = params.get('mode');
   state.selectedMode = modeParam === 'agent' || modeParam === 'oneshot' ? modeParam : 'all';
 
@@ -301,7 +367,13 @@ function parseHashIntoState() {
     }
     state.lhCorpusFilter = params.get('lh') || 'all-failures';
     const lhSplitParam = params.get('lhsplit');
-    state.lhSplitBy = ['none', 'mode', 'family', 'spec', 'model'].includes(lhSplitParam) ? lhSplitParam : 'none';
+    state.lhSplitBy = ['none', 'harness', 'mode', 'family', 'spec', 'model'].includes(lhSplitParam)
+      ? lhSplitParam
+      : 'none';
+    const lhHarnessParam = params.get('lhharness');
+    state.lhHarnessFilter = ['pi', 'claude-acp', 'codex-acp', 'custom-acp'].includes(lhHarnessParam)
+      ? lhHarnessParam
+      : 'all';
     state.lhFamilyFilter = params.get('lhfamily') || 'all';
     const lhLeadParam = params.get('lhlead');
     state.lhLeadFilter = lhLeadParam === 'agent' || lhLeadParam === 'oneshot' ? lhLeadParam : 'all';
@@ -316,22 +388,31 @@ function parseHashIntoState() {
     state.arenaPrompt = params.get('prompt') || state.arenaPrompt || '';
     state.arenaModelA = params.get('a') || state.arenaModelA || '';
     state.arenaModelB = params.get('b') || state.arenaModelB || '';
+  } else if (mappedView === 'prompts') {
+    state.promptsCategory = params.get('pcat') || 'all';
+    const pscopeParam = params.get('pscope');
+    state.promptsScope = ['all', 'pilot', 'evaluated', 'auth'].includes(pscopeParam) ? pscopeParam : 'all';
   }
 
   const cellParam = params.get('cell');
   const dtabParam = params.get('dtab');
   const lhAuditParam = params.get('lhaudit');
+  const pvisParam = params.get('pvis');
   return {
     cellId: cellParam || null,
     dtab: VALID_DIALOG_TABS.has(dtabParam) ? dtabParam : 'overview',
     lhAuditId: lhAuditParam || null,
+    promptVisId: pvisParam || null,
   };
 }
 
 async function applyUrlStateToUi() {
   state.suppressHashSync = true;
   try {
-    const { cellId, dtab, lhAuditId } = parseHashIntoState();
+    const { cellId, dtab, lhAuditId, promptVisId } = parseHashIntoState();
+
+    const harnessSelect = document.getElementById('global-harness-select');
+    if (harnessSelect) harnessSelect.value = state.selectedHarness;
 
     const modeSelect = document.getElementById('global-mode-select');
     if (modeSelect) modeSelect.value = state.selectedMode;
@@ -341,6 +422,8 @@ async function applyUrlStateToUi() {
 
     const lhSplitSelect = document.getElementById('lh-split-select');
     if (lhSplitSelect) lhSplitSelect.value = state.lhSplitBy;
+    const lhHarnessSelect = document.getElementById('lh-harness-select');
+    if (lhHarnessSelect) lhHarnessSelect.value = state.lhHarnessFilter;
     const lhFamilySelect = document.getElementById('lh-family-select');
     if (lhFamilySelect && Array.from(lhFamilySelect.options).some((o) => o.value === state.lhFamilyFilter)) {
       lhFamilySelect.value = state.lhFamilyFilter;
@@ -365,7 +448,18 @@ async function applyUrlStateToUi() {
     renderMatrix();
     renderTechObservatory();
     renderArenaSelectors();
+    renderPromptVisualizer();
     renderMethodology();
+
+    const pvisDialog = document.getElementById('prompt-visualizer-dialog');
+    if (promptVisId && !cellId && !lhAuditId) {
+      if (state.inspectedPromptId !== promptVisId || !pvisDialog?.open) {
+        openPromptVisualizerDialog(promptVisId, { fromRouter: true });
+      }
+    } else if (pvisDialog?.open && !promptVisId) {
+      state.inspectedPromptId = null;
+      pvisDialog.close();
+    }
 
     const lhDialog = document.getElementById('lh-audit-detail-dialog');
     if (lhAuditId && !cellId) {
@@ -448,8 +542,13 @@ function renderHeaderKpis() {
   const cellCount = totals.cells || 0;
   const agentCount = totals.agentCells || 0;
   const oneshotCount = totals.oneshotCells || 0;
+  const acpCount = totals.acpCells || 0;
   const guidedCount = totals.guidedCells || 0;
+  const disqCount = totals.disqualifiedCells || 0;
+  const acpSuffix = acpCount > 0 ? ` · ${acpCount} ACP` : '';
   const specSuffix = guidedCount > 0 ? ` · ${guidedCount} guided` : '';
+  const disqSuffix = disqCount > 0 ? ` · ${disqCount} disq` : '';
+  const mwgVer = d.summary?.environment?.mwgCatalogVersion || '0.0.197';
   const canary = d.summary?.canary;
   const canaryBadge = canary
     ? `<span>Canary: <strong>${escapeHtml(String(canary.status || 'stable').toUpperCase())}</strong> (${canary.browserMainThreadComputeMs ?? canary.nodeCpuComputeMs ?? '—'}ms)</span>`
@@ -457,7 +556,8 @@ function renderHeaderKpis() {
   el.innerHTML = `
     <span>Prompts: <strong>${d.prompts.length}</strong> (${d.categories.length} cats)</span>
     <span>Models: <strong>${d.models.length}</strong> (${readyCount} live)</span>
-    <span>Cells: <strong>${cellCount}</strong> (${agentCount} agent · ${oneshotCount} 1-shot${escapeHtml(specSuffix)})</span>
+    <span>Cells: <strong>${cellCount}</strong> (${agentCount} agent · ${oneshotCount} 1-shot${escapeHtml(acpSuffix)}${escapeHtml(specSuffix)}${escapeHtml(disqSuffix)})</span>
+    <span>MWG: <strong>${escapeHtml(mwgVer)}</strong></span>
     ${canaryBadge}
   `;
 }
@@ -469,13 +569,17 @@ function getRowSortValue(row, col) {
     case 'label':
       return (row.label || row.modelKey || '').toLowerCase();
     case 'mode':
-      return `${row.mode || ''}_${row.spec || 'freeform'}`;
+      return `${row.harness || 'pi'}_${row.mode || ''}_${row.spec || 'freeform'}`;
     case 'dominantStack':
       return (row.dominantStack || '').toLowerCase();
     case 'cellsRun':
       return row.cellsRun ?? null;
     case 'composite':
       return row.scores?.composite ?? null;
+    case 'judge':
+      return row.scores?.judge ?? null;
+    case 'consoleErrors':
+      return row.scores?.consoleErrors ?? null;
     case 'lighthouse':
       return row.scores?.lighthouse ?? null;
     case 'uplift':
@@ -506,11 +610,13 @@ function computeFilteredLeaderboard() {
   if (!summary) return [];
 
   const cat = state.selectedCategory;
+  const harnessFilter = state.selectedHarness;
   const modeFilter = state.selectedMode;
   const specFilter = state.selectedSpec;
   let rows = summary.leaderboard
     .filter(
       (r) =>
+        (harnessFilter === 'all' || (r.harness || 'pi') === harnessFilter) &&
         (modeFilter === 'all' || r.mode === modeFilter) &&
         (specFilter === 'all' || (r.spec || 'freeform') === specFilter)
     )
@@ -520,13 +626,16 @@ function computeFilteredLeaderboard() {
     const cells = (summary.cells || []).filter(
       (c) =>
         c.category === cat &&
+        (harnessFilter === 'all' || (c.harness || 'pi') === harnessFilter) &&
         (modeFilter === 'all' || c.mode === modeFilter) &&
         (specFilter === 'all' || (c.spec || 'freeform') === specFilter)
     );
     const byGroup = new Map();
     for (const c of cells) {
       const sp = c.spec || 'freeform';
-      const gk = sp === 'guided' ? `${c.modelKey}__${c.mode || 'oneshot'}__guided` : `${c.modelKey}__${c.mode || 'oneshot'}`;
+      const hr = c.harness || 'pi';
+      const baseGk = sp === 'guided' ? `${c.modelKey}__${c.mode || 'oneshot'}__guided` : `${c.modelKey}__${c.mode || 'oneshot'}`;
+      const gk = hr !== 'pi' ? `${baseGk}__${hr}` : baseGk;
       if (!byGroup.has(gk)) byGroup.set(gk, []);
       byGroup.get(gk).push(c);
     }
@@ -538,20 +647,28 @@ function computeFilteredLeaderboard() {
     for (const [gk, list] of byGroup.entries()) {
       const sample = list[0];
       const sp = sample.spec || 'freeform';
+      const hr = sample.harness || 'pi';
       const base =
         summary.leaderboard.find(
           (x) =>
             x.rowId === gk ||
-            (x.modelKey === sample.modelKey && x.mode === sample.mode && (x.spec || 'freeform') === sp)
+            (x.modelKey === sample.modelKey &&
+              (x.harness || 'pi') === hr &&
+              x.mode === sample.mode &&
+              (x.spec || 'freeform') === sp)
         ) || {
           rowId: gk,
           modelKey: sample.modelKey,
+          harness: hr,
+          harnessLabel: sample.harnessLabel || harnessShortName(hr),
           mode: sample.mode || 'oneshot',
           spec: sp,
           label: sample.modelLabel || sample.modelKey,
           family: sample.family || '',
         };
       const built = list.filter((c) => c.buildSucceeded);
+      const validBuilt = list.filter((c) => c.validBuild !== false && c.buildSucceeded);
+      const disqualifiedCount = list.filter((c) => c.disqualifiedByJudge).length;
       const fwCounts = {};
       const beCounts = {};
       for (const c of list) {
@@ -568,11 +685,16 @@ function computeFilteredLeaderboard() {
 
       rows.push({
         ...base,
+        harness: hr,
         spec: sp,
         cellsRun: list.length,
+        validBuildRatePct: Math.round((validBuilt.length / list.length) * 1000) / 10,
+        disqualifiedCount,
         dominantStack,
         scores: {
           composite: avg(list.map((c) => c.scores.composite)) ?? 0,
+          judge: avg(validBuilt.map((c) => c.scores.judge)),
+          consoleErrors: avg(built.map((c) => c.scores.consoleErrors)),
           lighthouse: avg(built.map((c) => c.scores.lighthouse)),
           uplift: avg(built.map((c) => c.scores.uplift)),
           deepPerf: avg(built.map((c) => c.scores.deepPerf)),
@@ -583,6 +705,7 @@ function computeFilteredLeaderboard() {
           ...base.averages,
           mobileLcpMs: avg(built.map((c) => c.keyMetrics.mobileLcpMs)),
           inpMs: avg(built.map((c) => c.keyMetrics.inpMs)),
+          totalErrors: avg(built.map((c) => c.keyMetrics.totalErrorCount)),
           burstP95TtfbMs: avg(built.map((c) => c.keyMetrics.burstP95TtfbMs)),
           baselineHeapMb: avg(built.map((c) => c.keyMetrics.baselineHeapMb)),
           generationMs: avg(list.map((c) => c.generationMs)),
@@ -637,6 +760,8 @@ function updateLeaderboardSortHeaders() {
 function cellMatchesCorpusLhSlice(cell) {
   if (!cell?.lighthouseAudits) return false;
   if (state.selectedCategory !== 'all' && cell.category !== state.selectedCategory) return false;
+  if (state.selectedHarness !== 'all' && (cell.harness || 'pi') !== state.selectedHarness) return false;
+  if (state.lhHarnessFilter !== 'all' && (cell.harness || 'pi') !== state.lhHarnessFilter) return false;
   const famFilter = state.lhFamilyFilter;
   if (famFilter && famFilter !== 'all') {
     if (famFilter.startsWith('model:')) {
@@ -651,9 +776,13 @@ function cellMatchesCorpusLhSlice(cell) {
 }
 
 function getLhSplitBucket(cell, splitBy) {
+  if (splitBy === 'harness') {
+    const h = cell.harness || 'pi';
+    return { key: h, label: cell.harnessLabel || harnessShortName(h) };
+  }
   if (splitBy === 'mode') {
     return cell.mode === 'agent'
-      ? { key: 'agent', label: 'Agent · pi' }
+      ? { key: 'agent', label: `Agent · ${harnessShortName(cell.harness || 'pi')}` }
       : { key: 'oneshot', label: '1-Shot' };
   }
   if (splitBy === 'family') {
@@ -1321,12 +1450,79 @@ function openLighthouseAuditDialog(auditId, { fromRouter = false } = {}) {
   });
 }
 
+function renderJudgeSummaryCallout(filteredCells) {
+  const callout = document.getElementById('judge-summary-callout');
+  if (!callout) return;
+
+  const evaluated = filteredCells.filter((c) => c.judgeVerdict?.evaluated);
+  if (evaluated.length === 0) {
+    callout.classList.add('hidden');
+    callout.innerHTML = '';
+    return;
+  }
+
+  const disq = evaluated.filter((c) => c.disqualifiedByJudge || !c.judgeVerdict?.passedGate);
+  const passedCount = evaluated.length - disq.length;
+  const passPct = Math.round((passedCount / evaluated.length) * 1000) / 10;
+
+  const catCounts = {};
+  for (const c of disq) {
+    const fc = c.judgeVerdict?.failureCategory || 'off-topic';
+    catCounts[fc] = (catCounts[fc] || 0) + 1;
+  }
+
+  callout.classList.remove('hidden');
+  callout.classList.toggle('has-disqualifications', disq.length > 0);
+  callout.innerHTML = `
+    <div class="cohort-header-row" style="margin-bottom:${disq.length > 0 ? '10px' : '0'}">
+      <div>
+        <h3 style="margin:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          On-Topic &amp; Functional Judge Gate
+          <span class="score-badge ${disq.length === 0 ? 'score-good' : 'score-warn'}">${passedCount}/${evaluated.length} Valid (${passPct}%)</span>
+          ${disq.length > 0 ? `<span class="disqualified-badge">${disq.length} Disqualified (Composite = 0)</span>` : ''}
+        </h3>
+        <p class="panel-sub" style="margin:4px 0 0">
+          Every build is screened against blank/crash shells, unedited starter boilerplate, non-functional stubs, and off-topic domains before receiving CWV/memory credit.
+        </p>
+      </div>
+      ${
+        Object.keys(catCounts).length > 0
+          ? `<div style="display:flex;gap:6px;flex-wrap:wrap">
+              ${Object.entries(catCounts)
+                .map(([k, n]) => `<span class="fw-tag mono">${escapeHtml(k)}: ${n}</span>`)
+                .join('')}
+            </div>`
+          : ''
+      }
+    </div>
+    ${
+      disq.length > 0
+        ? `<div class="lh-chips-wrap">
+            ${disq
+              .slice(0, 12)
+              .map(
+                (c) =>
+                  `<button type="button" class="lh-site-chip score-bad" data-judge-cell="${escapeHtml(c.cellId)}" title="${escapeHtml(c.judgeVerdict?.rationale || c.failureCategory || 'Disqualified')}">✗ ${escapeHtml(c.modelLabel)} · ${escapeHtml(c.promptTitle.split(' ').slice(0, 2).join(' '))} [${escapeHtml(c.judgeVerdict?.failureCategory || 'off-topic')}]</button>`
+              )
+              .join('')}
+          </div>`
+        : ''
+    }
+  `;
+
+  for (const btn of callout.querySelectorAll('[data-judge-cell]')) {
+    btn.addEventListener('click', () => openCellInspectionDialog(btn.dataset.judgeCell, 'judge'));
+  }
+}
+
 function renderLeaderboard() {
   const pillBar = document.getElementById('category-filter-bar');
   const cats = state.data?.categories || [];
   const hasGuidedAny = (state.data?.summary?.cells || []).some((c) => c.spec === 'guided');
+  const hasAcpAny = (state.data?.summary?.cells || []).some((c) => (c.harness || 'pi') !== 'pi');
   const modeCells = (state.data?.summary?.cells || []).filter(
     (c) =>
+      (state.selectedHarness === 'all' || (c.harness || 'pi') === state.selectedHarness) &&
       (state.selectedMode === 'all' || c.mode === state.selectedMode) &&
       (state.selectedSpec === 'all' || (c.spec || 'freeform') === state.selectedSpec)
   );
@@ -1346,6 +1542,12 @@ function renderLeaderboard() {
     });
   }
 
+  const catFilteredCells =
+    state.selectedCategory === 'all'
+      ? modeCells
+      : modeCells.filter((c) => c.category === state.selectedCategory);
+  renderJudgeSummaryCallout(catFilteredCells);
+
   updateLeaderboardSortHeaders();
 
   const rows = computeFilteredLeaderboard();
@@ -1363,6 +1565,7 @@ function renderLeaderboard() {
     tbody.innerHTML = rows
       .map((r, idx) => {
         const rowSpec = r.spec || 'freeform';
+        const rowHarness = r.harness || 'pi';
         const stackLabel =
           r.dominantStack ||
           (r.techDefaults?.reactSharePct >= r.techDefaults?.vanillaSharePct && r.techDefaults?.reactSharePct > 0
@@ -1380,17 +1583,25 @@ function renderLeaderboard() {
           r.averages?.generationMs != null
             ? `${(r.averages.generationMs / 1000).toFixed(1)}s`
             : '—';
-        // Find top cell for this model+mode+spec so clicking a row can inspect or jump to matrix
+        const disqCount = r.disqualifiedCount || 0;
+        const validCount = Math.max(0, r.cellsRun - disqCount);
+        const cellsDisplayHtml =
+          disqCount > 0
+            ? `<span class="mono">${validCount}/${r.cellsRun}</span> <span class="disqualified-badge" style="font-size:0.65rem;padding:1px 5px" title="${disqCount} cell(s) disqualified by On-Topic Judge">${disqCount} disq</span>`
+            : `${r.cellsRun}`;
+
+        // Find top cell for this model+harness+mode+spec so clicking a row can inspect or jump to matrix
         const sampleCell = (state.data?.summary?.cells || []).find(
           (c) =>
             c.modelKey === r.modelKey &&
+            (c.harness || 'pi') === rowHarness &&
             c.mode === r.mode &&
             (c.spec || 'freeform') === rowSpec &&
             (state.selectedCategory === 'all' || c.category === state.selectedCategory)
         );
         const modelLinkHref = sampleCell
           ? buildHashString({ cellId: sampleCell.cellId, dtab: 'overview' })
-          : buildHashString({ view: 'matrix', mode: r.mode, spec: rowSpec, cellId: null });
+          : buildHashString({ view: 'matrix', harness: rowHarness, mode: r.mode, spec: rowSpec, cellId: null });
 
         return `
           <tr>
@@ -1405,12 +1616,15 @@ function renderLeaderboard() {
             </td>
             <td>
               <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
-                ${modeBadgeHtml(r.mode)}
+                ${modeBadgeHtml(r.mode, rowHarness)}
+                ${hasAcpAny && rowHarness !== 'pi' ? harnessBadgeHtml(rowHarness) : ''}
                 ${hasGuidedAny || rowSpec === 'guided' ? specBadgeHtml(rowSpec) : ''}
               </div>
             </td>
-            <td class="num">${r.cellsRun}</td>
+            <td class="num">${cellsDisplayHtml}</td>
             <td class="num"><span class="score-badge ${scoreClass(r.scores.composite)}">${fmtScore(r.scores.composite)}</span></td>
+            <td class="num"><span class="score-badge ${scoreClass(r.scores.judge)}">${fmtScore(r.scores.judge)}</span></td>
+            <td class="num" title="Avg JS/Network Errors per cell: ${r.averages?.totalErrors ?? 0}"><span class="score-badge ${scoreClass(r.scores.consoleErrors)}">${fmtScore(r.scores.consoleErrors)}</span></td>
             <td class="num"><span class="score-badge ${scoreClass(r.scores.lighthouse)}">${fmtScore(r.scores.lighthouse)}</span></td>
             <td class="num"><span class="score-badge ${scoreClass(r.scores.uplift)}">${fmtScore(r.scores.uplift)}</span></td>
             <td class="num"><span class="score-badge ${scoreClass(r.scores.deepPerf)}">${fmtScore(r.scores.deepPerf)}</span></td>
@@ -1435,6 +1649,40 @@ function renderLeaderboard() {
           openCellInspectionDialog(cid, 'overview');
         }
       });
+    }
+  }
+
+  // Paired Harness Head-to-Head (`pi` vs `claude-acp` / `codex-acp`)
+  const harnessH2hPanel = document.getElementById('harness-head-to-head-panel');
+  const harnessH2hTbody = document.getElementById('harness-h2h-tbody');
+  const harnessPairs = (state.data?.summary?.harnessComparison?.pairedHarnessHeadToHead || []).filter(
+    (p) => state.selectedSpec === 'all' || (p.spec || 'freeform') === state.selectedSpec
+  );
+  if (!harnessH2hPanel || harnessPairs.length === 0) {
+    harnessH2hPanel?.classList.add('hidden');
+  } else {
+    harnessH2hPanel.classList.remove('hidden');
+    harnessH2hTbody.innerHTML = harnessPairs
+      .map((p) => {
+        const deltaSign = p.deltaComposite > 0 ? `+${p.deltaComposite}` : `${p.deltaComposite}`;
+        const deltaCls = p.deltaComposite >= 2 ? 'score-good' : p.deltaComposite <= -2 ? 'score-bad' : 'score-warn';
+        return `
+          <tr>
+            <td><strong>${escapeHtml(p.modelLabel)}</strong> ${harnessBadgeHtml(p.acpHarness)} ${p.spec === 'guided' ? specBadgeHtml('guided') : ''}</td>
+            <td>${escapeHtml(p.promptTitle)}</td>
+            <td class="num"><button type="button" class="matrix-cell-btn ${scoreClass(p.piComposite)}" data-harness-h2h-cell="${escapeHtml(p.piCellId)}">${fmtScore(p.piComposite)}</button></td>
+            <td class="num"><button type="button" class="matrix-cell-btn ${scoreClass(p.acpComposite)}" data-harness-h2h-cell="${escapeHtml(p.acpCellId)}">${fmtScore(p.acpComposite)}</button></td>
+            <td class="num"><span class="score-badge ${deltaCls}">${deltaSign}</span></td>
+            <td><span class="fw-tag">${escapeHtml(p.piStack)}</span></td>
+            <td><span class="fw-tag">${escapeHtml(p.acpStack)}</span></td>
+            <td class="num mono">${fmtMs(p.piLcpMs)} / ${fmtMs(p.acpLcpMs)}</td>
+            <td class="num mono">${p.piTurns ?? '—'} / ${p.acpTurns ?? '—'}</td>
+          </tr>
+        `;
+      })
+      .join('');
+    for (const btn of harnessH2hTbody.querySelectorAll('[data-harness-h2h-cell]')) {
+      btn.addEventListener('click', () => openCellInspectionDialog(btn.dataset.harnessH2hCell, 'overview'));
     }
   }
 
@@ -1522,11 +1770,14 @@ function renderMatrix() {
 
   const catFilter = state.matrixCategory;
   const metric = state.matrixMetric;
+  const harnessFilter = state.selectedHarness;
   const modeFilter = state.selectedMode;
   const specFilter = state.selectedSpec;
   const hasGuidedAny = summary.cells.some((c) => c.spec === 'guided');
+  const hasAcpAny = summary.cells.some((c) => (c.harness || 'pi') !== 'pi');
   const filteredCells = summary.cells.filter(
     (c) =>
+      (harnessFilter === 'all' || (c.harness || 'pi') === harnessFilter) &&
       (modeFilter === 'all' || c.mode === modeFilter) &&
       (specFilter === 'all' || (c.spec || 'freeform') === specFilter)
   );
@@ -1552,6 +1803,7 @@ function renderMatrix() {
       : allCategoryPrompts;
   const models = summary.leaderboard.filter(
     (m) =>
+      (harnessFilter === 'all' || (m.harness || 'pi') === harnessFilter) &&
       (modeFilter === 'all' || m.mode === modeFilter) &&
       (specFilter === 'all' || (m.spec || 'freeform') === specFilter)
   );
@@ -1559,7 +1811,8 @@ function renderMatrix() {
   const cellLookup = new Map();
   for (const c of filteredCells) {
     const sp = c.spec || 'freeform';
-    cellLookup.set(`${c.modelKey}__${c.promptId}__${c.mode || 'oneshot'}__${sp}`, c);
+    const hr = c.harness || 'pi';
+    cellLookup.set(`${c.modelKey}__${c.promptId}__${c.mode || 'oneshot'}__${sp}__${hr}`, c);
   }
 
   const scopeBannerHtml =
@@ -1569,18 +1822,20 @@ function renderMatrix() {
          </div>`
       : '';
 
-  let html = `${scopeBannerHtml}<table class="matrix-table"><thead><tr><th>Model &amp; Track \\ Prompt</th>`;
+  let html = `${scopeBannerHtml}<table class="matrix-table"><thead><tr><th>Model &amp; Harness \\ Prompt</th>`;
   for (const p of prompts) {
-    html += `<th title="${escapeHtml(p.prompt)}">${escapeHtml(p.title)}<span class="model-cell-sub">${escapeHtml(p.categoryLabel)}</span></th>`;
+    html += `<th title="${escapeHtml(`${p.title} — Click to view reference target layout & prompt\n\n"${p.prompt}"`)}" style="cursor:pointer" data-open-pvis="${escapeHtml(p.id)}">${escapeHtml(p.title)}<span class="model-cell-sub">${escapeHtml(p.categoryLabel)} · 🖼</span></th>`;
   }
   html += `</tr></thead><tbody>`;
 
   for (const m of models) {
     const rowSpec = m.spec || 'freeform';
+    const rowHarness = m.harness || 'pi';
     const specSuffix = hasGuidedAny || rowSpec === 'guided' ? ` · ${rowSpec === 'guided' ? 'Guided' : 'Free-form'}` : '';
-    html += `<tr><td><span class="model-cell-title">${escapeHtml(m.label)}</span> <span class="model-cell-sub">${m.mode === 'agent' ? 'Agent · pi' : '1-Shot'}${escapeHtml(specSuffix)}</span></td>`;
+    const modeLabel = m.mode === 'agent' ? `Agent · ${harnessShortName(rowHarness)}` : hasAcpAny ? `1-Shot · ${harnessShortName(rowHarness)}` : '1-Shot';
+    html += `<tr><td><span class="model-cell-title">${escapeHtml(m.label)}</span> <span class="model-cell-sub">${escapeHtml(modeLabel)}${escapeHtml(specSuffix)}</span></td>`;
     for (const p of prompts) {
-      const lookupKey = `${m.modelKey}__${p.id}__${m.mode}__${rowSpec}`;
+      const lookupKey = `${m.modelKey}__${p.id}__${m.mode}__${rowSpec}__${rowHarness}`;
       const cell = cellLookup.get(lookupKey);
       if (!cell) {
         html += `<td><span class="score-badge score-na">—</span></td>`;
@@ -1588,6 +1843,11 @@ function renderMatrix() {
       }
       if (!cell.buildSucceeded) {
         html += `<td><button type="button" class="matrix-cell-btn score-bad" data-cell="${escapeHtml(cell.cellId)}">FAIL</button></td>`;
+        continue;
+      }
+      if (cell.disqualifiedByJudge && (metric === 'composite' || metric === 'judge')) {
+        const disqReason = cell.judgeVerdict?.failureCategory || 'off-topic';
+        html += `<td><button type="button" class="matrix-cell-btn matrix-cell-disq score-bad" data-cell="${escapeHtml(cell.cellId)}" data-dtab="judge" title="${escapeHtml(cell.judgeVerdict?.rationale || `Disqualified (${disqReason})`)}">DISQ (${escapeHtml(disqReason)})</button></td>`;
         continue;
       }
 
@@ -1599,6 +1859,15 @@ function renderMatrix() {
         const be = cell.techStack?.primaryBackend;
         label = be && be !== 'static-only' ? `${fw}+${be}` : fw;
         cls = be && be !== 'static-only' ? 'score-good' : fw === 'react' ? 'score-warn' : 'score-good';
+      } else if (metric === 'mwgFeatures') {
+        const cnt = cell.techStack?.modernWebAdoptionCount ?? 0;
+        label = `${cnt} feat`;
+        cls = cnt >= 5 ? 'score-good' : cnt >= 2 ? 'score-warn' : 'score-na';
+      } else if (metric === 'errorCount') {
+        const errs = cell.keyMetrics?.totalErrorCount ?? cell.consoleAudit?.totalErrorCount ?? 0;
+        label = errs === 0 ? '0 errs ✓' : `${errs} err${errs === 1 ? '' : 's'}`;
+        cls = errs === 0 ? 'score-good' : errs <= 2 ? 'score-warn' : 'score-bad';
+        targetTab = 'console';
       } else if (metric === 'lhFailures') {
         const fails = cell.keyMetrics?.lhFailedCount ?? cell.lighthouseAudits?.failedCount;
         const passes = cell.keyMetrics?.lhPassedCount ?? cell.lighthouseAudits?.passedCount;
@@ -1623,9 +1892,12 @@ function renderMatrix() {
         label = metric === 'functionalFlow' && val != null ? `${Math.round(val)}%` : fmtScore(val);
         cls = scoreClass(val);
         if (metric === 'lighthouse') targetTab = 'lighthouse';
+        if (metric === 'judge') targetTab = 'judge';
+        if (metric === 'consoleErrors') targetTab = 'console';
       }
 
-      html += `<td><button type="button" class="matrix-cell-btn ${cls}" data-cell="${escapeHtml(cell.cellId)}" data-dtab="${targetTab}">${escapeHtml(label)}</button></td>`;
+      const disqPrefix = cell.disqualifiedByJudge ? '⚠ ' : '';
+      html += `<td><button type="button" class="matrix-cell-btn ${cls} ${cell.disqualifiedByJudge ? 'matrix-cell-disq' : ''}" data-cell="${escapeHtml(cell.cellId)}" data-dtab="${targetTab}">${escapeHtml(disqPrefix + label)}</button></td>`;
     }
     html += `</tr>`;
   }
@@ -1637,6 +1909,9 @@ function renderMatrix() {
     btn.addEventListener('click', () =>
       openCellInspectionDialog(btn.dataset.cell, btn.dataset.dtab || 'overview')
     );
+  }
+  for (const th of wrap.querySelectorAll('[data-open-pvis]')) {
+    th.addEventListener('click', () => openPromptVisualizerDialog(th.dataset.openPvis));
   }
 }
 
@@ -1651,13 +1926,22 @@ function filterCellsMatchingCohort(cells, cohortKey) {
 
   return cells.filter((c) => {
     if (!c.buildSucceeded) return false;
+    if (state.selectedHarness !== 'all' && (c.harness || 'pi') !== state.selectedHarness) return false;
     if (state.selectedMode !== 'all' && c.mode !== state.selectedMode) return false;
     if (state.selectedSpec !== 'all' && (c.spec || 'freeform') !== state.selectedSpec) return false;
+    if (kind === 'harness') return (c.harness || 'pi') === val;
     if (kind === 'mode') return c.mode === val;
     if (kind === 'spec') return (c.spec || 'freeform') === val;
     if (kind === 'framework') return (c.techStack?.primaryFramework || 'vanilla') === val;
     if (kind === 'backend') return (c.techStack?.primaryBackend || 'static-only') === val;
     if (kind === 'delivery') return (c.techStack?.deliveryPattern || '') === val;
+    if (kind === 'lib') {
+      return Boolean(
+        c.techStack?.libraries?.includes(val) ||
+          (c.techStack?.detectedLibraries || []).some((l) => l.id === val)
+      );
+    }
+    if (kind === 'mwg') return Boolean(c.techStack?.modernWebFeatures?.[val]);
     return false;
   });
 }
@@ -1667,9 +1951,10 @@ function describeCohortKey(cohortKey) {
   const idx = cohortKey.indexOf(':');
   const kind = cohortKey.slice(0, idx);
   const val = cohortKey.slice(idx + 1);
+  if (kind === 'harness') return `Coding Harness Cohort: ${harnessShortName(val)} (${val})`;
   if (kind === 'mode') {
     return val === 'agent'
-      ? 'Mode Cohort: Autonomous pi Agent Loop + Real $PORT Server'
+      ? 'Mode Cohort: Autonomous Agent Loop + Real $PORT Server'
       : 'Mode Cohort: Self-Contained 1-Shot Stream';
   }
   if (kind === 'spec') {
@@ -1680,6 +1965,14 @@ function describeCohortKey(cohortKey) {
   if (kind === 'framework') return `Frontend Framework Cohort: ${val}`;
   if (kind === 'backend') return `Backend Server Cohort: ${val}`;
   if (kind === 'delivery') return `Delivery Pattern Cohort: ${val}`;
+  if (kind === 'lib') {
+    const lib = (state.data?.summary?.techObservatory?.byLibrary || []).find((l) => l.id === val);
+    return `Detected Library Cohort: ${lib ? lib.name : val}`;
+  }
+  if (kind === 'mwg') {
+    const feat = (state.data?.summary?.modernWebAdoption?.features || []).find((f) => f.id === val);
+    return `MWG 0.0.197 Feature Cohort: ${feat ? feat.label : val}`;
+  }
   return cohortKey;
 }
 
@@ -1734,28 +2027,28 @@ function renderCohortDrilldownPanel(cohorts) {
                     <div class="cohort-site-body">
                       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
                         <h4 class="cohort-site-title">${escapeHtml(c.modelLabel)} — ${escapeHtml(c.promptTitle)}</h4>
-                        <span class="score-badge ${scoreClass(c.scores.composite)}">${fmtScore(c.scores.composite)}</span>
+                        ${c.disqualifiedByJudge ? disqualifiedBadgeHtml(c) : `<span class="score-badge ${scoreClass(c.scores.composite)}">${fmtScore(c.scores.composite)}</span>`}
                       </div>
                       <div class="cohort-site-meta">
-                        ${modeBadgeHtml(c.mode)}
+                        ${modeBadgeHtml(c.mode, c.harness)}
                         ${c.spec === 'guided' ? specBadgeHtml('guided') : ''}
                         <span class="fw-tag">${escapeHtml(stackStr)}</span>
                         <span class="fw-tag">${escapeHtml(c.techStack?.primaryCss || 'css')}</span>
                         <span>${escapeHtml(c.categoryLabel)}</span>
                       </div>
                       <div class="cohort-site-kpis mono">
+                        <div>Judge: <strong>${fmtScore(c.scores.judge)}</strong></div>
                         <div>LH: <strong>${fmtScore(c.scores.lighthouse)}</strong> (${lhFail}F/${lhPass}P)</div>
                         <div>LCP: <strong>${fmtMs(c.keyMetrics.mobileLcpMs)}</strong></div>
                         <div>INP: <strong>${fmtMs(c.keyMetrics.inpMs)}</strong></div>
                         <div>TTFB: <strong>${fmtMs(c.keyMetrics.burstP95TtfbMs)}</strong></div>
-                        <div>Heap: <strong>${c.keyMetrics.baselineHeapMb ?? '—'} MB</strong></div>
-                        <div>Flow: <strong>${Math.round(c.scores.functionalFlow ?? 0)}%</strong></div>
+                        <div>MWG: <strong>${c.techStack?.modernWebAdoptionCount ?? 0} feat</strong></div>
                       </div>
                       <div class="cohort-site-actions">
                         <button type="button" class="btn btn-primary" data-cohort-cell="${escapeHtml(c.cellId)}" data-dtab="overview">Inspect Site</button>
-                        <button type="button" class="btn btn-secondary" data-cohort-cell="${escapeHtml(c.cellId)}" data-dtab="prompt">Prompt</button>
+                        <button type="button" class="btn btn-secondary" data-cohort-cell="${escapeHtml(c.cellId)}" data-dtab="judge">Judge</button>
                         ${
-                          c.mode === 'agent' || c.hasPiSession
+                          c.mode === 'agent' || c.hasPiSession || c.hasAcpSession
                             ? `<button type="button" class="btn btn-secondary" data-cohort-cell="${escapeHtml(c.cellId)}" data-dtab="transcript">Transcript</button>`
                             : ''
                         }
@@ -1799,16 +2092,24 @@ function renderTechObservatory() {
   const deliveryBarsEl = document.getElementById('tech-delivery-bars');
   const cohortTbody = document.getElementById('tech-cohort-tbody');
 
+  const mwgBodyEl = document.getElementById('mwg-adoption-body');
+  const mwgBadgeEl = document.getElementById('mwg-version-badge');
+  const libBodyEl = document.getElementById('library-detector-body');
+  const libBadgeEl = document.getElementById('library-detector-badge');
+
   if (!summary || summary.cells.length === 0) {
     modelBarsEl.innerHTML = `<p class="panel-sub">Run at least one benchmark cell to view default framework telemetry.</p>`;
     if (backendBarsEl) backendBarsEl.innerHTML = '';
     deliveryBarsEl.innerHTML = '';
+    if (libBodyEl) libBodyEl.innerHTML = `<p class="panel-sub">No built cells yet.</p>`;
+    if (mwgBodyEl) mwgBodyEl.innerHTML = '';
     cohortTbody.innerHTML = '';
     return;
   }
 
   const lbRows = summary.leaderboard.filter(
     (m) =>
+      (state.selectedHarness === 'all' || (m.harness || 'pi') === state.selectedHarness) &&
       (state.selectedMode === 'all' || m.mode === state.selectedMode) &&
       (state.selectedSpec === 'all' || (m.spec || 'freeform') === state.selectedSpec)
   );
@@ -1823,7 +2124,8 @@ function renderTechObservatory() {
       const pVue = pct('vue');
       const pSvelte = pct('svelte');
       const pOther = Math.max(0, 100 - pVanilla - pReact - pVue - pSvelte);
-      const tag = `${m.mode === 'agent' ? ' [pi' : ' [1s'}${m.spec === 'guided' ? '·G]' : ']'}`;
+      const hShort = harnessShortName(m.harness || 'pi');
+      const tag = `${m.mode === 'agent' ? ` [${hShort}` : ' [1s'}${m.spec === 'guided' ? '·G]' : ']'}`;
 
       return `
         <div class="stack-row">
@@ -1879,10 +2181,83 @@ function renderTechObservatory() {
     el.addEventListener('click', () => selectCohortAndDrillDown(el.dataset.barCohort));
   }
 
+  // Library-Detector-for-Chrome + Wappalyzer Multi-Signal Census
+  if (libBodyEl) {
+    const byLib = summary.techObservatory?.byLibrary || [];
+    const detVer = summary.environment?.libraryDetectorVersion || '2.0.0';
+    if (libBadgeEl) {
+      libBadgeEl.textContent = `Library-Detector v${detVer} · Wappalyzer (${byLib.length} libs)`;
+    }
+    if (byLib.length === 0) {
+      libBodyEl.innerHTML = `<p class="panel-sub">Zero third-party JS/CSS libraries detected across built sites (pure zero-dependency vanilla HTML/CSS/JS), or re-run <code>tech-stack</code> to populate versioned detections.</p>`;
+    } else {
+      libBodyEl.innerHTML = byLib
+        .map((lib) => {
+          const cohortKey = `lib:${lib.id}`;
+          const isSelected = state.selectedCohort === cohortKey;
+          const verStr = (lib.versions || []).length > 0 ? `v${lib.versions.join(', v')}` : '';
+          const sigStr = (lib.signals || []).join(' + ');
+          return `
+            <div class="mwg-feature-card ${isSelected ? 'selected-cohort' : ''}" data-lib-cohort="${escapeHtml(cohortKey)}" title="Click to drill down into ${lib.count} site(s) using ${escapeHtml(lib.name)}${sigStr ? ` [detected via ${sigStr}]` : ''}">
+              <div class="mwg-feature-head">
+                <strong>${escapeHtml(lib.name)}</strong>
+                <span class="score-badge ${lib.sharePct >= 20 ? 'score-good' : 'score-warn'}" style="min-width:38px;font-size:0.74rem">${lib.count} (${lib.sharePct}%)</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap">
+                <span class="mwg-cat-pill">${escapeHtml(lib.category)}</span>
+                ${verStr ? `<span class="lib-ver-pill"><span class="lib-ver-num">${escapeHtml(verStr)}</span></span>` : ''}
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+      for (const card of libBodyEl.querySelectorAll('[data-lib-cohort]')) {
+        card.addEventListener('click', () => selectCohortAndDrillDown(card.dataset.libCohort));
+      }
+    }
+  }
+
+  // Modern Web Guidance 0.0.197 Platform Feature Adoption Grid
+  if (mwgBodyEl) {
+    const mwg = summary.modernWebAdoption || {};
+    const mwgFeatures = mwg.features || [];
+    if (mwgBadgeEl) {
+      mwgBadgeEl.textContent = `MWG ${mwg.catalogVersion || '0.0.197'} · web-uplift ${mwg.webUpliftMwgVersion || '0.0.197'} (${mwg.builtCellsInspected ?? 0} builds)`;
+    }
+    if (mwgFeatures.length === 0) {
+      mwgBodyEl.innerHTML = `<p class="panel-sub">Re-run <code>tech-stack</code> audit to populate <code>modern-web-guidance@0.0.197</code> platform feature telemetry.</p>`;
+    } else {
+      mwgBodyEl.innerHTML = mwgFeatures
+        .map((f) => {
+          const cohortKey = `mwg:${f.id}`;
+          const isSelected = state.selectedCohort === cohortKey;
+          const badgeCls = f.adoptionPct >= 25 ? 'score-good' : f.count > 0 ? 'score-warn' : 'score-na';
+          return `
+            <div class="mwg-feature-card ${isSelected ? 'selected-cohort' : ''}" data-mwg-cohort="${escapeHtml(cohortKey)}" title="Click to drill down into ${f.count} site(s) adopting ${escapeHtml(f.label)}">
+              <div class="mwg-feature-head">
+                <strong>${escapeHtml(f.label)}</strong>
+                <span class="score-badge ${badgeCls}" style="min-width:38px;font-size:0.74rem">${f.count} (${f.adoptionPct}%)</span>
+              </div>
+              <span class="mwg-cat-pill">${escapeHtml(f.category)}</span>
+            </div>
+          `;
+        })
+        .join('');
+      for (const card of mwgBodyEl.querySelectorAll('[data-mwg-cohort]')) {
+        card.addEventListener('click', () => selectCohortAndDrillDown(card.dataset.mwgCohort));
+      }
+    }
+  }
+
   const cohorts = [
+    ...(summary.harnessComparison?.byHarness || []).map((r) => ({
+      cohortKey: `harness:${r.harness}`,
+      label: `Harness: ${r.harnessLabel || harnessShortName(r.harness)}`,
+      ...r,
+    })),
     ...(summary.modeComparison?.byMode || []).map((r) => ({
       cohortKey: `mode:${r.mode}`,
-      label: `Mode: ${r.mode === 'agent' ? 'Agent Loop (pi + $PORT Server)' : '1-Shot Stream'}`,
+      label: `Mode: ${r.mode === 'agent' ? 'Agent Loop ($PORT Server)' : '1-Shot Stream'}`,
       ...r,
     })),
     ...(summary.specComparison?.bySpec || []).map((r) => ({
@@ -1962,29 +2337,28 @@ function renderArenaSelectors() {
   const cells = state.data?.summary?.cells || [];
 
   const allPrompts = state.data?.prompts || [];
+  const categories = state.data?.categories || [];
   const countByPrompt = new Map();
   for (const c of cells) {
     countByPrompt.set(c.promptId, (countByPrompt.get(c.promptId) || 0) + 1);
   }
   const promptsWithCells = allPrompts.filter((p) => (countByPrompt.get(p.id) || 0) > 0);
-  const promptsWithoutCells = allPrompts.filter((p) => (countByPrompt.get(p.id) || 0) === 0);
 
   const renderPromptOption = (p) => {
     const cnt = countByPrompt.get(p.id) || 0;
+    const pilotMark = p.pilot ? ' ★' : '';
     const countSuffix =
-      cells.length > 0 ? (cnt > 0 ? ` · ${cnt} builds` : ' · not yet run') : '';
-    return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.title)} (${escapeHtml(p.categoryLabel)}${escapeHtml(countSuffix)})</option>`;
+      cells.length > 0 ? (cnt > 0 ? ` · ✓ ${cnt} builds` : ' · target ref') : '';
+    return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.title)}${pilotMark}${escapeHtml(countSuffix)}</option>`;
   };
 
-  if (promptsWithCells.length > 0 && promptsWithoutCells.length > 0) {
-    promptSel.innerHTML = [
-      `<optgroup label="Evaluated in Current Run (${promptsWithCells.length} of ${allPrompts.length})">`,
-      ...promptsWithCells.map(renderPromptOption),
-      `</optgroup>`,
-      `<optgroup label="Other Corpus Prompts — Run with prompt_scope=all (${promptsWithoutCells.length})">`,
-      ...promptsWithoutCells.map(renderPromptOption),
-      `</optgroup>`,
-    ].join('');
+  if (categories.length > 0) {
+    promptSel.innerHTML = categories
+      .map((cat) => {
+        const catPrompts = allPrompts.filter((p) => p.category === cat.id);
+        return `<optgroup label="${escapeHtml(cat.label)} (${catPrompts.length} prompts)">${catPrompts.map(renderPromptOption).join('')}</optgroup>`;
+      })
+      .join('');
   } else {
     promptSel.innerHTML = allPrompts.map(renderPromptOption).join('');
   }
@@ -2001,14 +2375,16 @@ function renderArenaSelectors() {
   const hasGuidedAny = cells.some((c) => c.spec === 'guided');
   const models = (state.data?.summary?.leaderboard || []).filter(
     (m) =>
+      (state.selectedHarness === 'all' || (m.harness || 'pi') === state.selectedHarness) &&
       (state.selectedMode === 'all' || m.mode === state.selectedMode) &&
       (state.selectedSpec === 'all' || (m.spec || 'freeform') === state.selectedSpec)
   );
   const modOptions = models
     .map((m) => {
       const sp = m.spec || 'freeform';
-      const val = `${m.modelKey}__${m.mode}__${sp}`;
-      const tag = `${m.mode === 'agent' ? 'Agent · pi' : '1-Shot'}${hasGuidedAny || sp === 'guided' ? ` · ${sp === 'guided' ? 'Guided' : 'Free-form'}` : ''}`;
+      const hr = m.harness || 'pi';
+      const val = `${m.modelKey}__${m.mode}__${sp}__${hr}`;
+      const tag = `${m.mode === 'agent' ? `Agent · ${harnessShortName(hr)}` : '1-Shot'}${hasGuidedAny || sp === 'guided' ? ` · ${sp === 'guided' ? 'Guided' : 'Free-form'}` : ''}`;
       return `<option value="${escapeHtml(val)}">${escapeHtml(m.label)} [${tag}]</option>`;
     })
     .join('');
@@ -2017,14 +2393,12 @@ function renderArenaSelectors() {
 
   const matchArenaOption = (sel, val) => {
     if (!val) return false;
-    if (Array.from(sel.options).some((o) => o.value === val)) {
-      sel.value = val;
-      return true;
-    }
-    const legacy = `${val}__freeform`;
-    if (Array.from(sel.options).some((o) => o.value === legacy)) {
-      sel.value = legacy;
-      return true;
+    const candidates = [val, `${val}__pi`, `${val}__freeform__pi`, `${val}__freeform`];
+    for (const cand of candidates) {
+      if (Array.from(sel.options).some((o) => o.value === cand)) {
+        sel.value = cand;
+        return true;
+      }
     }
     return false;
   };
@@ -2081,17 +2455,42 @@ function renderArenaComparison() {
 
   const renderPane = (rowSelector) => {
     if (!rowSelector) return '';
-    const [modelKey, mode, specRaw] = rowSelector.split('__');
+    const [modelKey, mode, specRaw, harnessRaw] = rowSelector.split('__');
     const wantSpec = specRaw === 'guided' ? 'guided' : 'freeform';
+    const wantHarness = harnessRaw || 'pi';
     const cell = cells.find(
       (c) =>
         c.modelKey === modelKey &&
         c.promptId === promptId &&
         (c.mode || 'oneshot') === (mode || 'oneshot') &&
-        (c.spec || 'freeform') === wantSpec
+        (c.spec || 'freeform') === wantSpec &&
+        (c.harness || 'pi') === wantHarness
     );
     if (!cell) {
-      return `<div class="arena-pane"><div class="panel-card"><p>No generated build yet for <code>${escapeHtml(rowSelector)}</code> on this prompt.</p></div></div>`;
+      const refImg = (promptObj?.guidedReferenceImages || promptObj?.referenceImages || [])[0];
+      return `
+        <div class="arena-pane">
+          <div class="arena-pane-header">
+            <strong>${escapeHtml(rowSelector)}</strong>
+            <span class="fw-tag">Not Yet Generated</span>
+          </div>
+          <div class="panel-card" style="border:none;border-radius:0">
+            <p style="margin-top:0">No generated build recorded yet for <code>${escapeHtml(rowSelector)}</code> on <strong>${escapeHtml(promptObj?.title || promptId)}</strong>.</p>
+            ${
+              refImg
+                ? `<div style="margin:10px 0">
+                     <p class="panel-sub" style="margin:0 0 6px">Target <code>gemini-nano-banana-2.1</code> Reference Layout (<code>${escapeHtml(refImg.path)}</code>):</p>
+                     <img src="./${escapeHtml(String(refImg.path || '').replace(/^\/+/, ''))}" alt="Target reference layout" style="width:100%;border-radius:6px;border:1px solid var(--border-subtle)" />
+                   </div>`
+                : ''
+            }
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button type="button" class="btn btn-secondary" data-arena-open-pvis="${escapeHtml(promptId)}">Open Prompt Visualizer</button>
+              <button type="button" class="btn btn-primary" data-arena-jump-run="${escapeHtml(promptId)}">Generate in Runner →</button>
+            </div>
+          </div>
+        </div>
+      `;
     }
     const isLiveStudio = !state.data?.staticMode;
     const canEmbed = canEmbedCellLivePreview(cell, null);
@@ -2102,6 +2501,12 @@ function renderArenaComparison() {
       cell.techStack?.primaryBackend && cell.techStack.primaryBackend !== 'static-only'
         ? `${cell.techStack.primaryFramework} + ${cell.techStack.primaryBackend}`
         : cell.techStack?.primaryFramework || 'vanilla';
+    const disqBannerHtml = cell.disqualifiedByJudge
+      ? `<div style="padding:8px 12px;background:var(--bad-bg);color:var(--bad-ink);border-bottom:1px solid color-mix(in srgb, var(--bad-ink) 35%, transparent);font-size:0.8rem">
+           <strong>Disqualified by On-Topic Judge (${escapeHtml(cell.judgeVerdict?.failureCategory || 'off-topic')}):</strong>
+           ${escapeHtml(cell.judgeVerdict?.rationale || 'Failed minimum relevance or feature coverage threshold — Composite Score set to 0.')}
+         </div>`
+      : '';
 
     let previewPaneBody = '';
     if (!cell.buildSucceeded) {
@@ -2126,24 +2531,26 @@ function renderArenaComparison() {
         <div class="arena-pane-header">
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             <strong>${escapeHtml(cell.modelLabel)}</strong>
-            ${modeBadgeHtml(cell.mode)}
+            ${modeBadgeHtml(cell.mode, cell.harness)}
             ${specBadgeHtml(cell.spec || 'freeform')}
             <span class="fw-tag">${escapeHtml(stackBadge)}</span>
           </div>
           <div style="display:flex;gap:6px;align-items:center">
-            <span class="score-badge ${scoreClass(cell.scores.composite)}">Score ${fmtScore(cell.scores.composite)}</span>
+            ${cell.disqualifiedByJudge ? disqualifiedBadgeHtml(cell) : `<span class="score-badge ${scoreClass(cell.scores.composite)}">Score ${fmtScore(cell.scores.composite)}</span>`}
+            <button type="button" class="btn btn-ghost arena-inspect-btn" data-cell="${escapeHtml(cell.cellId)}" data-dtab="judge">Judge</button>
             <button type="button" class="btn btn-ghost arena-inspect-btn" data-cell="${escapeHtml(cell.cellId)}" data-dtab="overview">Inspect</button>
             <button type="button" class="btn btn-ghost arena-inspect-btn" data-cell="${escapeHtml(cell.cellId)}" data-dtab="prompt">Prompt</button>
           </div>
         </div>
         <div class="arena-metrics-strip mono">
+          <span>Judge: <strong>${fmtScore(cell.scores.judge)}</strong></span>
           <span>LCP: <strong>${fmtMs(cell.keyMetrics.mobileLcpMs)}</strong></span>
           <span>INP: <strong>${fmtMs(cell.keyMetrics.inpMs)}</strong></span>
           <span>TTFB: <strong>${fmtMs(cell.keyMetrics.burstP95TtfbMs)}</strong></span>
           <span>Flow: <strong>${Math.round(cell.scores.functionalFlow || 0)}%</strong></span>
-          <span>Heap: <strong>${cell.keyMetrics.baselineHeapMb ?? '—'} MB</strong></span>
-          <span>Leaks: <strong>${cell.keyMetrics.detachedDomDelta ?? 0} DOM</strong></span>
+          <span>MWG: <strong>${cell.techStack?.modernWebAdoptionCount ?? 0} feat</strong></span>
         </div>
+        ${disqBannerHtml}
         ${previewPaneBody}
       </div>
     `;
@@ -2154,6 +2561,258 @@ function renderArenaComparison() {
     btn.addEventListener('click', () =>
       openCellInspectionDialog(btn.dataset.cell, btn.dataset.dtab || 'overview')
     );
+  }
+  for (const btn of grid.querySelectorAll('[data-arena-open-pvis]')) {
+    btn.addEventListener('click', () => openPromptVisualizerDialog(btn.dataset.arenaOpenPvis));
+  }
+  for (const btn of grid.querySelectorAll('[data-arena-jump-run]')) {
+    btn.addEventListener('click', () => jumpToRunnerWithPrompt(btn.dataset.arenaJumpRun));
+  }
+}
+
+// --- VIEW 5: PROMPT VISUALIZER & REFERENCE TARGETS --------------------------
+
+function jumpToRunnerWithPrompt(promptId) {
+  switchView('run', { push: true });
+  for (const el of document.querySelectorAll('input[name="promptId"]')) {
+    el.checked = el.value === promptId;
+  }
+  document.getElementById('runner-form')?.dispatchEvent(new Event('change'));
+}
+
+function renderPromptVisualizer() {
+  const pillsEl = document.getElementById('prompts-category-pills');
+  const gridEl = document.getElementById('prompts-gallery-grid');
+  const scopeSel = document.getElementById('prompts-scope-select');
+  const designPre = document.getElementById('prompts-design-doc-pre');
+  if (!gridEl || !pillsEl) return;
+
+  const allPrompts = state.data?.prompts || [];
+  const cats = state.data?.categories || [];
+  const cells = state.data?.summary?.cells || [];
+  if (scopeSel) scopeSel.value = state.promptsScope || 'all';
+  if (designPre && state.data?.designDoc) {
+    designPre.textContent = state.data.designDoc;
+  }
+
+  const cellsByPrompt = new Map();
+  for (const c of cells) {
+    if (!cellsByPrompt.has(c.promptId)) cellsByPrompt.set(c.promptId, []);
+    cellsByPrompt.get(c.promptId).push(c);
+  }
+
+  pillsEl.innerHTML = [
+    `<button type="button" class="cat-pill ${state.promptsCategory === 'all' ? 'active' : ''}" data-pcat="all">All 10 Categories (${allPrompts.length})</button>`,
+    ...cats.map((c) => {
+      const cnt = allPrompts.filter((p) => p.category === c.id).length;
+      return `<button type="button" class="cat-pill ${state.promptsCategory === c.id ? 'active' : ''}" data-pcat="${escapeHtml(c.id)}">${escapeHtml(c.label)} (${cnt})</button>`;
+    }),
+  ].join('');
+
+  for (const btn of pillsEl.querySelectorAll('[data-pcat]')) {
+    btn.addEventListener('click', () => {
+      state.promptsCategory = btn.dataset.pcat;
+      syncUrlFromState({ push: false });
+      renderPromptVisualizer();
+    });
+  }
+
+  const q = state.promptsSearch.trim().toLowerCase();
+  const filtered = allPrompts.filter((p) => {
+    if (state.promptsCategory !== 'all' && p.category !== state.promptsCategory) return false;
+    const pCells = cellsByPrompt.get(p.id) || [];
+    if (state.promptsScope === 'pilot' && !p.pilot) return false;
+    if (state.promptsScope === 'evaluated' && pCells.length === 0) return false;
+    if (state.promptsScope === 'auth' && !p.requiresAuth) return false;
+    if (!q) return true;
+    const seed = p.seedData || {};
+    const hay = `${p.id} ${p.title} ${p.categoryLabel} ${p.prompt} ${seed.brandName || ''} ${seed.tagline || ''}`.toLowerCase();
+    return hay.includes(q);
+  });
+
+  if (filtered.length === 0) {
+    gridEl.innerHTML = `<div class="panel-card"><p class="panel-sub" style="margin:0">No prompts match the selected category, scope, or search filter.</p></div>`;
+    return;
+  }
+
+  gridEl.innerHTML = filtered
+    .map((p) => {
+      const refImg = (p.guidedReferenceImages || p.referenceImages || [])[0];
+      const imgSrc = refImg
+        ? `./${String(refImg.path || '').replace(/^\/+/, '')}`
+        : `./assets/reference-images/${encodeURIComponent(p.id)}.jpg`;
+      const pCells = cellsByPrompt.get(p.id) || [];
+      const freeCount = pCells.filter((c) => (c.spec || 'freeform') === 'freeform').length;
+      const guidedCount = pCells.filter((c) => c.spec === 'guided').length;
+      const seed = p.seedData || null;
+      const buildBadge =
+        pCells.length > 0
+          ? `<span class="score-badge score-good">${pCells.length} build${pCells.length === 1 ? '' : 's'} (${freeCount}F/${guidedCount}G)</span>`
+          : `<span class="prompt-vis-chip">Target Ready</span>`;
+
+      return `
+        <article class="prompt-vis-card">
+          <div class="prompt-vis-img-wrap" data-pvis-open="${escapeHtml(p.id)}" title="Click to inspect full-size gemini-nano-banana-2.1 target layout & model builds">
+            <img loading="lazy" src="${escapeHtml(imgSrc)}" alt="${escapeHtml(`${p.title} reference layout`)}" />
+            <div class="prompt-vis-overlay-badges">
+              <span class="prompt-vis-chip">${escapeHtml(p.categoryLabel)}${p.pilot ? ' · ★ Pilot' : ''}${p.requiresAuth ? ' · 🔒 Auth' : ''}</span>
+              ${buildBadge}
+            </div>
+          </div>
+          <div class="prompt-vis-body">
+            <h3 class="prompt-vis-title">${escapeHtml(p.title)} <span class="mono" style="font-size:0.74rem;color:var(--ink-muted)">(${escapeHtml(p.id)})</span></h3>
+            <p class="prompt-vis-quote">“${escapeHtml(p.prompt)}”</p>
+            ${
+              seed
+                ? `<div class="prompt-vis-seed">
+                     <strong>${escapeHtml(seed.brandName || 'Canonical Seed')}:</strong> ${escapeHtml(seed.tagline || '')}
+                     ${seed.location || seed.address ? `<br/><span class="mono">${escapeHtml(seed.location || seed.address)}</span>` : ''}
+                   </div>`
+                : ''
+            }
+            <div class="prompt-vis-actions">
+              <button type="button" class="btn btn-primary" style="padding:4px 10px;font-size:0.78rem" data-pvis-open="${escapeHtml(p.id)}">Inspect Target &amp; Builds (${pCells.length})</button>
+              <button type="button" class="btn btn-secondary" style="padding:4px 10px;font-size:0.78rem" data-pvis-arena="${escapeHtml(p.id)}">Open in Arena</button>
+              <button type="button" class="btn btn-ghost" style="padding:4px 10px;font-size:0.78rem" data-pvis-run="${escapeHtml(p.id)}">Run →</button>
+            </div>
+          </div>
+        </article>
+      `;
+    })
+    .join('');
+
+  for (const el of gridEl.querySelectorAll('[data-pvis-open]')) {
+    el.addEventListener('click', () => openPromptVisualizerDialog(el.dataset.pvisOpen));
+  }
+  for (const btn of gridEl.querySelectorAll('[data-pvis-arena]')) {
+    btn.addEventListener('click', () => {
+      state.arenaPrompt = btn.dataset.pvisArena;
+      renderArenaSelectors();
+      switchView('arena', { push: true });
+    });
+  }
+  for (const btn of gridEl.querySelectorAll('[data-pvis-run]')) {
+    btn.addEventListener('click', () => jumpToRunnerWithPrompt(btn.dataset.pvisRun));
+  }
+}
+
+function openPromptVisualizerDialog(promptId, { fromRouter = false } = {}) {
+  if (!promptId) return;
+  const dialog = document.getElementById('prompt-visualizer-dialog');
+  const body = document.getElementById('prompt-vis-dialog-body');
+  const titleEl = document.getElementById('prompt-vis-dialog-title');
+  const eyebrowEl = document.getElementById('prompt-vis-dialog-eyebrow');
+  if (!dialog || !body) return;
+
+  const p = (state.data?.prompts || []).find((x) => x.id === promptId);
+  if (!p) return;
+
+  state.inspectedPromptId = promptId;
+  if (!fromRouter) syncUrlFromState({ push: true });
+  if (!dialog.open) dialog.showModal();
+
+  eyebrowEl.textContent = `${p.categoryLabel} · ${p.id}${p.pilot ? ' · ★ Pilot Prompt' : ''}${p.requiresAuth ? ' · 🔒 Requires Auth' : ''}`;
+  titleEl.textContent = p.title;
+
+  const refImg = (p.guidedReferenceImages || p.referenceImages || [])[0];
+  const imgSrc = refImg
+    ? `./${String(refImg.path || '').replace(/^\/+/, '')}`
+    : `./assets/reference-images/${encodeURIComponent(p.id)}.jpg`;
+  const matchingCells = (state.data?.summary?.cells || [])
+    .filter((c) => c.promptId === p.id)
+    .sort((a, b) => (b.scores?.composite ?? 0) - (a.scores?.composite ?? 0));
+
+  body.innerHTML = `
+    <div class="detail-grid-2">
+      <div>
+        <h3 style="margin-top:0">Target <code>gemini-nano-banana-2.1</code> Reference Layout (1440×900)</h3>
+        <div class="panel-card" style="padding:8px">
+          <a href="${escapeHtml(imgSrc)}" target="_blank" rel="noopener" title="Open full-resolution reference image in new tab">
+            <img src="${escapeHtml(imgSrc)}" alt="${escapeHtml(p.title)} reference layout" style="width:100%;display:block;border-radius:6px" />
+          </a>
+          <p class="panel-sub" style="margin:8px 4px 2px">
+            <strong>Guided Attachment:</strong> <code>${escapeHtml(refImg?.path || `assets/reference-images/${p.id}.jpg`)}</code> — ${escapeHtml(refImg?.label || 'Proposed desktop layout reference')}
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <h3 style="margin-top:0">Verbatim Zero-Bias Prompt</h3>
+        <div class="prompt-verbatim-box">${escapeHtml(p.prompt)}</div>
+
+        <h3 class="mt-lg">Canonical User Journey Steps (${(p.canonicalJourney || []).length})</h3>
+        <div class="journey-step-list">
+          ${(p.canonicalJourney || [])
+            .map(
+              (s, i) => `
+              <div class="journey-step-item">
+                <span><strong>Step ${i + 1}:</strong> ${escapeHtml(s.label)}</span>
+                <span class="mono">${escapeHtml(s.action)}</span>
+              </div>
+            `
+            )
+            .join('')}
+        </div>
+
+        ${
+          p.seedData
+            ? `<details style="margin-top:14px" open>
+                 <summary style="cursor:pointer;font-weight:600;font-size:0.88rem">Canonical Domain Seed Data (<code>prompts/seed-data.json</code>)</summary>
+                 <pre class="code-viewer" style="max-height:220px;margin-top:8px;white-space:pre-wrap">${escapeHtml(JSON.stringify(p.seedData, null, 2))}</pre>
+               </details>`
+            : ''
+        }
+      </div>
+    </div>
+
+    <div class="mt-lg">
+      <h3>Generated Model Builds Against This Prompt (${matchingCells.length})</h3>
+      ${
+        matchingCells.length === 0
+          ? `<div class="panel-card"><p class="panel-sub" style="margin:0">No model builds recorded yet for <code>${escapeHtml(p.id)}</code>. Click <strong>Run This Prompt</strong> above to generate both Free-form and Guided builds.</p></div>`
+          : `<div class="cohort-sites-grid">
+               ${matchingCells
+                 .map((c) => {
+                   const thumbHtml = c.hasDesktopScreenshot
+                     ? `<img class="cohort-site-thumb" loading="lazy" src="./artifacts/${encodeURIComponent(c.cellId)}/screenshots/desktop.png" alt="${escapeHtml(c.modelLabel)} build screenshot" />`
+                     : '';
+                   return `
+                     <div class="cohort-site-card">
+                       ${thumbHtml}
+                       <div class="cohort-site-body">
+                         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+                           <h4 class="cohort-site-title">${escapeHtml(c.modelLabel)}</h4>
+                           ${c.disqualifiedByJudge ? disqualifiedBadgeHtml(c) : `<span class="score-badge ${scoreClass(c.scores.composite)}">${fmtScore(c.scores.composite)}</span>`}
+                         </div>
+                         <div class="cohort-site-meta">
+                           ${modeBadgeHtml(c.mode, c.harness)}
+                           ${specBadgeHtml(c.spec || 'freeform')}
+                           <span class="fw-tag">${escapeHtml(c.techStack?.primaryFramework || 'vanilla')}</span>
+                         </div>
+                         <div class="cohort-site-kpis mono">
+                           <div>Judge: <strong>${fmtScore(c.scores.judge)}</strong></div>
+                           <div>Console: <strong>${fmtScore(c.scores.consoleErrors)}</strong></div>
+                           <div>LCP: <strong>${fmtMs(c.keyMetrics.mobileLcpMs)}</strong></div>
+                           <div>INP: <strong>${fmtMs(c.keyMetrics.inpMs)}</strong></div>
+                         </div>
+                         <div class="cohort-site-actions">
+                           <button type="button" class="btn btn-primary" data-pvis-cell="${escapeHtml(c.cellId)}">Inspect Build →</button>
+                         </div>
+                       </div>
+                     </div>
+                   `;
+                 })
+                 .join('')}
+             </div>`
+      }
+    </div>
+  `;
+
+  for (const btn of body.querySelectorAll('[data-pvis-cell]')) {
+    btn.addEventListener('click', () => {
+      dialog.close();
+      openCellInspectionDialog(btn.dataset.pvisCell, 'overview');
+    });
   }
 }
 
@@ -2166,9 +2825,12 @@ function renderMethodology() {
   const cr = cfg.cleanRoomEnvironment || {};
   const gen = cfg.generation || {};
   const browser = cfg.browser || {};
+  const judgeCfg = cfg.judge || {};
   const piVersion = state.data?.piVersion || '0.85.1';
+  const mwgVersion = state.data?.modernWebCatalogVersion || state.data?.summary?.modernWebAdoption?.catalogVersion || '0.0.197';
   const piRuntime = state.data?.piRuntime || state.data?.summary?.environment || {};
   const bridges = state.data?.providerBridges || state.data?.summary?.environment?.providerBridges || [];
+  const harnesses = state.data?.harnesses || state.data?.summary?.environment?.harnesses || [];
   const canary = state.data?.summary?.canary || null;
   const nodeVersion = state.data?.nodeVersion || 'v22+';
   const piSourceLabel = piRuntime.source || piRuntime.piSource || 'local-npm-runtime';
@@ -2177,88 +2839,125 @@ function renderMethodology() {
   el.innerHTML = `
     <div class="methodology-grid">
       <article class="panel-card">
-        <h3>1. Strict Clean-Room <code>pi</code> Harness Isolation</h3>
-        <p class="panel-sub">Every model is evaluated inside an empty temporary workspace with <strong>zero skills, zero extensions, zero prompt templates, zero themes, and zero project/global context files</strong> so results reflect raw model priors rather than agent plugins.</p>
+        <h3>1. Clean-Room <code>pi</code> &amp; Agent Client Protocol (ACP v1) Harnesses</h3>
+        <p class="panel-sub">Compare raw model priors in the zero-plugin <code>pi</code> clean-room against native vendor agents driven over <strong>ACP v1 JSON-RPC 2.0 stdio</strong> (<code>@zed-industries/claude-code-acp</code> and <code>@zed-industries/codex-acp</code>) inside isolated per-cell sandboxes.</p>
         <div class="table-surface">
-          <table class="data-table">
+          <table class="data-table lh-wrap-table">
+            <thead>
+              <tr>
+                <th>Harness</th>
+                <th>Protocol</th>
+                <th>Status &amp; Isolation Contract</th>
+              </tr>
+            </thead>
             <tbody>
-              <tr><td><strong>Harness Runtime</strong></td><td class="mono">pi CLI ${escapeHtml(piVersion)} (${escapeHtml(piSourceLabel)}) · Node ${escapeHtml(nodeVersion)}</td></tr>
-              <tr><td><strong>Skills Loaded</strong></td><td><span class="score-badge score-good">0 (<code>--no-skills</code>)</span></td></tr>
-              <tr><td><strong>Ambient Extensions / Plugins</strong></td><td><span class="score-badge score-good">0 (<code>--no-extensions</code>)</span></td></tr>
-              <tr><td><strong>Subprocess Secret Scrubbing</strong></td><td><span class="score-badge score-good">Active (0 LLM keys in <code>$PORT</code> servers)</span></td></tr>
-              <tr><td><strong>Prompt Templates &amp; Themes</strong></td><td><span class="score-badge score-good">0 (<code>--no-prompt-templates --no-themes</code>)</span></td></tr>
-              <tr><td><strong>Context Files (AGENTS.md / CLAUDE.md)</strong></td><td><span class="score-badge score-good">0 (<code>--no-context-files</code>)</span></td></tr>
-              <tr><td><strong>MCP Servers</strong></td><td><span class="score-badge score-good">0</span></td></tr>
-              <tr><td><strong>Agent Loop Allowed Tools</strong></td><td class="mono">${escapeHtml((cr.agentAllowedTools || ['read', 'bash', 'edit', 'write']).join(', '))}</td></tr>
-              <tr><td><strong>1-Shot Allowed Tools</strong></td><td class="mono">None (<code>--no-tools</code> / pure <code>pi-ai</code> stream)</td></tr>
+              ${
+                harnesses.length > 0
+                  ? harnesses
+                      .map((h) => {
+                        const isReady = Boolean(h.available ?? h.installed);
+                        const pill = isReady
+                          ? `<span class="score-badge score-good">READY${h.version ? ` (${escapeHtml(h.version)})` : ''}</span>`
+                          : `<span class="fw-tag">OPTIONAL (<code>npm run setup:vm -- --with-acp</code>)</span>`;
+                        return `
+                          <tr>
+                            <td>${harnessBadgeHtml(h.id)}</td>
+                            <td class="mono">${escapeHtml(h.protocol || 'acp')}</td>
+                            <td class="col-wrap">${pill} <span class="model-cell-sub">${escapeHtml(h.description || h.packageName || h.package || '')}</span></td>
+                          </tr>
+                        `;
+                      })
+                      .join('')
+                  : `<tr><td>${harnessBadgeHtml('pi')}</td><td class="mono">pi-cli (${escapeHtml(piVersion)})</td><td><span class="score-badge score-good">0 skills · 0 extensions · 0 context files</span></td></tr>`
+              }
             </tbody>
           </table>
         </div>
-        <p class="panel-sub" style="margin-top:12px;margin-bottom:4px"><strong>Exact CLI Invocation Flags (Agent Mode):</strong></p>
-        <pre class="code-viewer" style="max-height:110px">pi -p -a ${(cr.piIsolationFlags || ['--no-skills', '--no-extensions', '--no-prompt-templates', '--no-themes', '--no-context-files', '--tools read,bash,edit,write']).join(' ')} --thinking ${escapeHtml(gen.thinkingLevel || 'low')} --session &lt;cell&gt;/pi-session.jsonl &lt;prompt&gt;</pre>
+        <div class="table-surface" style="margin-top:10px">
+          <table class="data-table">
+            <tbody>
+              <tr><td><strong>Default Clean-Room Runtime</strong></td><td class="mono">pi CLI ${escapeHtml(piVersion)} (${escapeHtml(piSourceLabel)}) · Node ${escapeHtml(nodeVersion)}</td></tr>
+              <tr><td><strong>Skills / Extensions / Context Files</strong></td><td><span class="score-badge score-good">0 (<code>--no-skills --no-extensions --no-context-files</code>)</span></td></tr>
+              <tr><td><strong>Subprocess Secret Scrubbing</strong></td><td><span class="score-badge score-good">Active (0 LLM keys in <code>$PORT</code> servers)</span></td></tr>
+              <tr><td><strong>ACP v1 Capabilities Bridged</strong></td><td class="mono">initialize · session/new · session/prompt · fs/* · terminal/*</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="panel-sub" style="margin-top:12px;margin-bottom:4px"><strong>CLI Invocation Examples (Clean-Room <code>pi</code> + ACP Harnesses):</strong></p>
+        <pre class="code-viewer" style="max-height:115px"># Clean-room pi vs Claude Code ACP vs OpenAI Codex ACP:
+node bin/bench.mjs --pilot --harness=pi,claude-acp,codex-acp --mode=agent</pre>
       </article>
 
       <article class="panel-card">
-        <h3>2. Two-Track × Two-Spec Architecture (Free-form vs. Guided)</h3>
+        <h3>2. On-Topic &amp; Functional Judge Gate (<code>prompt-judge</code>)</h3>
+        <p class="panel-sub">Prevents empty shells, crashed JS bundles, unedited Vite/Next/CRA starter boilerplates, or off-topic stubs from earning artificially fast CWV or tiny-heap scores.</p>
+        <div class="form-stack">
+          <div class="turn-card">
+            <div class="turn-card-header">
+              <strong>Layer A — Deterministic Rendered DOM &amp; Seed-Anchor Gate</strong>
+              <span class="score-badge score-good">Zero API Keys Needed</span>
+            </div>
+            <p style="margin:0;font-size:0.84rem;color:var(--ink-secondary)">
+              Inspects post-hydration rendered text, headings, landmarks, interactive controls, runtime exceptions, starter-template signatures, prompt domain token overlap, and <code>guided</code> seed-data anchors (brand, phone, address, starter items).
+            </p>
+          </div>
+          <div class="turn-card">
+            <div class="turn-card-header">
+              <strong>Layer B — Multimodal Vision + DOM LLM Judge &amp; Hard Gate</strong>
+              <span class="score-badge score-mid">20% Composite Weight + Hard Gate</span>
+            </div>
+            <p style="margin:0;font-size:0.84rem;color:var(--ink-secondary)">
+              Evaluates captured desktop/mobile screenshots + rendered DOM excerpt against every prompt requirement (min on-topic ≥ ${judgeCfg.minOnTopicScore ?? 50}, min feature coverage ≥ ${judgeCfg.minFeatureCoverageScore ?? 30}). Disqualified builds receive <strong>Composite = 0</strong> and are excluded from model averages. In split CI, runs post-audit via <code>--judge-only</code> after all untrusted <code>$PORT</code> servers are terminated.
+            </p>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel-card">
+        <h3>3. <code>modern-web-guidance@${escapeHtml(mwgVersion)}</code> &amp; <code>web-uplift</code> Checks</h3>
+        <p class="panel-sub">Synced with the latest 194-guide <code>modern-web-guidance@${escapeHtml(mwgVersion)}</code> catalog and 11 raw-CDP <code>web-uplift</code> evidence primitives.</p>
+        <ul style="font-size:0.84rem;line-height:1.6;color:var(--ink-secondary);padding-left:18px;margin-top:4px">
+          <li><strong>35 Modern Web Platform Feature Checks:</strong> Tracks Baseline &amp; newly-shipped web capabilities including <code>&lt;dialog closedby&gt;</code>, Popover API, Invoker Commands (<code>commandfor</code>), CSS Anchor Positioning, View Transitions &amp; Scoped Element Transitions, Scroll-Driven Animations &amp; <code>container-type: scroll-state</code>, HTML-in-Canvas (<code>&lt;canvas content="drawable"&gt;</code>), WebMCP, Speculation Rules, <code>Temporal</code>, <code>Origin.from()</code>, and Subresource Integrity.</li>
+          <li><strong>11 Raw-CDP <code>web-uplift</code> Evidence Primitives:</strong> <code>discoverability</code>, <code>layout</code>, <code>axe</code>, <code>targets</code>, <code>console</code>, <code>features</code>, <code>headers</code>, <code>images</code>, <code>secrets</code>, <code>a11ytree</code>, and offline <code>resilience</code>.</li>
+        </ul>
+      </article>
+
+      <article class="panel-card">
+        <h3>4. Two-Track × Two-Spec Architecture &amp; Guided Multimodal Assets</h3>
         <p class="panel-sub">Comparing unconstrained model priors (<code>freeform</code>) against structurally controlled apples-to-apples layouts (<code>guided</code>).</p>
         <div class="form-stack">
           <div class="turn-card">
             <div class="turn-card-header">
-              <strong>Track A / B — Agent Loop (<code>pi</code> + <code>$PORT</code>) vs. 1-Shot Stream</strong>
+              <strong>Track A / B — Agent Loop (<code>$PORT</code>) vs. 1-Shot Stream</strong>
               <div>${modeBadgeHtml('agent')} ${modeBadgeHtml('oneshot')}</div>
             </div>
             <p style="margin:0;font-size:0.84rem;color:var(--ink-secondary)">
-              ${escapeHtml(cr.modeDesignRationale?.agent || 'Agent mode runs multi-turn with read/bash/edit/write tools and a real HTTP server bound to $PORT (plus an auto-captured static preview mirror for GitHub Pages); 1-Shot emits one self-contained HTML document.')}
+              ${escapeHtml(cr.modeDesignRationale?.agent || 'Agent mode runs multi-turn with workspace tools and a real HTTP server bound to $PORT (plus an auto-captured static preview mirror for GitHub Pages); 1-Shot emits one self-contained HTML document.')}
             </p>
           </div>
           <div class="turn-card">
             <div class="turn-card-header">
-              <strong>Spec 1 vs. Spec 2 — Free-form Open Prompt vs. Guided Reference Spec</strong>
+              <strong>Free-form vs. Guided (<code>gemini-nano-banana-2.1</code> + <code>seed-data.json</code> + <code>design.md</code>)</strong>
               <div>${specBadgeHtml('freeform')} ${specBadgeHtml('guided')}</div>
             </div>
             <p style="margin:0;font-size:0.84rem;color:var(--ink-secondary)">
-              <strong>Free-form (<code>--spec=freeform</code>):</strong> Dispatches only the natural 1-sentence prompt to observe raw visual &amp; architectural defaults.<br/>
-              <strong>Guided (<code>--spec=guided</code>):</strong> Attaches a 1440×900 <code>gemini-nano-banana-2.1</code> proposed layout image + canonical company/domain seed data (<code>prompts/seed-data.json</code>) + stack-neutral <code>prompts/design.md</code> so CWV, INP, and memory comparisons hold visual complexity and content volume constant.
+              <strong>Guided (<code>--spec=guided</code>):</strong> Attaches a 1440×900 <code>gemini-nano-banana-2.1</code> proposed layout image + canonical company/domain seed data + stack-neutral <code>prompts/design.md</code>. Every word passes <code>npm run validate</code> with zero framework or speed hints.
             </p>
           </div>
         </div>
-      </article>
-
-      <article class="panel-card">
-        <h3>3. Guided Multimodal Assets: <code>gemini-nano-banana-2.1</code> + <code>seed-data.json</code> + <code>design.md</code></h3>
-        <p class="panel-sub">Controlling for layout density and content payload across all 37 prompts with zero framework or speed steering.</p>
-        <ul style="font-size:0.84rem;line-height:1.6;color:var(--ink-secondary);padding-left:18px;margin-top:4px">
-          <li><strong>37 Proposed Layout Images:</strong> Pre-generated with <code>models/gemini-nano-banana-2.1</code> under <code>assets/reference-images/&lt;promptId&gt;.jpg</code> and attached multimodally in <code>guided</code> runs.</li>
-          <li><strong>Canonical Company &amp; Domain Seed Data:</strong> Consistent brand name, street address, phone, email, hours, palette tokens, and starter records per prompt so models render identical text/card density.</li>
-          <li><strong>Zero-Bias Validation:</strong> Every word of <code>prompts/index.json</code>, <code>prompts/design.md</code>, and <code>prompts/seed-data.json</code> passes <code>npm run validate</code> with zero framework, Lighthouse, or CWV hints.</li>
-        </ul>
-        <p class="panel-sub" style="margin-bottom:4px"><strong>Verbatim Visual Reference Instruction (Guided Mode):</strong></p>
-        <div class="prompt-verbatim-box">${escapeHtml(gen.visualReferenceInstruction || '')}</div>
         ${
           designDoc
             ? `<details style="margin-top:8px">
                  <summary style="cursor:pointer;font-weight:600;font-size:0.85rem">View Verbatim <code>prompts/design.md</code> Specification</summary>
-                 <pre class="code-viewer" style="max-height:220px;margin-top:8px;white-space:pre-wrap">${escapeHtml(designDoc)}</pre>
+                 <pre class="code-viewer" style="max-height:180px;margin-top:8px;white-space:pre-wrap">${escapeHtml(designDoc)}</pre>
                </details>`
             : ''
         }
       </article>
 
       <article class="panel-card">
-        <h3>4. Verbatim System Contracts &amp; Audit Conditions</h3>
-        <p class="panel-sub">Every word sent to every model is audited by <code>npm run validate</code> to guarantee zero mentions of React, Vanilla, Tailwind, speed, Lighthouse, or memory.</p>
-        <p class="panel-sub" style="margin-bottom:4px"><strong>1-Shot System Prompt:</strong></p>
-        <div class="prompt-verbatim-box">${escapeHtml(gen.neutralSystemPrompt || '')}</div>
-        <p class="panel-sub" style="margin-bottom:4px"><strong>Agent Mode Workspace Deployment Contract:</strong></p>
-        <pre class="code-viewer" style="max-height:165px">${escapeHtml(gen.agentWorkspaceContract || '')}</pre>
-        <p class="mono" style="font-size:0.78rem;color:var(--ink-secondary);margin-top:10px;margin-bottom:0">
-          Mobile CWV/INP Emulation: ${browser.viewportMobile?.width || 390}×${browser.viewportMobile?.height || 844} · ${browser.mobileThrottle?.cpuSlowdownMultiplier || 4}× CPU slowdown · ${browser.mobileThrottle?.latencyMs || 150}ms RTT · ${browser.mobileThrottle?.downloadThroughputKbps || 1638.4} Kbps down · Isolated ephemeral preview origin per cell · ${cfg.memory?.leakLoopIterations || 10}× do/undo MemLab heap cycles.
-        </p>
-      </article>
-
-      <article class="panel-card">
-        <h3>5. Portable npm <code>pi</code> Bootstrap &amp; Clean-Room Provider Bridges</h3>
-        <p class="panel-sub">Run identically on fresh cloud VMs, containers, or CI runners without pre-installing global <code>pi</code> — while bridging transport to Claude, Codex, Antigravity, or Muse without leaking capability skills.</p>
+        <h3>5. Portable VM Bootstrap, Direct API Keys &amp; Native ACP Harnesses</h3>
+        <p class="panel-sub">Clean-room <code>pi</code> auto-bridges direct API keys (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>GEMINI_API_KEY</code>, <code>KIMI_API_KEY</code>, <code>MUSE_API_KEY</code>, <code>DEEPSEEK_API_KEY</code>, <code>GROK_API_KEY</code>) via an isolated <code>0600</code> <code>PI_CODING_AGENT_DIR</code> — while native vendor agents (<code>claude-acp</code>, <code>codex-acp</code>) run side-by-side over ACP v1.</p>
         <div class="table-surface">
           <table class="data-table lh-wrap-table">
             <thead>
@@ -2275,14 +2974,16 @@ function renderMethodology() {
                       .map((b) => {
                         const pill = b.installed
                           ? `<span class="score-badge score-good">INSTALLED (${escapeHtml(b.version || 'local')})</span>`
-                          : b.builtInAuthSupported
-                            ? `<span class="score-badge score-mid">BUILT-IN AUTH</span>`
-                            : `<span class="fw-tag">OPTIONAL</span>`;
+                          : b.directAuthReady
+                            ? `<span class="score-badge score-good">DIRECT ENV READY</span>`
+                            : b.builtInAuthSupported
+                              ? `<span class="score-badge score-warn">BUILT-IN READY</span>`
+                              : `<span class="fw-tag">OPTIONAL</span>`;
                         return `
                           <tr>
                             <td class="mono"><strong>${escapeHtml(b.id)}</strong></td>
                             <td class="mono">${escapeHtml((b.providers || []).join(', '))}</td>
-                            <td class="col-wrap">${pill} <span class="model-cell-sub">${escapeHtml(b.source || '')}</span></td>
+                            <td class="col-wrap">${pill} <span class="model-cell-sub">${escapeHtml(b.source || (b.directEnvVars || []).join(' / '))}</span></td>
                           </tr>
                         `;
                       })
@@ -2292,17 +2993,13 @@ function renderMethodology() {
             </tbody>
           </table>
         </div>
-        <p class="panel-sub" style="margin-top:12px;margin-bottom:4px"><strong>Portable VM &amp; Bridge Commands:</strong></p>
-        <pre class="code-viewer" style="max-height:115px"># Bootstrap portable .pi-runtime + pinned Chrome for Testing on any VM:
-npm run setup:vm -- --with-chrome
-
-# Regenerate 37 layout reference mockups via gemini-nano-banana-2.1:
-npm run generate:refs</pre>
+        <pre class="code-viewer" style="max-height:115px;margin-top:10px"># Bootstrap portable .pi-runtime + ACP adapters + Chrome for Testing:
+npm run setup:vm -- --with-chrome --with-acp</pre>
       </article>
 
       <article class="panel-card">
-        <h3>6. Split CI / GitHub Actions Architecture &amp; Host Canary Calibration</h3>
-        <p class="panel-sub">Separating CPU-light parallel LLM generation from airgapped, single-concurrency Chrome CWV/INP/MemLab auditing with median-of-N variance control.</p>
+        <h3>6. Split Zero-Secret CI Architecture &amp; Host Canary Calibration</h3>
+        <p class="panel-sub">Separating parallel LLM generation, airgapped zero-secret Chrome CWV/MemLab auditing, and post-server multimodal judging.</p>
         ${
           canary
             ? `<div class="table-surface" style="margin-bottom:12px">
@@ -2317,11 +3014,12 @@ npm run generate:refs</pre>
               </div>`
             : `<p class="panel-sub">Run <code>npm run canary</code> or an audit pass to record host hardware calibration.</p>`
         }
-        <pre class="code-viewer" style="max-height:115px"># Stage 1 (Free-form + Guided side-by-side generation, zero Chrome):
-npm run bench:generate -- --pilot --mode=agent --spec=both
-
-# Stage 2 (Dedicated runner, ZERO LLM secrets, Canary + Static Pages Mirror):
-npm run bench:audit -- --pilot --spec=both --audit-runs=3</pre>
+        <pre class="code-viewer" style="max-height:125px"># Stage 1: Generate (pi / claude-acp / codex-acp, zero Chrome)
+npm run bench:generate -- --pilot --harness=pi --mode=agent --spec=both
+# Stage 2a: Audit CWV/INP/MemLab + deterministic judge (ZERO LLM secrets)
+npm run bench:audit -- --pilot --spec=both --skip-judge
+# Stage 2b: Post-server Multimodal LLM Judge (0 untrusted servers running)
+npm run bench:judge -- --pilot --spec=both</pre>
       </article>
     </div>
   `;
@@ -2367,8 +3065,8 @@ function renderRunnerControls() {
               .map(
                 (p) => `
                 <label class="check-item" for="chk-prompt-${escapeHtml(p.id)}" title="${escapeHtml(p.prompt)}">
-                  <input type="checkbox" id="chk-prompt-${escapeHtml(p.id)}" name="promptId" value="${escapeHtml(p.id)}" ${p.pilot ? 'checked' : ''} />
-                  <span>${escapeHtml(p.title)}${p.requiresAuth ? ' 🔒' : ''}${(p.guidedReferenceImages || p.referenceImages || []).length ? ' 🖼' : ''}</span>
+                  <input type="checkbox" id="chk-prompt-${escapeHtml(p.id)}" name="promptId" value="${escapeHtml(p.id)}" checked />
+                  <span>${escapeHtml(p.title)}${p.pilot ? ' ★' : ''}${p.requiresAuth ? ' 🔒' : ''}${(p.guidedReferenceImages || p.referenceImages || []).length ? ' 🖼' : ''}</span>
                 </label>
               `
               )
@@ -2395,13 +3093,16 @@ function renderRunnerControls() {
     const mCount = document.querySelectorAll('input[name="modelKey"]:checked').length;
     const pCount = document.querySelectorAll('input[name="promptId"]:checked').length;
     const bCount = document.querySelectorAll('input[name="benchmarkId"]:checked').length;
+    const harnessVal = document.getElementById('opt-harness-mode')?.value || 'pi';
     const modeVal = document.getElementById('opt-gen-mode')?.value || 'agent';
     const specVal = document.getElementById('opt-spec-mode')?.value || 'freeform';
+    const harnessMult = harnessVal === 'all' ? 3 : harnessVal === 'acp' ? 2 : 1;
     const modeMult = modeVal === 'both' ? 2 : 1;
     const specMult = specVal === 'both' ? 2 : 1;
+    const harnessDesc = harnessVal === 'all' ? ' × 3 harnesses' : harnessVal === 'acp' ? ' × 2 ACP harnesses' : ` [${harnessVal}]`;
     const modeDesc = modeVal === 'both' ? ' × 2 leads' : ` (${modeVal})`;
-    const specDesc = specVal === 'both' ? ' × 2 specs (freeform+guided)' : ` [${specVal}]`;
-    document.getElementById('run-scope-estimate').textContent = `${mCount} models × ${pCount} prompts${modeDesc}${specDesc} = ${mCount * pCount * modeMult * specMult} cells (${bCount} pillars)`;
+    const specDesc = specVal === 'both' ? ' × 2 specs' : ` [${specVal}]`;
+    document.getElementById('run-scope-estimate').textContent = `${mCount} models × ${pCount} prompts${harnessDesc}${modeDesc}${specDesc} = ${mCount * pCount * harnessMult * modeMult * specMult} cells (${bCount} pillars)`;
   };
 
   const form = document.getElementById('runner-form');
@@ -2472,7 +3173,7 @@ async function launchSelectiveRun(payload) {
   };
 }
 
-// --- CELL DEEP-DIVE DIALOG (5 SUB-TABS) -------------------------------------
+// --- CELL DEEP-DIVE DIALOG (6 SUB-TABS) -------------------------------------
 
 function renderDialogSubtabs(detail, summaryCell) {
   const tabsNav = document.getElementById('cell-dialog-tabs');
@@ -2481,7 +3182,20 @@ function renderDialogSubtabs(detail, summaryCell) {
   const cellId = detail.cellId;
   const cellMode =
     detail.generation?.mode === 'agent' || cellId.includes('__agent') ? 'agent' : 'oneshot';
+  const cellHarness = detail.generation?.harness || summaryCell?.harness || 'pi';
+  const pj = detail.benchmarks?.['prompt-judge'];
+  const judgePassed = pj ? pj.passedGate !== false : summaryCell?.judgePassed !== false;
+  const judgeScore = pj?.overall ?? pj?.scores?.overall ?? summaryCell?.scores?.judge;
+  const judgeTag = pj || summaryCell?.judgeVerdict
+    ? judgePassed
+      ? `PASS${judgeScore != null ? ` · ${fmtScore(judgeScore)}` : ''}`
+      : 'DISQ'
+    : 'Pending';
+
   const lhu = detail.benchmarks?.['lighthouse-uplift']?.lighthouse?.mobile;
+  const ce = detail.benchmarks?.['console-errors'];
+  const ceErrCount =
+    ce?.totalErrorCount ?? summaryCell?.consoleAudit?.totalErrorCount ?? summaryCell?.keyMetrics?.totalErrorCount ?? 0;
   const failCount = lhu?.auditCounts?.failed ?? (lhu?.failingAudits || []).length;
   const passCount = lhu?.auditCounts?.passed ?? (lhu?.passedAudits || []).length;
   const turnCount = detail.transcriptTimeline?.turnCount ?? detail.trajectory?.turnCount ?? null;
@@ -2489,19 +3203,21 @@ function renderDialogSubtabs(detail, summaryCell) {
 
   const tabs = [
     { id: 'overview', label: '1. Live Preview & Telemetry' },
-    { id: 'prompt', label: '2. Exact Prompt & Clean-Room Env' },
+    { id: 'judge', label: `2. On-Topic Judge (${judgeTag})` },
+    { id: 'console', label: `3. Console & Network (${ceErrCount === 0 ? '0 errs ✓' : `${ceErrCount} errs`})` },
+    { id: 'prompt', label: '4. Exact Prompt & Env' },
     {
       id: 'transcript',
       label:
         cellMode === 'agent'
-          ? `3. Agent Transcript (${turnCount != null ? `${turnCount} turns` : 'pi'})`
-          : '3. Raw 1-Shot Output',
+          ? `5. ${cellHarness} Transcript (${turnCount != null ? `${turnCount} turns` : 'agent'})`
+          : '5. Raw 1-Shot Output',
     },
     {
       id: 'lighthouse',
-      label: lhu ? `4. Lighthouse Audits (${failCount} fail · ${passCount} pass)` : '4. Lighthouse Audits',
+      label: lhu ? `6. Lighthouse (${failCount}F · ${passCount}P)` : '6. Lighthouse Audits',
     },
-    { id: 'source', label: `5. Source Files (${fileCount})` },
+    { id: 'source', label: `7. Source Files (${fileCount})` },
   ];
 
   tabsNav.innerHTML = tabs
@@ -2519,6 +3235,142 @@ function renderDialogSubtabs(detail, summaryCell) {
       renderInspectedCellDialogTab();
     });
   }
+}
+
+function renderCellJudgeTab(detail, summaryCell) {
+  const body = document.getElementById('cell-dialog-body');
+  const pj = detail.benchmarks?.['prompt-judge'];
+  const jv = summaryCell?.judgeVerdict || null;
+
+  if (!pj && !jv) {
+    body.innerHTML = `
+      <div class="panel-card">
+        <h3 style="margin-top:0">On-Topic &amp; Functional Judge Not Recorded Yet</h3>
+        <p class="panel-sub" style="margin-bottom:0">
+          Run <code>node bin/bench.mjs --judge-only</code> (or re-audit this cell) to evaluate rendered DOM fidelity, starter-boilerplate rejection, and multimodal prompt feature coverage.
+        </p>
+      </div>
+    `;
+    return;
+  }
+
+  const passed = pj ? pj.passedGate !== false : summaryCell?.judgePassed !== false;
+  const scores = pj?.scores || jv?.scores || jv || {};
+  const overallJudgeScore = pj?.overall ?? scores.overall ?? jv?.overall ?? summaryCell?.scores?.judge;
+  const failureCategory = pj?.failureCategory || jv?.failureCategory || null;
+  const evalMode = pj?.evaluationMode || jv?.evaluationMode || 'deterministic';
+  const judgeModel = pj?.judgeModel || pj?.llmJudge?.judgeModel || jv?.judgeModel || null;
+  const rationale = pj?.rationale || jv?.rationale || '';
+  const verified = pj?.verifiedFeatures || jv?.verifiedFeatures || [];
+  const missing = pj?.missingRequirements || jv?.missingRequirements || [];
+  const kwStats = pj?.domainKeywordStats || pj?.deterministic?.domainKeywordStats || null;
+  const seedAnchors = pj?.guidedSeedSummary || pj?.deterministic?.guidedSeedSummary || null;
+  const ev = pj?.evidence || null;
+
+  body.innerHTML = `
+    <div class="judge-verdict-banner ${passed ? 'verdict-pass' : 'verdict-fail'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <div>
+          <span class="score-badge ${passed ? 'score-good' : 'score-bad'}" style="font-size:0.84rem">
+            ${passed ? '✓ PASSED ON-TOPIC GATE' : `✗ DISQUALIFIED (${escapeHtml(failureCategory || 'off-topic')})`}
+          </span>
+          <strong style="margin-left:8px;font-size:0.95rem">
+            Overall Judge Score: ${fmtScore(overallJudgeScore)} / 100
+          </strong>
+        </div>
+        <div class="mono" style="font-size:0.78rem;color:var(--ink-secondary)">
+          Mode: <strong>${escapeHtml(evalMode)}</strong>${judgeModel ? ` · Judge Model: <strong>${escapeHtml(judgeModel)}</strong>` : ''}
+        </div>
+      </div>
+      ${rationale ? `<p style="margin:8px 0 0;font-size:0.88rem;line-height:1.5">${escapeHtml(rationale)}</p>` : ''}
+    </div>
+
+    <div class="gauge-row">
+      <div class="mini-gauge"><div class="val">${fmtScore(overallJudgeScore)}</div><div class="lbl">Overall Judge</div></div>
+      <div class="mini-gauge"><div class="val">${fmtScore(scores.onTopic ?? scores.onTopicScore)}</div><div class="lbl">On-Topic Match</div></div>
+      <div class="mini-gauge"><div class="val">${fmtScore(scores.featureCoverage ?? scores.featureCoverageScore)}</div><div class="lbl">Feature Coverage</div></div>
+      <div class="mini-gauge"><div class="val">${fmtScore(scores.functionalReadiness)}</div><div class="lbl">Interactive Readiness</div></div>
+      <div class="mini-gauge"><div class="val">${fmtScore(scores.visualCoherence)}</div><div class="lbl">Visual Coherence</div></div>
+      ${scores.guidedFidelity != null ? `<div class="mini-gauge"><div class="val">${fmtScore(scores.guidedFidelity)}</div><div class="lbl">Guided Seed Fidelity</div></div>` : ''}
+    </div>
+
+    <div class="detail-grid-2">
+      <div>
+        <h3>Verified Prompt Features (${verified.length})</h3>
+        <div class="panel-card">
+          ${
+            verified.length > 0
+              ? `<ul style="margin:0;padding-left:18px;font-size:0.84rem;line-height:1.6">
+                  ${verified.map((f) => `<li>✓ ${escapeHtml(f)}</li>`).join('')}
+                 </ul>`
+              : `<p class="panel-sub" style="margin:0">No verified feature list recorded.</p>`
+          }
+        </div>
+
+        <h3 class="mt-lg">Missing / Incomplete Requirements (${missing.length})</h3>
+        <div class="panel-card">
+          ${
+            missing.length > 0
+              ? `<ul style="margin:0;padding-left:18px;font-size:0.84rem;line-height:1.6;color:var(--ink-secondary)">
+                  ${missing.map((m) => `<li>⚠ ${escapeHtml(m)}</li>`).join('')}
+                 </ul>`
+              : `<p class="panel-sub" style="margin:0">None flagged — all core prompt requirements appear present.</p>`
+          }
+        </div>
+
+        ${
+          seedAnchors && (seedAnchors.totalAnchors || 0) > 0
+            ? `<h3 class="mt-lg">Guided Seed-Data Anchor Verification (${seedAnchors.matchedCount}/${seedAnchors.totalAnchors} · ${seedAnchors.seedMatchPct}%)</h3>
+               <div class="panel-card">
+                 <div class="mwg-feature-grid">
+                   ${(seedAnchors.matchedAnchors || []).map((a) => `<span class="score-badge score-good">✓ ${escapeHtml(a)}</span>`).join('')}
+                   ${(seedAnchors.missingAnchors || []).map((a) => `<span class="score-badge score-warn">○ ${escapeHtml(a)}</span>`).join('')}
+                 </div>
+               </div>`
+            : ''
+        }
+      </div>
+
+      <div>
+        <h3>Domain Lexical &amp; Runtime Sanity Telemetry</h3>
+        <div class="panel-card">
+          ${
+            kwStats
+              ? `<p class="mono" style="margin:0;font-size:0.8rem">
+                   Domain Terms Matched in Rendered DOM: <strong>${(kwStats.renderedMatches || []).length} / ${kwStats.totalKeywords ?? 0}</strong><br/>
+                   Matched Terms: <strong>${escapeHtml((kwStats.renderedMatches || []).join(', ') || 'none')}</strong>
+                   ${(kwStats.sourceOnlyMatches || []).length ? `<br/>Source-Only Terms: <strong>${escapeHtml(kwStats.sourceOnlyMatches.join(', '))}</strong>` : ''}
+                 </p>`
+              : `<p class="panel-sub" style="margin:0">Summary-only judge record loaded.</p>`
+          }
+        </div>
+
+        ${
+          ev
+            ? `<h3 class="mt-lg">Rendered Post-Hydration DOM Snapshot</h3>
+               <div class="panel-card">
+                 <p class="mono" style="margin:0;font-size:0.8rem">
+                   Title: <strong>${escapeHtml(ev.pageTitle || '(empty)')}</strong><br/>
+                   Visible Words: <strong>${ev.visibleWordCount ?? 0}</strong> ·
+                   Interactive Elements: <strong>${ev.interactiveCount ?? 0}</strong> ·
+                   Forms/Dialogs: <strong>${(ev.landmarks?.formCount || 0) + (ev.landmarks?.dialogCount || 0)}</strong> ·
+                   Page Exceptions: <strong>${ev.pageExceptionCount ?? 0}</strong><br/>
+                   Headings: <strong>${escapeHtml((ev.headings || []).slice(0, 6).map((h) => h.text || h).join(' | ') || 'none')}</strong>
+                 </p>
+                 ${
+                   ev.visibleTextExcerpt
+                     ? `<details style="margin-top:8px">
+                          <summary style="cursor:pointer;font-size:0.8rem;font-weight:600">Rendered Text Excerpt</summary>
+                          <pre class="code-viewer" style="max-height:170px;margin-top:6px;white-space:pre-wrap">${escapeHtml(ev.visibleTextExcerpt)}</pre>
+                        </details>`
+                     : ''
+                 }
+               </div>`
+            : ''
+        }
+      </div>
+    </div>
+  `;
 }
 
 function renderCellOverviewTab(detail, summaryCell) {
@@ -2545,7 +3397,10 @@ function renderCellOverviewTab(detail, summaryCell) {
   const mem = detail.benchmarks?.memory;
   const lhu = detail.benchmarks?.['lighthouse-uplift'];
   const tech = detail.benchmarks?.['tech-stack'];
+  const pj = detail.benchmarks?.['prompt-judge'];
   const traj = detail.trajectory;
+  const cellHarness = detail.generation?.harness || summaryCell?.harness || 'pi';
+  const disq = Boolean(summaryCell?.disqualifiedByJudge || (pj && pj.passedGate === false));
 
   const inpB = dp?.journey?.inpBreakdown;
   const inpTotal = Math.max(1, inpB?.duration || 1);
@@ -2554,6 +3409,8 @@ function renderCellOverviewTab(detail, summaryCell) {
   const pPres = Math.max(0, 100 - pDelay - pProc);
 
   const outcomes = lhu?.uplift?.outcomes || {};
+  const primHighlights = lhu?.uplift?.primitiveHighlights || null;
+  const mwgFeatures = tech?.staticAnalysis?.modernWebFeatureList || tech?.staticAnalysis?.modernCssFeatures || [];
   const habits = traj?.engineeringHabits || {};
   const habitBadges = traj
     ? [
@@ -2592,8 +3449,25 @@ function renderCellOverviewTab(detail, summaryCell) {
   const showViewModePills = detail.materialization?.ok && (canEmbedLive ? hasDesktopShot || hasMobileShot : hasDesktopShot && hasMobileShot);
 
   body.innerHTML = `
+    ${
+      disq
+        ? `<div class="judge-verdict-banner verdict-fail" style="margin-bottom:14px">
+             <strong>✗ Disqualified by On-Topic &amp; Functional Judge (${escapeHtml(pj?.failureCategory || summaryCell?.judgeVerdict?.failureCategory || 'off-topic')}) — Composite forced to 0:</strong>
+             ${escapeHtml(pj?.rationale || summaryCell?.judgeVerdict?.rationale || 'Build did not satisfy prompt domain or interactivity gate.')}
+             <button type="button" class="btn btn-secondary" data-jump-dtab="judge" style="margin-left:8px;padding:3px 9px;font-size:0.76rem">Inspect Judge Evidence →</button>
+           </div>`
+        : ''
+    }
     <div class="gauge-row">
-      <div class="mini-gauge"><div class="val">${fmtScore(summaryCell?.scores?.composite)}</div><div class="lbl">Composite</div></div>
+      <div class="mini-gauge"><div class="val">${disq ? '0 (DISQ)' : fmtScore(summaryCell?.scores?.composite)}</div><div class="lbl">Composite</div></div>
+      <div class="mini-gauge" style="cursor:pointer" data-jump-dtab="judge" title="View On-Topic & Feature Coverage Judge">
+        <div class="val">${fmtScore(pj?.overall ?? pj?.scores?.overall ?? summaryCell?.scores?.judge)}</div>
+        <div class="lbl">Judge (${disq ? 'DISQ' : 'PASS'})</div>
+      </div>
+      <div class="mini-gauge" style="cursor:pointer" data-jump-dtab="console" title="View Console, JS Exception & Network Error Audit">
+        <div class="val">${fmtScore(detail.benchmarks?.['console-errors']?.score ?? summaryCell?.scores?.consoleErrors)}</div>
+        <div class="lbl">Console (${detail.benchmarks?.['console-errors']?.totalErrorCount ?? summaryCell?.keyMetrics?.totalErrorCount ?? 0} errs)</div>
+      </div>
       <div class="mini-gauge" style="cursor:pointer" data-jump-dtab="lighthouse" title="View Lighthouse Pass/Fail Audits">
         <div class="val">${fmtScore(summaryCell?.scores?.lighthouse)}</div>
         <div class="lbl">Lighthouse (${lhFails}F/${lhPasses}P)</div>
@@ -2601,7 +3475,6 @@ function renderCellOverviewTab(detail, summaryCell) {
       <div class="mini-gauge"><div class="val">${fmtScore(summaryCell?.scores?.uplift)}</div><div class="lbl">web-uplift</div></div>
       <div class="mini-gauge"><div class="val">${fmtMs(dp?.mobileLoad?.vitals?.lcpMs)}</div><div class="lbl">Mobile LCP (Slow-4G)</div></div>
       <div class="mini-gauge"><div class="val">${fmtMs(dp?.journey?.inpMs)}</div><div class="lbl">W3C INP (4× CPU)</div></div>
-      <div class="mini-gauge"><div class="val">${fmtMs(srv?.burstP95TtfbMs ?? srv?.singleTtfbMs)}</div><div class="lbl">Burst P95 TTFB</div></div>
       <div class="mini-gauge"><div class="val">${summaryCell?.keyMetrics?.baselineHeapMb ?? '—'} MB</div><div class="lbl">Client Heap</div></div>
       <div class="mini-gauge"><div class="val">${mem?.interactionLeakTest?.snapshotDiff?.detachedDomDelta ?? 0}</div><div class="lbl">Detached DOM Δ</div></div>
     </div>
@@ -2627,15 +3500,22 @@ function renderCellOverviewTab(detail, summaryCell) {
           ${previewFrameHtml}
         </div>
 
-        <h3 class="mt-lg">Default Full-Stack &amp; Server Telemetry</h3>
+        <h3 class="mt-lg">Default Full-Stack &amp; <code>modern-web-guidance</code> Telemetry</h3>
         <div class="panel-card">
           <p class="mono" style="margin:0;font-size:0.81rem">
+            Harness: ${harnessBadgeHtml(cellHarness)} ·
             Frontend: <strong>${escapeHtml(tech?.primaryFramework || 'n/a')}</strong> ·
             Backend: <strong>${escapeHtml(tech?.primaryBackend || 'static-only')}</strong> ·
             CSS: <strong>${escapeHtml(tech?.primaryCss || 'n/a')}</strong><br/>
             Persistence: <strong>${escapeHtml((tech?.staticAnalysis?.persistenceApis || []).join(', ') || 'none')}</strong> ·
             Delivery: <strong>${escapeHtml(tech?.deliveryPattern || 'n/a')}</strong> ·
-            Unused JS: <strong>${dp?.mobileLoad?.coverage?.unusedJsPct ?? '—'}%</strong>
+            Unused JS: <strong>${dp?.mobileLoad?.coverage?.unusedJsPct ?? '—'}%</strong><br/>
+            Detected Libraries (${(tech?.detectedLibraries || summaryCell?.techStack?.detectedLibraries || []).length}): <strong>${escapeHtml(
+              (tech?.detectedLibraries || summaryCell?.techStack?.detectedLibraries || [])
+                .map((l) => `${l.name || l.id}${l.version ? ` v${l.version}` : ''}`)
+                .join(', ') || 'zero-dependency vanilla'
+            )}</strong><br/>
+            MWG 0.0.197 Features (${mwgFeatures.length}): <strong>${escapeHtml(mwgFeatures.map((f) => (typeof f === 'string' ? f : f.label || f.id)).join(', ') || 'none detected')}</strong>
             ${
               (dp?.mobileLoad?.network?.brokenCriticalSubresourceCount || 0) > 0
                 ? `<br/><span class="score-bad" style="display:inline-block;padding:2px 6px;border-radius:4px;margin-top:4px">⚠ Missing Critical Subresources (${dp.mobileLoad.network.brokenCriticalSubresourceCount}): ${escapeHtml(
@@ -2661,7 +3541,7 @@ function renderCellOverviewTab(detail, summaryCell) {
         <div class="panel-card mt-lg">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
             <span><strong>Exact Prompt Summary</strong> ${specBadgeHtml(detail.exactPrompt?.spec || detail.generation?.spec || 'freeform')}</span>
-            <button type="button" class="btn btn-secondary" data-jump-dtab="prompt" style="padding:4px 10px;font-size:0.78rem">View Full Prompt &amp; Clean-Room Spec →</button>
+            <button type="button" class="btn btn-secondary" data-jump-dtab="prompt" style="padding:4px 10px;font-size:0.78rem">View Full Prompt &amp; Harness Spec →</button>
           </div>
           <p style="margin:8px 0 0;font-size:0.86rem;color:var(--ink-secondary)">“${escapeHtml(detail.exactPrompt?.userPrompt || detail.promptEntry?.prompt || '')}”</p>
         </div>
@@ -2670,7 +3550,7 @@ function renderCellOverviewTab(detail, summaryCell) {
       <div>
         ${
           traj
-            ? `<h3>Autonomous <code>pi</code> Agent Trajectory</h3>
+            ? `<h3>Autonomous Agent Trajectory ${harnessBadgeHtml(cellHarness)}</h3>
                <div class="panel-card" style="margin-bottom:18px">
                  <p class="mono" style="margin:0;font-size:0.81rem">
                    Turns: <strong>${traj.turnCount}</strong> ·
@@ -2686,13 +3566,15 @@ function renderCellOverviewTab(detail, summaryCell) {
                  </p>
                  <div class="habit-row">${habitBadges}</div>
                  <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-                   <button type="button" class="btn btn-primary" data-jump-dtab="transcript">Open Turn-by-Turn Transcript Viewer →</button>
-                   <button type="button" class="btn btn-secondary" data-jump-dtab="lighthouse">Lighthouse Audits (${lhFails} fail / ${lhPasses} pass)</button>
+                   <button type="button" class="btn btn-primary" data-jump-dtab="transcript">Open Turn-by-Turn Transcript →</button>
+                   <button type="button" class="btn btn-secondary" data-jump-dtab="judge">On-Topic Judge</button>
+                   <button type="button" class="btn btn-secondary" data-jump-dtab="lighthouse">Lighthouse (${lhFails}F/${lhPasses}P)</button>
                  </div>
                </div>`
             : `<div class="panel-card" style="margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-                 <span style="font-size:0.85rem"><strong>1-Shot Stream Run</strong> · Clean-Room (0 tools, 0 skills)</span>
+                 <span style="font-size:0.85rem"><strong>1-Shot Stream Run</strong> ${harnessBadgeHtml(cellHarness)} · Clean-Room (0 tools, 0 skills)</span>
                  <div style="display:flex;gap:6px">
+                   <button type="button" class="btn btn-secondary" data-jump-dtab="judge">Judge</button>
                    <button type="button" class="btn btn-secondary" data-jump-dtab="lighthouse">Lighthouse (${lhFails}F/${lhPasses}P)</button>
                    <button type="button" class="btn btn-secondary" data-jump-dtab="source">View Source</button>
                  </div>
@@ -2728,7 +3610,7 @@ function renderCellOverviewTab(detail, summaryCell) {
             .join('')}
         </div>
 
-        <h3 class="mt-lg">web-uplift 6 Owner Outcomes</h3>
+        <h3 class="mt-lg">web-uplift 6 Owner Outcomes &amp; 11 Raw-CDP Primitives</h3>
         <div class="gauge-row">
           ${Object.entries(outcomes)
             .map(
@@ -2741,6 +3623,21 @@ function renderCellOverviewTab(detail, summaryCell) {
             )
             .join('')}
         </div>
+        ${
+          primHighlights
+            ? `<div class="panel-card" style="margin-bottom:10px">
+                 <p class="mono" style="margin:0;font-size:0.79rem">
+                   Axe Violations: <strong>${lhu?.uplift?.axeViolationCount ?? 0}</strong> ·
+                   Undersized Targets: <strong>${lhu?.uplift?.undersizedTargetCount ?? 0}</strong> ·
+                   Unsized Images: <strong>${primHighlights.imageHygiene?.missingDimensions ?? 0}</strong> ·
+                   Missing Alt: <strong>${primHighlights.imageHygiene?.missingAlt ?? 0}</strong><br/>
+                   Exposed Secrets: <strong>${primHighlights.securityAndSecrets?.exposedSecretCount ?? 0}</strong> ·
+                   Focus Stops w/o Indicator: <strong>${primHighlights.focusAndA11yTree?.stopsWithoutVisibleIndicator ?? 0}</strong> ·
+                   Service Worker: <strong>${primHighlights.resilience?.serviceWorkerRegistered ? 'Yes' : 'No'}</strong>
+                 </p>
+               </div>`
+            : ''
+        }
         ${
           summaryCell?.hasUpliftScorecard
             ? `<p><a class="btn btn-secondary" href="./artifacts/${encodeURIComponent(cellId)}/uplift/scorecard.html" target="_blank" rel="noopener">Open Full web-uplift Scorecard ↗</a></p>`
@@ -2844,15 +3741,16 @@ function renderCellPromptTab(detail) {
       </div>
 
       <div>
-        <h3>Clean-Room Harness &amp; Execution Environment</h3>
+        <h3>Clean-Room &amp; ACP Harness Execution Environment</h3>
         <div class="panel-card">
           <div class="table-surface">
             <table class="data-table">
               <tbody>
+                <tr><td><strong>Coding Harness</strong></td><td>${harnessBadgeHtml(gen.harness || env.harness || 'pi')} <span class="mono" style="font-size:0.76rem;color:var(--ink-secondary)">${escapeHtml(env.protocol || 'pi-cli')}</span></td></tr>
                 <tr><td><strong>Execution Track</strong></td><td>${modeBadgeHtml(ep.mode === 'agent' ? 'agent' : 'oneshot')}</td></tr>
                 <tr><td><strong>Prompt Spec Mode</strong></td><td>${specBadgeHtml(cellSpec)}</td></tr>
                 <tr><td><strong>Provider / Model ID</strong></td><td class="mono">${escapeHtml(gen.provider || '—')} / ${escapeHtml(gen.modelId || '—')}</td></tr>
-                <tr><td><strong>pi Harness Version</strong></td><td class="mono">${escapeHtml(env.piVersion || state.data?.piVersion || '—')}</td></tr>
+                <tr><td><strong>Harness Version</strong></td><td class="mono">${escapeHtml(env.harnessVersion || env.piVersion || state.data?.piVersion || '—')}</td></tr>
                 <tr><td><strong>Skills Loaded</strong></td><td><span class="score-badge score-good">${env.skillsLoaded ?? 0}</span></td></tr>
                 <tr><td><strong>Extensions Loaded</strong></td><td><span class="score-badge score-good">${env.extensionsLoaded ?? 0}</span></td></tr>
                 <tr><td><strong>Prompt Templates / Themes</strong></td><td><span class="score-badge score-good">${env.promptTemplatesLoaded ?? 0} / ${env.themesLoaded ?? 0}</span></td></tr>
@@ -3318,13 +4216,140 @@ function renderCellSourceTab(detail) {
   }
 }
 
+function renderCellConsoleTab(detail, summaryCell) {
+  const body = document.getElementById('cell-dialog-body');
+  const ce = detail.benchmarks?.['console-errors'];
+  const techRt = detail.benchmarks?.['tech-stack']?.runtime || {};
+  const ca = summaryCell?.consoleAudit || null;
+
+  const score = ce?.score ?? ca?.score ?? summaryCell?.scores?.consoleErrors ?? 100;
+  const counts = ce?.counts || ca?.counts || {
+    pageExceptionCount: techRt.pageExceptionCount || 0,
+    consoleErrorCount: techRt.consoleErrorCount || 0,
+    consoleWarningCount: 0,
+    browserLogErrorCount: 0,
+    httpErrorCount: 0,
+    criticalHttpErrorCount: 0,
+    failedRequestCount: 0,
+    loadErrorCount: (techRt.pageExceptionCount || 0) + (techRt.consoleErrorCount || 0),
+    journeyErrorCount: 0,
+  };
+  const totalErrs = ce?.totalErrorCount ?? ca?.totalErrorCount ?? 0;
+  const pageExceptions =
+    ce?.pageExceptions ||
+    (techRt.pageExceptions || []).map((text) => ({ phase: 'load', text }));
+  const consoleErrors =
+    ce?.consoleErrors ||
+    (techRt.consoleErrors || []).map((text) => ({ phase: 'load', text }));
+  const consoleWarnings = ce?.consoleWarnings || [];
+  const browserLogErrors = ce?.browserLogErrors || [];
+  const httpErrors = ce?.httpErrors || [];
+  const failedRequests = ce?.failedRequests || [];
+
+  const renderLogList = (items, cls, fmtFn, emptyMsg) =>
+    items.length === 0
+      ? `<p class="panel-sub" style="margin:0">${escapeHtml(emptyMsg)}</p>`
+      : `<div class="console-log-list">${items
+          .map((it) => `<div class="console-log-entry ${cls}">${fmtFn(it)}</div>`)
+          .join('')}</div>`;
+
+  body.innerHTML = `
+    <div class="judge-verdict-banner ${totalErrs === 0 ? 'verdict-pass' : 'verdict-fail'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <div>
+          <span class="score-badge ${scoreClass(score)}" style="font-size:0.84rem">
+            ${totalErrs === 0 ? '✓ ZERO CONSOLE & NETWORK ERRORS' : `${totalErrs} ERROR${totalErrs === 1 ? '' : 'S'} RECORDED`}
+          </span>
+          <strong style="margin-left:8px;font-size:0.95rem">
+            Console &amp; Network Hygiene Score: ${fmtScore(score)} / 100
+          </strong>
+        </div>
+        <span class="mono" style="font-size:0.78rem;color:var(--ink-secondary)">
+          Load Errors: <strong>${counts.loadErrorCount ?? 0}</strong> · Journey Errors: <strong>${counts.journeyErrorCount ?? 0}</strong>${!ce ? ' · (legacy tech-stack snapshot)' : ''}
+        </span>
+      </div>
+    </div>
+
+    <div class="gauge-row">
+      <div class="mini-gauge"><div class="val">${counts.pageExceptionCount ?? 0}</div><div class="lbl">Uncaught Exceptions</div></div>
+      <div class="mini-gauge"><div class="val">${counts.consoleErrorCount ?? 0}</div><div class="lbl">console.error()</div></div>
+      <div class="mini-gauge"><div class="val">${counts.httpErrorCount ?? 0}</div><div class="lbl">HTTP 4xx / 5xx</div></div>
+      <div class="mini-gauge"><div class="val">${counts.failedRequestCount ?? 0}</div><div class="lbl">Network Failed</div></div>
+      <div class="mini-gauge"><div class="val">${counts.browserLogErrorCount ?? 0}</div><div class="lbl">Browser / CORS / CSP</div></div>
+      <div class="mini-gauge"><div class="val">${counts.consoleWarningCount ?? 0}</div><div class="lbl">console.warn()</div></div>
+    </div>
+
+    <div class="detail-grid-2">
+      <div>
+        <h3>Uncaught JS Exceptions &amp; Rejections (${pageExceptions.length})</h3>
+        <div class="panel-card">
+          ${renderLogList(
+            pageExceptions,
+            'err',
+            (e) =>
+              `<strong>[${escapeHtml(e.phase || 'load')}]</strong> ${escapeHtml(e.text)}${e.url ? `<br/><span style="color:var(--ink-muted)">${escapeHtml(e.url)}${e.lineNumber != null ? `:${e.lineNumber}` : ''}</span>` : ''}`,
+            '✓ Zero uncaught runtime exceptions or unhandled promise rejections.'
+          )}
+        </div>
+
+        <h3 class="mt-lg"><code>console.error()</code> &amp; Browser Security Logs (${consoleErrors.length + browserLogErrors.length})</h3>
+        <div class="panel-card">
+          ${renderLogList(
+            [...consoleErrors, ...browserLogErrors],
+            'err',
+            (e) =>
+              `<strong>[${escapeHtml(e.phase || 'load')}${e.source ? ` · ${escapeHtml(e.source)}` : ''}]</strong> ${escapeHtml(e.text)}${e.url ? `<br/><span style="color:var(--ink-muted)">${escapeHtml(e.url)}${e.lineNumber != null ? `:${e.lineNumber}` : ''}</span>` : ''}`,
+            '✓ Zero console.error() or browser security/CORS/CSP log errors.'
+          )}
+        </div>
+      </div>
+
+      <div>
+        <h3>HTTP 4xx / 5xx &amp; Failed Network Requests (${httpErrors.length + failedRequests.length})</h3>
+        <div class="panel-card">
+          ${renderLogList(
+            [
+              ...httpErrors.map((h) => ({
+                ...h,
+                kind: 'http',
+              })),
+              ...failedRequests.map((f) => ({
+                ...f,
+                kind: 'net',
+              })),
+            ],
+            'err',
+            (r) =>
+              r.kind === 'http'
+                ? `<strong>[${escapeHtml(r.phase || 'load')} · HTTP ${r.status}${r.benignFavicon ? ' favicon' : ''}]</strong> ${escapeHtml(r.method || 'GET')} ${escapeHtml(r.resourceType || '')} — ${escapeHtml(r.url)}`
+                : `<strong>[${escapeHtml(r.phase || 'load')} · NET FAIL]</strong> ${escapeHtml(r.errorText)} — ${escapeHtml(r.url)}`,
+            '✓ Zero HTTP 4xx/5xx responses or failed network requests across load & journey.'
+          )}
+        </div>
+
+        <h3 class="mt-lg"><code>console.warn()</code> Entries (${consoleWarnings.length})</h3>
+        <div class="panel-card">
+          ${renderLogList(
+            consoleWarnings,
+            'warn',
+            (w) => `<strong>[${escapeHtml(w.phase || 'load')}]</strong> ${escapeHtml(w.text)}`,
+            'Zero console.warn() messages recorded.'
+          )}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderInspectedCellDialogTab() {
   const detail = state.inspectedCell;
   if (!detail) return;
   const summaryCell = (state.data?.summary?.cells || []).find((c) => c.cellId === detail.cellId);
   renderDialogSubtabs(detail, summaryCell);
 
-  if (state.dialogTab === 'prompt') renderCellPromptTab(detail);
+  if (state.dialogTab === 'judge') renderCellJudgeTab(detail, summaryCell);
+  else if (state.dialogTab === 'console') renderCellConsoleTab(detail, summaryCell);
+  else if (state.dialogTab === 'prompt') renderCellPromptTab(detail);
   else if (state.dialogTab === 'transcript') renderCellTranscriptTab(detail);
   else if (state.dialogTab === 'lighthouse') renderCellLighthouseTab(detail);
   else if (state.dialogTab === 'source') renderCellSourceTab(detail);
@@ -3363,10 +4388,11 @@ async function openCellInspectionDialog(cellId, initialTab = 'overview', { fromR
   state.inspectedCell = detail;
 
   const summaryCell = (state.data?.summary?.cells || []).find((c) => c.cellId === cellId);
+  const cellHarness = detail.generation?.harness || summaryCell?.harness || 'pi';
   const cellMode =
     detail.generation?.mode === 'agent' || cellId.includes('__agent') ? 'agent' : 'oneshot';
   const cellSpec = detail.generation?.spec || (cellId.endsWith('__guided') ? 'guided' : 'freeform');
-  const modeLabel = cellMode === 'agent' ? 'Agent Loop (pi + $PORT Server)' : '1-Shot Stream';
+  const modeLabel = cellMode === 'agent' ? `Agent Loop (${cellHarness} + $PORT Server)` : `1-Shot Stream (${cellHarness})`;
   const specLabel = cellSpec === 'guided' ? 'Guided Spec' : 'Free-form Spec';
   eyebrowEl.textContent = `${modeLabel} · ${specLabel} · ${detail.promptEntry?.categoryLabel || ''} · ${detail.generation?.provider}/${detail.generation?.modelId}`;
   titleEl.textContent = `${summaryCell?.modelLabel || detail.generation?.modelKey} — ${detail.promptEntry?.title || detail.generation?.promptId}`;
@@ -3462,6 +4488,7 @@ function renderAll() {
   renderMatrix();
   renderTechObservatory();
   renderArenaSelectors();
+  renderPromptVisualizer();
   renderMethodology();
   renderRunnerControls();
   updateNavTabHrefs();
@@ -3498,6 +4525,7 @@ async function init() {
       e.preventDefault();
       state.inspectedCellId = null;
       state.inspectedLhAuditId = null;
+      state.inspectedPromptId = null;
       switchView(link.dataset.view, { push: true });
     });
   }
@@ -3530,8 +4558,52 @@ async function init() {
       syncUrlFromState({ push: false });
     }
   });
+  document.getElementById('prompt-visualizer-dialog')?.addEventListener('close', () => {
+    if (state.inspectedPromptId) {
+      state.inspectedPromptId = null;
+      syncUrlFromState({ push: false });
+    }
+  });
+  document.getElementById('prompt-vis-open-arena-btn')?.addEventListener('click', () => {
+    const pid = state.inspectedPromptId;
+    document.getElementById('prompt-visualizer-dialog')?.close();
+    if (pid) {
+      state.arenaPrompt = pid;
+      renderArenaSelectors();
+      switchView('arena', { push: true });
+    }
+  });
+  document.getElementById('prompt-vis-run-btn')?.addEventListener('click', () => {
+    const pid = state.inspectedPromptId;
+    document.getElementById('prompt-visualizer-dialog')?.close();
+    if (pid) jumpToRunnerWithPrompt(pid);
+  });
+  document.getElementById('prompts-scope-select')?.addEventListener('change', (e) => {
+    state.promptsScope = e.target.value;
+    syncUrlFromState({ push: false });
+    renderPromptVisualizer();
+  });
+  document.getElementById('prompts-search-input')?.addEventListener('input', (e) => {
+    state.promptsSearch = e.target.value;
+    renderPromptVisualizer();
+  });
+  document.getElementById('toggle-design-doc-btn')?.addEventListener('click', () => {
+    document.getElementById('prompts-design-doc-panel')?.classList.toggle('hidden');
+  });
+  document.getElementById('close-design-doc-btn')?.addEventListener('click', () => {
+    document.getElementById('prompts-design-doc-panel')?.classList.add('hidden');
+  });
 
-  // Global Mode + Spec + Matrix + Lighthouse Corpus controls
+  // Global Harness + Mode + Spec + Matrix + Lighthouse Corpus controls
+  document.getElementById('global-harness-select')?.addEventListener('change', (e) => {
+    state.selectedHarness = e.target.value;
+    syncUrlFromState({ push: false });
+    renderLeaderboard();
+    renderMatrix();
+    renderTechObservatory();
+    renderArenaSelectors();
+  });
+
   document.getElementById('global-mode-select').addEventListener('change', (e) => {
     state.selectedMode = e.target.value;
     syncUrlFromState({ push: false });
@@ -3552,6 +4624,11 @@ async function init() {
 
   document.getElementById('lh-split-select')?.addEventListener('change', (e) => {
     state.lhSplitBy = e.target.value;
+    syncUrlFromState({ push: false });
+    renderCorpusLighthouseBreakdown();
+  });
+  document.getElementById('lh-harness-select')?.addEventListener('change', (e) => {
+    state.lhHarnessFilter = e.target.value;
     syncUrlFromState({ push: false });
     renderCorpusLighthouseBreakdown();
   });
@@ -3601,20 +4678,31 @@ async function init() {
   }
 
   // Weight sliders
-  const weightInputs = ['lighthouse', 'uplift', 'deepPerf', 'memory', 'functionalFlow'];
+  const weightInputs = ['judge', 'lighthouse', 'uplift', 'deepPerf', 'consoleErrors', 'memory', 'functionalFlow'];
   for (const key of weightInputs) {
     const inp = document.getElementById(`weight-${key}`);
     const out = document.getElementById(`out-weight-${key}`);
+    if (!inp || !out) continue;
     inp.addEventListener('input', () => {
       out.textContent = `${inp.value}%`;
     });
   }
 
   document.getElementById('reset-weights-btn').addEventListener('click', () => {
-    const defaults = { lighthouse: 25, uplift: 25, deepPerf: 25, memory: 15, functionalFlow: 10 };
+    const defaults = {
+      judge: 20,
+      lighthouse: 18,
+      uplift: 18,
+      deepPerf: 18,
+      consoleErrors: 8,
+      memory: 8,
+      functionalFlow: 10,
+    };
     for (const [k, v] of Object.entries(defaults)) {
-      document.getElementById(`weight-${k}`).value = v;
-      document.getElementById(`out-weight-${k}`).textContent = `${v}%`;
+      const inp = document.getElementById(`weight-${k}`);
+      const out = document.getElementById(`out-weight-${k}`);
+      if (inp) inp.value = v;
+      if (out) out.textContent = `${v}%`;
     }
   });
 
@@ -3623,11 +4711,12 @@ async function init() {
     const raw = {};
     let sum = 0;
     for (const k of weightInputs) {
-      raw[k] = Number(document.getElementById(`weight-${k}`).value);
+      const inp = document.getElementById(`weight-${k}`);
+      raw[k] = inp ? Number(inp.value) : 0;
       sum += raw[k];
     }
     const normalized = {};
-    for (const k of weightInputs) normalized[k] = sum > 0 ? raw[k] / sum : 0.2;
+    for (const k of weightInputs) normalized[k] = sum > 0 ? raw[k] / sum : 1 / weightInputs.length;
 
     if (!state.data?.staticMode) {
       const res = await fetch('./api/reweight', {
@@ -3642,6 +4731,26 @@ async function init() {
         renderMatrix();
         renderTechObservatory();
       }
+    } else if (state.data?.summary?.cells) {
+      for (const c of state.data.summary.cells) {
+        if (!c.buildSucceeded || c.disqualifiedByJudge) {
+          c.scores.composite = c.disqualifiedByJudge ? 0 : c.scores.composite;
+          continue;
+        }
+        let wSum = 0;
+        let vSum = 0;
+        for (const k of weightInputs) {
+          const val = c.scores?.[k];
+          if (typeof val === 'number' && Number.isFinite(val)) {
+            wSum += normalized[k];
+            vSum += val * normalized[k];
+          }
+        }
+        if (wSum > 0) c.scores.composite = Math.round((vSum / wSum) * 10) / 10;
+      }
+      renderLeaderboard();
+      renderMatrix();
+      renderTechObservatory();
     }
     document.getElementById('weights-popover').hidePopover?.();
   });
@@ -3694,6 +4803,7 @@ async function init() {
       reuseGeneration: document.getElementById('opt-reuse-gen').checked,
       force: document.getElementById('opt-force-rerun').checked,
       skipJudge: document.getElementById('opt-skip-judge').checked,
+      harness: document.getElementById('opt-harness-mode')?.value || 'pi',
       mode: document.getElementById('opt-gen-mode').value,
       spec: document.getElementById('opt-spec-mode')?.value || 'freeform',
       stage: document.getElementById('opt-run-stage')?.value || 'all',
@@ -3713,6 +4823,7 @@ async function init() {
     await launchSelectiveRun({
       modelKeys: [state.inspectedCell.generation.modelKey],
       promptIds: [state.inspectedCell.generation.promptId],
+      harness: state.inspectedCell.generation.harness || 'pi',
       mode: state.inspectedCell.generation.mode || 'agent',
       spec: state.inspectedCell.generation.spec || 'freeform',
       force: true,

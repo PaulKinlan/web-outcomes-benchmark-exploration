@@ -211,11 +211,23 @@ export function resolveBridgeStatus(spec) {
     }
   }
 
+  const configuredEnvVars = (spec.directEnvVars || []).filter(
+    (v) => typeof process.env[v] === 'string' && process.env[v].trim().length > 0
+  );
+  const directAuthReady = configuredEnvVars.length > 0;
+  const fallbackSource = directAuthReady
+    ? `direct-env (${configuredEnvVars[0]})`
+    : spec.builtInAuthSupported
+      ? 'builtin-pi-auth'
+      : 'not-installed';
+
   return {
     ...spec,
     installed: false,
-    portable: false,
-    source: spec.builtInAuthSupported ? 'builtin-pi-auth' : 'not-installed',
+    portable: Boolean(spec.builtInAuthSupported || directAuthReady),
+    directAuthReady,
+    configuredEnvVars,
+    source: fallbackSource,
     version: null,
     rootPath: null,
     entrypoints: [],

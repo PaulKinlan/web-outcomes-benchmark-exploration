@@ -19,6 +19,11 @@ import {
   resetPiLoaderCache,
 } from '../src/harness/pi-loader.mjs';
 import { installProviderBridge, listProviderBridges } from '../src/harness/provider-bridges.mjs';
+import {
+  expandHarnessSelection,
+  installAcpHarnessAdapter,
+  listAllHarnessStatuses,
+} from '../src/harness/harness-registry.mjs';
 import { resolveStableChromePath, PINNED_CHROME_POINTER } from '../src/benchmarks/cdp-helpers.mjs';
 
 function parseArgs(argv) {
@@ -26,11 +31,16 @@ function parseArgs(argv) {
     withChrome: false,
     forcePi: false,
     bridges: [],
+    harnesses: [],
   };
   for (const arg of argv.slice(2)) {
     if (arg === '--with-chrome') opts.withChrome = true;
     else if (arg === '--force-pi') opts.forcePi = true;
-    else if (arg.startsWith('--bridges=')) {
+    else if (arg === '--with-acp') opts.harnesses = ['claude-acp', 'codex-acp'];
+    else if (arg.startsWith('--harnesses=') || arg.startsWith('--harness=')) {
+      const rawVal = arg.slice(arg.indexOf('=') + 1);
+      opts.harnesses = expandHarnessSelection(rawVal).filter((h) => h !== 'pi');
+    } else if (arg.startsWith('--bridges=')) {
       opts.bridges = arg
         .slice('--bridges='.length)
         .split(',')
@@ -182,6 +192,11 @@ async function main() {
   for (const bridgeId of opts.bridges) {
     const b = installProviderBridge(bridgeId);
     console.log(`[setup:vm] ✓ provider bridge "${b.id}" ready (${b.version})`);
+  }
+
+  for (const harnessId of opts.harnesses) {
+    const h = installAcpHarnessAdapter(harnessId);
+    console.log(`[setup:vm] ✓ ACP harness "${h.harnessId}" ready (${h.source} -> ${h.binPath})`);
   }
 
   const chromeStatus = await ensureChromeForTesting({ forceInstall: opts.withChrome && !resolveStableChromePath() });

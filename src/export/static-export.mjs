@@ -14,6 +14,7 @@ import { PROJECT_ROOT, loadBenchmarkConfig } from '../util/env.mjs';
 import { loadPromptRegistry } from '../registry/prompts.mjs';
 import { loadModelRegistryConfig } from '../harness/model-registry.mjs';
 import { buildCanonicalPromptAndEnvMetadata, detectPiVersion } from '../harness/generate.mjs';
+import { parseAcpSessionTimeline } from '../harness/acp-client.mjs';
 import { parsePiSessionTimeline } from '../harness/pi-transcript.mjs';
 import { extractGeneratedFiles } from '../materialize/extract-files.mjs';
 import {
@@ -140,7 +141,12 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
       const promptEntry = promptReg.prompts.find((p) => p.id === gen?.promptId) || null;
       const { exactPrompt, harnessEnvironment } = buildCanonicalPromptAndEnvMetadata(gen, promptEntry, config);
       const sessionPath = join(cellDir, 'pi-session.jsonl');
-      const transcriptTimeline = existsSync(sessionPath) ? parsePiSessionTimeline(sessionPath) : null;
+      const acpSessionPath = join(cellDir, 'acp-session.jsonl');
+      const transcriptTimeline = existsSync(sessionPath)
+        ? parsePiSessionTimeline(sessionPath)
+        : existsSync(acpSessionPath)
+          ? parseAcpSessionTimeline(acpSessionPath)
+          : null;
       const rawOutputPath = join(cellDir, 'raw-output.md');
       const rawOutputPreview = existsSync(rawOutputPath)
         ? readFileSync(rawOutputPath, 'utf8').slice(0, 32000)
@@ -164,8 +170,11 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
           rawOutputPreview,
           hasPiTranscript: existsSync(srcTranscript),
           hasPiSession: existsSync(sessionPath),
+          hasAcpSession: existsSync(acpSessionPath),
           benchmarks: {
             'tech-stack': readOpt(join(cellDir, 'results', 'tech-stack.json')),
+            'prompt-judge': readOpt(join(cellDir, 'results', 'prompt-judge.json')),
+            'console-errors': readOpt(join(cellDir, 'results', 'console-errors.json')),
             'lighthouse-uplift': readOpt(join(cellDir, 'results', 'lighthouse-uplift.json')),
             'deep-perf': readOpt(join(cellDir, 'results', 'deep-perf.json')),
             memory: readOpt(join(cellDir, 'results', 'memory.json')),
@@ -195,6 +204,7 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
       staticMode: true,
       piVersion: summary.environment?.piVersion || detectPiVersion(),
       piRuntime: summary.environment || null,
+      harnesses: summary.environment?.harnesses || [],
       providerBridges: summary.environment?.providerBridges || [],
       nodeVersion: process.version,
       config,

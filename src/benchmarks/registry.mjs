@@ -1,10 +1,14 @@
 import techStackBench from './tech-stack.bench.mjs';
+import promptJudgeBench from './prompt-judge.bench.mjs';
+import consoleErrorsBench from './console-errors.bench.mjs';
 import lighthouseUpliftBench from './lighthouse-uplift.bench.mjs';
 import deepPerfBench from './deep-perf.bench.mjs';
 import memoryBench from './memory.bench.mjs';
 
 export const BENCHMARK_PLUGINS = [
   techStackBench,
+  promptJudgeBench,
+  consoleErrorsBench,
   lighthouseUpliftBench,
   deepPerfBench,
   memoryBench,

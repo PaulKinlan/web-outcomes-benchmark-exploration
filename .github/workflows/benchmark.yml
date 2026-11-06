@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       models:
-        description: 'Comma-separated models (e.g. deepseek-flash,gemini-3.8-flash,grok-4.7,claude-sonnet-5,gpt-6-astra)'
+        description: 'Comma-separated models (e.g. deepseek-flash,gemini-3.8-flash,grok-4.7,claude-sonnet-5-5,gpt-6-1-sol,kimi-k3,kimi-k3-1-pro,muse-spark)'
         required: true
-        default: 'deepseek-flash,gemini-3.8-flash,grok-4.7,claude-sonnet-5,gpt-6-astra'
+        default: 'deepseek-flash,gemini-3.8-flash,grok-4.7,claude-sonnet-5-5,gpt-6-1-sol,kimi-k3,kimi-k3-1-pro,muse-spark'
         type: string
       prompt_scope:
         description: 'Prompt corpus scope: "all" runs all 37 prompts across 10 categories; "pilot" runs 10 prompts (1 per category)'
@@ -22,6 +22,17 @@ on:
         required: false
         default: ''
         type: string
+      harness:
+        description: 'Coding harness: pi (default clean-room), claude-acp, codex-acp, acp (both ACP adapters), or all (pi + ACP)'
+        required: true
+        default: 'pi'
+        type: choice
+        options:
+          - pi
+          - claude-acp
+          - codex-acp
+          - acp
+          - all
       mode:
         description: 'Harness mode'
         required: true
@@ -105,6 +116,7 @@ jobs:
           INPUT_MODELS: ${{ inputs.models }}
           INPUT_SCOPE: ${{ inputs.prompt_scope }}
           INPUT_PROMPTS: ${{ inputs.prompts }}
+          INPUT_HARNESS: ${{ inputs.harness }}
           INPUT_MODE: ${{ inputs.mode }}
           INPUT_SPEC: ${{ inputs.spec }}
           INPUT_AUDIT_RUNS: ${{ inputs.audit_runs }}
@@ -122,6 +134,7 @@ jobs:
               modelsRaw: process.env.INPUT_MODELS,
               promptScope: process.env.INPUT_SCOPE,
               customPromptsRaw: process.env.INPUT_PROMPTS,
+              harness: process.env.INPUT_HARNESS || "pi",
               mode: process.env.INPUT_MODE,
               spec: process.env.INPUT_SPEC || "freeform",
               auditRuns: Number(process.env.INPUT_AUDIT_RUNS || 1),
@@ -130,10 +143,10 @@ jobs:
 
             const skipGenerate = plan.skipGenerate || skipAudit;
             const genMatrix = skipGenerate
-              ? [{ shardId: "skipped", label: "reusing-prior-run", model: plan.models[0], mode: plan.modes[0], spec: plan.specs[0], promptFlag: "" }]
+              ? [{ shardId: "skipped", label: "reusing-prior-run", harness: plan.harnesses[0] || "pi", model: plan.models[0], mode: plan.modes[0], spec: plan.specs[0], promptFlag: "" }]
               : plan.generateShards;
             const auditMatrix = skipAudit
-              ? [{ shardId: "skipped", label: "reusing-prior-audit-run", model: plan.models[0], mode: plan.modes[0], spec: plan.specs[0], promptFlag: "", artifactPattern: "generated-cells-*" }]
+              ? [{ shardId: "skipped", label: "reusing-prior-audit-run", harness: plan.harnesses[0] || "pi", model: plan.models[0], mode: plan.modes[0], spec: plan.specs[0], promptFlag: "", artifactPattern: "generated-cells-*" }]
               : plan.auditShards;
 
             appendFileSync(process.env.GITHUB_OUTPUT, `skip_generate=${skipGenerate ? "true" : "false"}\n`);
@@ -143,13 +156,13 @@ jobs:
             appendFileSync(process.env.GITHUB_OUTPUT, `total_cells=${plan.totalCells}\n`);
 
             console.log(
-              `Planned ${plan.totalCells} cell(s): ` +
+              `Planned ${plan.totalCells} cell(s) across harnesses [${plan.harnesses.join(", ")}]: ` +
               `${skipGenerate ? "0 generate shards (reusing prior run)" : `${plan.generateShards.length} parallel generate shard(s)`} -> ` +
               `${skipAudit ? `0 audit shards (reusing audit run ${reuseAuditRunId})` : `${plan.auditShards.length} parallel isolated-VM audit shard(s)`}.`
             );
           '
 
-  # Stage 1: Parallel CPU-light LLM / pi Agent Generation (Zero Chrome needed)
+  # Stage 1: Parallel CPU-light LLM / pi / ACP Agent Generation (Zero Chrome needed)
   generate:
     name: Generate (${{ matrix.shard.label }})
     needs: prepare-matrix
@@ -172,12 +185,12 @@ jobs:
       - name: Install benchmark dependencies
         run: npm install --no-package-lock --no-audit --no-fund --registry=https://registry.npmjs.org
 
-      - name: Bootstrap portable pi runtime & optional provider bridges
+      - name: Bootstrap portable pi/ACP runtime & optional provider bridges
         run: |
           if [ -n "${{ inputs.bridges }}" ]; then
-            node scripts/setup-vm.mjs --bridges="${{ inputs.bridges }}"
+            node scripts/setup-vm.mjs --harnesses="${{ matrix.shard.harness }}" --bridges="${{ inputs.bridges }}"
           else
-            node scripts/setup-vm.mjs
+            node scripts/setup-vm.mjs --harnesses="${{ matrix.shard.harness }}"
           fi
 
       - name: Run clean-room generation shard (${{ matrix.shard.label }})
@@ -191,15 +204,18 @@ jobs:
           QWEN_TOKEN_PLAN_API_KEY: ${{ secrets.QWEN_TOKEN_PLAN_API_KEY }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY || secrets.GROK_API_KEY }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          MUSE_API_KEY: ${{ secrets.MUSE_API_KEY }}
           ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           PI_AUTH_JSON_B64: ${{ secrets.PI_AUTH_JSON_B64 }}
         run: |
           node bin/bench.mjs \
             --stage=generate \
             --force \
+            --harness="${{ matrix.shard.harness }}" \
             --mode="${{ matrix.shard.mode }}" \
             --spec="${{ matrix.shard.spec }}" \
             --models="${{ matrix.shard.model }}" \
@@ -305,7 +321,7 @@ jobs:
           fi
           echo "Verified $count cell directory(ies) from run ${{ inputs.reuse_generation_run_id }}."
 
-      - name: Run Host Canary + All 4 Benchmark Test Pillars (${{ matrix.shard.label }})
+      - name: Run Host Canary + All 5 Benchmark Test Pillars (${{ matrix.shard.label }})
         # Notice: ZERO LLM API keys are passed into this step while executing generated $PORT servers!
         run: |
           node bin/bench.mjs \
@@ -313,6 +329,30 @@ jobs:
             --force \
             --skip-judge \
             --audit-runs="${{ inputs.audit_runs }}" \
+            --harness="${{ matrix.shard.harness }}" \
+            --mode="${{ matrix.shard.mode }}" \
+            --spec="${{ matrix.shard.spec }}" \
+            --models="${{ matrix.shard.model }}" \
+            ${{ matrix.shard.promptFlag }}
+
+      - name: Run Post-Server Multimodal On-Topic LLM Judge (${{ matrix.shard.label }})
+        # Runs strictly AFTER all untrusted $PORT servers have exited, evaluating static screenshots & DOM evidence.
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || secrets.GOOGLE_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY || secrets.GROK_API_KEY }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          MUSE_API_KEY: ${{ secrets.MUSE_API_KEY }}
+        run: |
+          node bin/bench.mjs \
+            --judge-only \
+            --force \
+            --harness="${{ matrix.shard.harness }}" \
             --mode="${{ matrix.shard.mode }}" \
             --spec="${{ matrix.shard.spec }}" \
             --models="${{ matrix.shard.model }}" \
@@ -322,15 +362,18 @@ jobs:
       - name: Stage only this shard's audited cells & VM canary telemetry
         env:
           SHARD_ID: ${{ matrix.shard.shardId }}
+          SHARD_HARNESS: ${{ matrix.shard.harness }}
           SHARD_MODE: ${{ matrix.shard.mode }}
           SHARD_SPEC: ${{ matrix.shard.spec }}
           SHARD_PROMPT_FLAG: ${{ matrix.shard.promptFlag }}
         run: |
           node --input-type=module -e '
-            import { existsSync, readdirSync, rmSync, mkdirSync, cpSync, renameSync, writeFileSync, statSync } from "node:fs";
+            import { existsSync, readdirSync, readFileSync, rmSync, mkdirSync, cpSync, renameSync, writeFileSync, statSync } from "node:fs";
             import { join } from "node:path";
+            import { parseCellDirIdentity } from "./src/harness/generate.mjs";
 
             const shardId = process.env.SHARD_ID || "shard";
+            const shardHarness = process.env.SHARD_HARNESS || "pi";
             const shardMode = process.env.SHARD_MODE || "agent";
             const shardSpec = process.env.SHARD_SPEC || "freeform";
             const promptIds = new Set(
@@ -351,12 +394,21 @@ jobs:
               for (const entry of readdirSync(cellsRoot)) {
                 const cellDir = join(cellsRoot, entry);
                 if (!statSync(cellDir).isDirectory()) continue;
-                const parts = entry.split("__");
-                const isGuided = parts.length >= 4 && parts[parts.length - 1] === "guided";
-                const cellSpec = isGuided ? "guided" : "freeform";
-                const mode = isGuided ? (parts[parts.length - 2] || "") : (parts[2] || "");
-                const promptId = parts[1] || "";
-                if (mode !== shardMode || cellSpec !== shardSpec || (promptIds.size > 0 && !promptIds.has(promptId))) continue;
+                let gen = {};
+                const genFile = join(cellDir, "generation.json");
+                if (existsSync(genFile)) {
+                  try { gen = JSON.parse(readFileSync(genFile, "utf8")); } catch {}
+                }
+                const parsed = parseCellDirIdentity(entry, gen);
+                const promptId = gen.promptId || entry.split("__")[1] || "";
+                if (
+                  parsed.harness !== shardHarness ||
+                  parsed.mode !== shardMode ||
+                  parsed.spec !== shardSpec ||
+                  (promptIds.size > 0 && !promptIds.has(promptId))
+                ) {
+                  continue;
+                }
                 if (
                   !existsSync(join(cellDir, "results")) &&
                   !existsSync(join(cellDir, "materialization.json")) &&

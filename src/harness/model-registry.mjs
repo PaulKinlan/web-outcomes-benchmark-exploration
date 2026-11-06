@@ -20,6 +20,9 @@ const PROVIDER_DEFAULTS = {
   zai: { baseUrl: 'https://api.z.ai/api/paas/v4', api: 'openai-completions' },
   groq: { baseUrl: 'https://api.groq.com/openai/v1', api: 'openai-completions' },
   minimax: { baseUrl: 'https://api.minimax.io/v1', api: 'openai-completions' },
+  'kimi-coding': { baseUrl: 'https://api.kimi.com/coding', api: 'anthropic-messages' },
+  moonshotai: { baseUrl: 'https://api.moonshot.ai/v1', api: 'openai-completions' },
+  muse: { baseUrl: process.env.MUSE_BASE_URL || 'https://api.meta.ai/v1', api: 'openai-completions' },
 };
 
 export function loadModelRegistryConfig() {
@@ -106,8 +109,27 @@ export async function initializeModelRuntime() {
     if (providerAuthCache.has(providerId)) return providerAuthCache.get(providerId);
     const isBuiltIn = Boolean(piModels.getProvider(providerId));
     if (!isBuiltIn && extModels.has(providerId)) {
-      providerAuthCache.set(providerId, { ready: true, via: 'pi-cli-extension' });
+      providerAuthCache.set(providerId, { ready: true, via: 'pi-cli-extension', customCliOnly: true });
       return providerAuthCache.get(providerId);
+    }
+    if (!isBuiltIn) {
+      try {
+        const customCred = await credentials.read(providerId);
+        if (customCred && (customCred.key || customCred.access)) {
+          const status = {
+            ready: true,
+            via: `cleanroom-models-json (${customCred.type || 'api_key'})`,
+            customCliOnly: true,
+          };
+          providerAuthCache.set(providerId, status);
+          return status;
+        }
+      } catch {
+        // fall through
+      }
+      const status = { ready: false, via: null };
+      providerAuthCache.set(providerId, status);
+      return status;
     }
     try {
       const check = await piModels.checkAuth(providerId);
@@ -149,7 +171,7 @@ export async function initializeModelRuntime() {
         const piModel = buildSyntheticPiModel(piModels, route, m);
         activeRoute = {
           ...route,
-          transport: 'pi-ai',
+          transport: auth.customCliOnly ? 'pi-cli' : 'pi-ai',
           via: `${route.provider} (${auth.via})`,
           piModel,
         };
@@ -182,11 +204,19 @@ const MODEL_SHORTHAND_ALIASES = {
   'gpt-6.0-sol': 'gpt-6-1-sol',
   'gpt-6-terra': 'gpt-6-1-terra',
   'gpt-6-terra-pro': 'gpt-6-1-terra-pro',
-  'claude-sonnet': 'claude-sonnet-5',
-  'claude-opus': 'claude-opus-5',
+  'claude-sonnet': 'claude-sonnet-5-5',
+  'claude-opus': 'claude-opus-5-5',
   'gemini-flash': 'gemini-3-8-flash',
   grok: 'grok-4-7',
   'grok-4': 'grok-4-7',
+  kimi: 'kimi-k3-1-pro',
+  'kimi-3': 'kimi-k3',
+  'kimi-3.0': 'kimi-k3',
+  'kimi-3-0': 'kimi-k3',
+  'kimi-3.1': 'kimi-k3-1-pro',
+  'kimi-3-1': 'kimi-k3-1-pro',
+  muse: 'muse-spark',
+  'muse-1.3': 'muse-spark',
 };
 
 export function matchesModelSelector(model, rawSelector) {
@@ -222,6 +252,8 @@ const PROVIDER_FAMILY_LABELS = {
   groq: 'Groq',
   zai: 'GLM (Z.ai)',
   'kimi-coding': 'Kimi (Moonshot)',
+  moonshotai: 'Kimi (Moonshot)',
+  muse: 'Muse (Meta)',
   minimax: 'MiniMax',
 };
 

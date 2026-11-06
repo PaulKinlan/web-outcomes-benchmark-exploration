@@ -1,7 +1,8 @@
 {
-  "version": "2.1.0",
+  "version": "2.3.0",
   "studioPort": 4321,
   "generation": {
+    "defaultHarness": "pi",
     "defaultMode": "agent",
     "defaultSpec": "freeform",
     "agentConcurrency": 2,
@@ -15,7 +16,7 @@
     "visualReferenceInstruction": "Use the attached reference layout image as a reference for the proposed page layout, visual hierarchy, color palette, and component styling while implementing all requested functionality."
   },
   "cleanRoomEnvironment": {
-    "harness": "pi CLI (agent mode) / @earendil-works/pi-ai (oneshot mode)",
+    "harness": "pi CLI (clean-room default) / ACP v1 stdio (claude-code-acp, codex-acp) / @earendil-works/pi-ai (oneshot mode)",
     "piIsolationFlags": [
       "--no-skills",
       "--no-extensions",
@@ -32,7 +33,7 @@
     "agentAllowedTools": ["read", "bash", "edit", "write"],
     "oneshotAllowedTools": [],
     "modeDesignRationale": {
-      "agent": "Goal-oriented multi-turn autonomous coding loop inside a fresh empty directory with only the 4 core file/shell tools (read, bash, edit, write) and zero skills, extensions, MCP servers, or AGENTS.md/CLAUDE.md context files. Builds a realistic multi-file application + real $PORT HTTP server.",
+      "agent": "Goal-oriented multi-turn autonomous coding loop inside a fresh empty directory with file/shell tools and zero ambient skills, MCP servers, or AGENTS.md/CLAUDE.md context files. Supports clean-room `pi` as well as first-party harnesses (`claude-acp`, `codex-acp`) over the Agent Client Protocol (ACP v1).",
       "oneshot": "Single-pass zero-tool completion returning one self-contained HTML document with inline styles and scripts, avoiding multi-file token truncation or broken local stylesheet/script links while keeping library and framework choices completely unsteered."
     },
     "multimodalStyleProtocol": "Prompts may optionally attach one or more visual reference images (`referenceImages`) to hold visual aesthetic complexity constant across models while keeping technology stack and performance completely unsteered."
@@ -56,6 +57,20 @@
     "settleWaitMs": 1200,
     "journeyStepTimeoutMs": 6000
   },
+  "judge": {
+    "enabled": true,
+    "hardGate": true,
+    "minOnTopicScore": 50,
+    "minFeatureCoverageScore": 30,
+    "judgeModel": "google/gemini-3.8-flash",
+    "fallbackJudgeModels": [
+      "openai/gpt-6.1-sol",
+      "anthropic/claude-haiku-5-5",
+      "deepseek/deepseek-flash",
+      "xai/grok-4.6"
+    ],
+    "timeoutMs": 45000
+  },
   "uplift": {
     "enabled": true,
     "agent": "pi",
@@ -70,14 +85,16 @@
     "keepRawSnapshots": false
   },
   "audit": {
-    "cellTimeoutMs": 180000
+    "cellTimeoutMs": 210000
   },
   "scoring": {
     "weights": {
-      "lighthouse": 0.25,
-      "uplift": 0.25,
-      "deepPerf": 0.25,
-      "memory": 0.15,
+      "judge": 0.20,
+      "lighthouse": 0.18,
+      "uplift": 0.18,
+      "deepPerf": 0.18,
+      "consoleErrors": 0.08,
+      "memory": 0.08,
       "functionalFlow": 0.10
     }
   }

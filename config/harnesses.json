@@ -1,0 +1,55 @@
+{
+  "version": "1.0.0",
+  "defaultHarness": "pi",
+  "harnesses": [
+    {
+      "id": "pi",
+      "label": "Clean-Room pi",
+      "shortLabel": "pi",
+      "protocol": "pi",
+      "description": "Zero-skill, zero-extension clean-room coding loop (`pi` CLI for agent mode, `@earendil-works/pi-ai` for 1-shot mode) across all model families.",
+      "supportsModes": ["agent", "oneshot"],
+      "compatibleFamilies": ["*"]
+    },
+    {
+      "id": "claude-acp",
+      "label": "Claude Code (ACP)",
+      "shortLabel": "claude-acp",
+      "protocol": "acp",
+      "packageName": "@zed-industries/claude-code-acp",
+      "version": "0.16.2",
+      "binName": "claude-code-acp",
+      "envOverrideVar": "CLAUDE_ACP_BIN",
+      "provider": "anthropic",
+      "compatibleFamilies": ["Claude (Anthropic)"],
+      "defaultModelKey": "claude-sonnet-5-5",
+      "supportsModes": ["agent"],
+      "preferredModeIds": ["bypassPermissions", "acceptEdits", "default"],
+      "sessionMeta": {
+        "claudeCode": {
+          "options": {
+            "settingSources": []
+          }
+        }
+      },
+      "description": "Drives Anthropic Claude Code over the Agent Client Protocol (ACP v1 JSON-RPC 2.0 stdio) via `@zed-industries/claude-code-acp` with zero ambient MCP servers or CLAUDE.md files."
+    },
+    {
+      "id": "codex-acp",
+      "label": "OpenAI Codex (ACP)",
+      "shortLabel": "codex-acp",
+      "protocol": "acp",
+      "packageName": "@zed-industries/codex-acp",
+      "version": "0.16.0",
+      "binName": "codex-acp",
+      "envOverrideVar": "CODEX_ACP_BIN",
+      "provider": "openai",
+      "compatibleFamilies": ["OpenAI"],
+      "defaultModelKey": "gpt-6-1-terra",
+      "supportsModes": ["agent"],
+      "preferredModeIds": ["full-auto", "auto-edit", "bypassPermissions", "acceptEdits", "default"],
+      "sessionMeta": {},
+      "description": "Drives OpenAI Codex over the Agent Client Protocol (ACP v1 JSON-RPC 2.0 stdio) via `@zed-industries/codex-acp` inside an isolated workspace with zero ambient MCP servers."
+    }
+  ]
+}

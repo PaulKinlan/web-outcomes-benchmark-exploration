@@ -5,6 +5,13 @@ import { resolvePiBin, getPiRuntimeInfo } from './pi-loader.mjs';
 import { buildPiCliEnv } from './pi-auth-bridge.mjs';
 import { resolveBridgeForProvider } from './provider-bridges.mjs';
 import { exportPiTranscriptHtml, saveTrajectorySummary } from './pi-transcript.mjs';
+import {
+  normalizeHarnessId,
+  getHarnessSpec,
+  resolveAcpHarnessBinInfo,
+  installAcpHarnessAdapter,
+} from './harness-registry.mjs';
+import { runAcpCodingSession } from './acp-client.mjs';
 import { loadDesignDoc } from '../registry/prompts.mjs';
 import { PROJECT_ROOT, sleep } from '../util/env.mjs';
 
@@ -58,17 +65,28 @@ export function normalizeSpecMode(spec) {
   return 'freeform';
 }
 
-export function buildCellId(modelKey, promptId, mode = 'agent', spec = 'freeform') {
+export function buildCellId(modelKey, promptId, mode = 'agent', spec = 'freeform', harness = 'pi') {
   const cleanMode = mode === 'agent' ? 'agent' : 'oneshot';
   const cleanSpec = spec === 'guided' ? 'guided' : 'freeform';
-  return cleanSpec === 'guided'
-    ? `${modelKey}__${promptId}__${cleanMode}__guided`
-    : `${modelKey}__${promptId}__${cleanMode}`;
+  const cleanHarness = normalizeHarnessId(harness);
+  const base =
+    cleanSpec === 'guided'
+      ? `${modelKey}__${promptId}__${cleanMode}__guided`
+      : `${modelKey}__${promptId}__${cleanMode}`;
+  return cleanHarness !== 'pi' ? `${base}__${cleanHarness}` : base;
 }
+
+const KNOWN_NON_PI_HARNESS_RE = /^(?:claude-acp|codex-acp|custom-acp|[a-z0-9-]+-acp)$/i;
 
 export function parseCellDirIdentity(dirName, generation = null) {
   const raw = String(dirName || '');
   const parts = raw.split('__');
+  let dirHarness = null;
+  if (parts.length >= 4 && KNOWN_NON_PI_HARNESS_RE.test(parts[parts.length - 1])) {
+    dirHarness = normalizeHarnessId(parts.pop());
+  }
+  const harness = dirHarness || normalizeHarnessId(generation?.harness || 'pi');
+
   if (parts.length >= 4 && parts[parts.length - 1] === 'guided') {
     const modePart = parts[parts.length - 2];
     return {
@@ -76,14 +94,16 @@ export function parseCellDirIdentity(dirName, generation = null) {
       promptId: generation?.promptId || parts.slice(1, parts.length - 2).join('__') || '',
       mode: generation?.mode === 'agent' || modePart === 'agent' ? 'agent' : 'oneshot',
       spec: 'guided',
+      harness,
     };
   }
   const modePart = parts[2] || '';
   return {
     modelKey: generation?.modelKey || parts[0] || '',
     promptId: generation?.promptId || parts[1] || '',
-    mode: generation?.mode === 'agent' || modePart === 'agent' || raw.endsWith('__agent') ? 'agent' : 'oneshot',
+    mode: generation?.mode === 'agent' || modePart === 'agent' || parts[parts.length - 1] === 'agent' ? 'agent' : 'oneshot',
     spec: generation?.spec === 'guided' || generation?.exactPrompt?.spec === 'guided' ? 'guided' : 'freeform',
+    harness,
   };
 }
 
@@ -176,6 +196,8 @@ export function composeSpecPromptMaterials({ promptEntry, spec = 'freeform', con
 export function buildCanonicalPromptAndEnvMetadata(gen = {}, promptEntry = null, config = {}) {
   const mode = gen?.mode === 'agent' ? 'agent' : 'oneshot';
   const spec = gen?.spec === 'guided' || gen?.exactPrompt?.spec === 'guided' ? 'guided' : 'freeform';
+  const harness = normalizeHarnessId(gen?.harness || 'pi');
+  const harnessSpec = getHarnessSpec(harness);
   const materials = composeSpecPromptMaterials({ promptEntry, spec, config });
 
   const userPrompt = gen?.exactPrompt?.userPrompt || materials.basePrompt || promptEntry?.prompt || '';
@@ -193,8 +215,12 @@ export function buildCanonicalPromptAndEnvMetadata(gen = {}, promptEntry = null,
       exactPrompt: {
         mode: 'agent',
         spec,
+        harness,
         userPrompt,
-        systemPrompt: '(pi default coding-agent system prompt — zero custom overrides)',
+        systemPrompt:
+          harness !== 'pi'
+            ? `(${harnessSpec?.label || harness} native system prompt over ACP v1 — zero MCP servers / zero ambient project files)`
+            : '(pi default coding-agent system prompt — zero custom overrides)',
         workspaceContract: contract,
         fullDispatchedPrompt,
         referenceImages: refImages,
@@ -205,14 +231,20 @@ export function buildCanonicalPromptAndEnvMetadata(gen = {}, promptEntry = null,
       harnessEnvironment: gen?.harnessEnvironment || {
         mode: 'agent',
         spec,
+        harness,
+        harnessLabel: harnessSpec?.label || harness,
+        protocol: harness !== 'pi' ? 'acp-v1' : 'pi-cli',
         piVersion: detectPiVersion(),
-        isolationFlags: [
-          '-p',
-          '-a',
-          ...AGENT_CLEAN_ROOM_FLAGS,
-          '--thinking',
-          gen?.thinkingLevel || config.generation?.thinkingLevel || 'low',
-        ],
+        isolationFlags:
+          harness !== 'pi'
+            ? ['acp-v1-stdio', 'mcpServers=[]', 'isolated-cwd']
+            : [
+                '-p',
+                '-a',
+                ...AGENT_CLEAN_ROOM_FLAGS,
+                '--thinking',
+                gen?.thinkingLevel || config.generation?.thinkingLevel || 'low',
+              ],
         skillsLoaded: 0,
         extensionsLoaded: 0,
         promptTemplatesLoaded: 0,
@@ -403,14 +435,17 @@ export async function generateWebsite({
   config,
   mode = config.generation.defaultMode || 'agent',
   spec = config.generation.defaultSpec || 'freeform',
+  harness = config.generation.defaultHarness || 'pi',
   designDoc = null,
   onProgress = () => {},
 }) {
   const normalizedMode = normalizeHarnessMode(mode);
   const normalizedSpec = spec === 'guided' ? 'guided' : 'freeform';
+  const normalizedHarness = normalizeHarnessId(harness);
+  const harnessSpec = getHarnessSpec(normalizedHarness) || getHarnessSpec('pi');
   mkdirSync(cellDir, { recursive: true });
   const route = modelEntry.activeRoute;
-  if (!route) {
+  if (!route && normalizedHarness === 'pi') {
     throw new Error(`Model "${modelEntry.key}" has no authenticated provider route.`);
   }
 
@@ -427,11 +462,13 @@ export async function generateWebsite({
   if (normalizedMode === 'agent') {
     const workspaceDir = join(cellDir, 'agent-workspace');
     const sessionPath = join(cellDir, 'pi-session.jsonl');
+    const acpSessionPath = join(cellDir, 'acp-session.jsonl');
     const transcriptHtmlPath = join(cellDir, 'pi-transcript.html');
     const trajectoryJsonPath = join(cellDir, 'trajectory.json');
 
     rmSync(workspaceDir, { recursive: true, force: true });
     rmSync(sessionPath, { force: true });
+    rmSync(acpSessionPath, { force: true });
     rmSync(transcriptHtmlPath, { force: true });
     rmSync(trajectoryJsonPath, { force: true });
     mkdirSync(workspaceDir, { recursive: true });
@@ -454,6 +491,133 @@ export async function generateWebsite({
       }
     }
 
+    const contract = config.generation.agentWorkspaceContract || '';
+    const agentPrompt = `${composedUserPrompt}\n\n---\n${contract}`;
+
+    // --- ACP Harness Path (claude-acp, codex-acp, custom-acp) ---
+    if (harnessSpec.protocol === 'acp') {
+      const targetProvider = harnessSpec.provider || route?.provider || 'anthropic';
+      const childEnv = await buildPiCliEnv(runtime, targetProvider);
+      let binInfo = resolveAcpHarnessBinInfo(normalizedHarness);
+      if (!binInfo.available) {
+        onProgress({
+          stage: 'generating',
+          detail: `Installing ACP adapter ${harnessSpec.packageName}@${harnessSpec.version || 'latest'} into .acp-runtime/...`,
+        });
+        binInfo = installAcpHarnessAdapter(normalizedHarness);
+      }
+
+      const desiredModelId =
+        modelEntry.routes?.find((r) => r.provider === targetProvider)?.modelId ||
+        route?.modelId ||
+        modelEntry.key;
+
+      const customArgs =
+        normalizedHarness === 'custom-acp' && process.env.ACP_CUSTOM_ARGS
+          ? process.env.ACP_CUSTOM_ARGS.split(/\s+/).filter(Boolean)
+          : [];
+
+      onProgress({
+        stage: 'generating',
+        detail: `Running ${harnessSpec.label} over ACP v1 (${desiredModelId}, spec=${normalizedSpec})`,
+      });
+
+      const acpRes = await runAcpCodingSession({
+        command: binInfo.binPath,
+        args: customArgs,
+        workspaceDir,
+        env: childEnv,
+        harnessSpec,
+        desiredModelId,
+        desiredModelKey: modelEntry.key,
+        promptText: agentPrompt,
+        referenceImages: resolvedRefImages,
+        allowedReadPaths: resolvedRefImages.map((img) => img.absPath),
+        sessionJsonlPath: acpSessionPath,
+        trajectoryJsonPath,
+        transcriptHtmlPath,
+        timeoutMs: config.generation.agentTimeoutMs || 900000,
+        onProgress,
+      });
+
+      const createdFiles = listWorkspaceFiles(workspaceDir);
+      writeFileSync(join(cellDir, 'raw-output.md'), acpRes.assistantText || '', 'utf8');
+
+      const exactPrompt = {
+        mode: 'agent',
+        spec: normalizedSpec,
+        harness: normalizedHarness,
+        userPrompt: promptEntry.prompt,
+        systemPrompt: `(${harnessSpec.label} native system prompt over ACP v1 — zero MCP servers / zero ambient project files)`,
+        workspaceContract: contract,
+        fullDispatchedPrompt: agentPrompt,
+        referenceImages: resolvedRefImages.map(({ path, label, caption }) => ({ path, label, caption })),
+        seedData: normalizedSpec === 'guided' ? seedData : null,
+        hasDesignDoc: Boolean(normalizedSpec === 'guided' && designDocText),
+      };
+
+      const harnessEnvironment = {
+        mode: 'agent',
+        spec: normalizedSpec,
+        harness: normalizedHarness,
+        harnessLabel: harnessSpec.label,
+        protocol: 'acp-v1',
+        acpAdapterPackage: harnessSpec.packageName || null,
+        acpAdapterVersion: acpRes.agentInfo?.version || harnessSpec.version || null,
+        acpAgentTitle: acpRes.agentInfo?.title || harnessSpec.label,
+        acpSource: binInfo.source,
+        selectedModelId: acpRes.selectedModelId || desiredModelId,
+        selectedModeId: acpRes.selectedModeId || null,
+        isolationFlags: ['acp-v1-stdio', 'mcpServers=[]', 'settingSources=[]'],
+        skillsLoaded: 0,
+        ambientExtensionsLoaded: 0,
+        extensionsLoaded: 0,
+        promptTemplatesLoaded: 0,
+        themesLoaded: 0,
+        contextFilesLoaded: 0,
+        mcpServersLoaded: 0,
+        enabledTools: ['read', 'bash', 'edit', 'write'],
+        secretScrubbed: true,
+        cleanRoomVerified: true,
+      };
+
+      const meta = {
+        modelKey: modelEntry.key,
+        modelLabel: modelEntry.label,
+        family: modelEntry.family,
+        promptId: promptEntry.id,
+        category: promptEntry.category,
+        mode: 'agent',
+        spec: normalizedSpec,
+        harness: normalizedHarness,
+        harnessLabel: harnessSpec.label,
+        protocol: 'acp-v1',
+        provider: targetProvider,
+        modelId: acpRes.selectedModelId || desiredModelId,
+        via: `${harnessSpec.label} (ACP v1 stdio)`,
+        exactPrompt,
+        harnessEnvironment,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        durationMs: acpRes.durationMs,
+        ttftMs: acpRes.ttftMs,
+        stopReason: acpRes.stopReason,
+        exitCode: acpRes.ok ? 0 : 1,
+        createdFiles,
+        outputChars: (acpRes.assistantText || '').length,
+        hasSessionJsonl: existsSync(acpSessionPath),
+        hasTranscriptHtml: acpRes.hasTranscriptHtml,
+        turnCount: acpRes.trajectory?.turnCount ?? null,
+        totalToolCalls: acpRes.trajectory?.totalToolCalls ?? null,
+        usage: acpRes.trajectory?.usage || null,
+        costUsd: acpRes.trajectory?.usage?.costUsd ?? null,
+        error: !acpRes.ok && createdFiles.length === 0 ? (acpRes.error || acpRes.stderrTail || 'ACP session failed').slice(0, 600) : null,
+        warning: !acpRes.ok && createdFiles.length > 0 ? (acpRes.error || '').slice(0, 400) : null,
+      };
+      writeFileSync(join(cellDir, 'generation.json'), JSON.stringify(meta, null, 2) + '\n', 'utf8');
+      return meta;
+    }
+
     const thinkingLevel = config.generation.thinkingLevel || 'low';
     const childEnv = await buildPiCliEnv(runtime, route.provider);
     const activeBridge = resolveBridgeForProvider(route.provider);
@@ -463,9 +627,6 @@ export async function generateWebsite({
       stage: 'generating',
       detail: `Running clean-room pi agent loop (${route.provider}/${route.modelId}, spec=${normalizedSpec}, thinking=${thinkingLevel}${activeBridge ? `, bridge=${activeBridge.id}` : ', 0 skills/extensions'})`,
     });
-
-    const contract = config.generation.agentWorkspaceContract || '';
-    const agentPrompt = `${composedUserPrompt}\n\n---\n${contract}`;
 
     const cliArgs = [
       '-p',
@@ -553,6 +714,9 @@ export async function generateWebsite({
         category: promptEntry.category,
         mode: 'agent',
         spec: normalizedSpec,
+        harness: 'pi',
+        harnessLabel: 'Clean-Room pi',
+        protocol: 'pi-cli',
         provider: route.provider,
         modelId: route.modelId,
         via: route.via,
@@ -590,6 +754,9 @@ export async function generateWebsite({
         category: promptEntry.category,
         mode: 'agent',
         spec: normalizedSpec,
+        harness: 'pi',
+        harnessLabel: 'Clean-Room pi',
+        protocol: 'pi-cli',
         provider: route.provider,
         modelId: route.modelId,
         via: route.via,
@@ -700,6 +867,9 @@ export async function generateWebsite({
       category: promptEntry.category,
       mode: 'oneshot',
       spec: normalizedSpec,
+      harness: 'pi',
+      harnessLabel: 'Clean-Room pi',
+      protocol: 'pi-ai',
       provider: route.provider,
       modelId: route.modelId,
       via: route.via,
@@ -797,6 +967,9 @@ export async function generateWebsite({
       category: promptEntry.category,
       mode: 'oneshot',
       spec: normalizedSpec,
+      harness: 'pi',
+      harnessLabel: 'Clean-Room pi',
+      protocol: 'pi-ai',
       provider: route.provider,
       modelId: route.modelId,
       via: route.via,
@@ -828,6 +1001,9 @@ export async function generateWebsite({
       category: promptEntry.category,
       mode: 'oneshot',
       spec: normalizedSpec,
+      harness: 'pi',
+      harnessLabel: 'Clean-Room pi',
+      protocol: 'pi-ai',
       provider: route.provider,
       modelId: route.modelId,
       via: route.via,

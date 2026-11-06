@@ -262,13 +262,41 @@ function runNodeScript(scriptPath, args, { cwd = PROJECT_ROOT, timeoutMs = 45000
   });
 }
 
+function readWebUpliftMwgVersion() {
+  try {
+    const stateFile = join(PROJECT_ROOT, 'node_modules', 'web-uplift', 'knowledge', 'mwg-state.json');
+    if (existsSync(stateFile)) {
+      const parsed = JSON.parse(readFileSync(stateFile, 'utf8'));
+      return parsed.analysedVersion || parsed.appliedRulesVersion || parsed.syncedVersion || null;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+const NEEDED_UPLIFT_PRIMITIVES = [
+  'discoverability',
+  'layout',
+  'axe',
+  'targets',
+  'console',
+  'features',
+  'headers',
+  'images',
+  'secrets',
+  'a11ytree',
+  'resilience',
+];
+
 async function gatherWebUpliftPrimitives(url, upliftDir) {
   const upliftPkgDir = join(PROJECT_ROOT, 'node_modules', 'web-uplift');
   const evidenceCli = join(upliftPkgDir, 'evidence', 'cli.mjs');
   if (!existsSync(evidenceCli)) {
-    return { available: false };
+    return { available: false, mwgVersion: null, primitives: {} };
   }
 
+  const mwgVersion = readWebUpliftMwgVersion();
   const chromeBin = resolveStableChromePath();
   if (chromeBin && !process.env.CHROME_BIN) {
     process.env.CHROME_BIN = chromeBin;
@@ -278,7 +306,6 @@ async function gatherWebUpliftPrimitives(url, upliftDir) {
   mkdirSync(evidenceDir, { recursive: true });
 
   const primitives = {};
-  const neededPrimitives = ['discoverability', 'layout', 'axe', 'targets', 'console'];
 
   let sharedBrowser = null;
   try {
@@ -291,8 +318,12 @@ async function gatherWebUpliftPrimitives(url, upliftDir) {
     configureFetchDeadline(8000);
     sharedBrowser = await withTimeout(launchChrome({ log: () => {} }), 15000, 'web-uplift launchChrome');
 
-    for (const prim of neededPrimitives) {
+    for (const prim of NEEDED_UPLIFT_PRIMITIVES) {
       const outFile = join(evidenceDir, `${prim}.json`);
+      const extraOpts =
+        prim === 'a11ytree'
+          ? { maxNodes: 250, maxStops: 25 }
+          : {};
       try {
         const res = await withTimeout(
           gather(prim, url, {
@@ -301,8 +332,9 @@ async function gatherWebUpliftPrimitives(url, upliftDir) {
             quiet: true,
             wait: 650,
             waitIsDefault: false,
+            ...extraOpts,
           }),
-          14000,
+          prim === 'resilience' ? 16000 : 12000,
           `web-uplift ${prim}`
         );
         if (existsSync(outFile)) {
@@ -315,10 +347,10 @@ async function gatherWebUpliftPrimitives(url, upliftDir) {
         // Non-fatal: continue collecting remaining primitives on the shared Chrome instance
       }
     }
-    return { available: true, primitives };
+    return { available: true, mwgVersion, primitives };
   } catch {
     // Fallback if package subpath imports differ in an older web-uplift layout
-    for (const prim of neededPrimitives) {
+    for (const prim of NEEDED_UPLIFT_PRIMITIVES) {
       const outFile = join(evidenceDir, `${prim}.json`);
       const res = await runNodeScript(
         evidenceCli,
@@ -339,7 +371,7 @@ async function gatherWebUpliftPrimitives(url, upliftDir) {
         }
       }
     }
-    return { available: true, primitives };
+    return { available: true, mwgVersion, primitives };
   } finally {
     if (sharedBrowser) {
       await withTimeout(sharedBrowser.close(), 3000, 'web-uplift sharedBrowser.close').catch(() => {});
@@ -483,26 +515,108 @@ async function runAgenticWebUplift(url, upliftDir, config) {
   }
 }
 
+export function extractPrimitiveHighlights(primitives = {}) {
+  const featuresData = primitives.features || {};
+  const tracked = featuresData.tracked || {};
+  const liveCssomActive = [];
+  for (const group of ['atRules', 'properties', 'functions', 'selectors']) {
+    const entries = tracked[group] || {};
+    for (const [name, count] of Object.entries(entries)) {
+      if (typeof count === 'number' && count > 0) {
+        // Omit ubiquitous CSSOM basics (calc, var, @media, min, max) from modern highlights
+        if (['calc', 'var', '@media', 'min', 'max', 'env'].includes(name)) continue;
+        liveCssomActive.push({ name, group, count });
+      }
+    }
+  }
+
+  const overlays = featuresData.overlays || {};
+  const imagesData = primitives.images || {};
+  const imgIssues = imagesData.issues || {};
+  const a11yData = primitives.a11ytree || {};
+  const focusOrder = a11yData.focusOrder || {};
+  const headersData = primitives.headers || {};
+  const secHeaders = headersData.securityHeaders || {};
+  const secretsData = primitives.secrets || {};
+  const resilienceData = primitives.resilience || {};
+
+  const presentValidHeaders = Object.entries(secHeaders)
+    .filter(([, h]) => h && h.present && !h.empty && (!Array.isArray(h.issues) || h.issues.length === 0))
+    .map(([k]) => k);
+
+  return {
+    primitivesCollected: Object.keys(primitives),
+    liveCssomFeatures: liveCssomActive,
+    overlays: {
+      dialogElements: overlays.dialogElements ?? 0,
+      popoverElements: overlays.popoverElements ?? 0,
+      detailsElements: overlays.detailsElements ?? 0,
+      roleDialogElements: overlays.roleDialogElements ?? 0,
+      highZIndexCount: overlays.highZIndexCount ?? 0,
+    },
+    imageHygiene: {
+      totalImages: imagesData.totalImages ?? 0,
+      missingDimensions: imgIssues.missingDimensions ?? 0,
+      notLazyBelowFold: imgIssues.notLazyBelowFold ?? 0,
+      oversized: imgIssues.oversized ?? 0,
+      missingAlt: imgIssues.missingAlt ?? 0,
+      modernFormat: imgIssues.modernFormat ?? 0,
+    },
+    focusAndA11yTree: {
+      axTotalNodes: a11yData.tree?.totalNodes ?? null,
+      focusStopCount: focusOrder.stopCount ?? null,
+      stopsWithoutVisibleIndicator: focusOrder.stopsWithoutVisibleIndicator ?? 0,
+      stopsInsideAriaHidden: focusOrder.stopsInsideAriaHidden ?? 0,
+    },
+    securityAndSecrets: {
+      exposedSecretCount: secretsData.totalFindings ?? 0,
+      criticalOrHighSecrets: (secretsData.findings || []).filter(
+        (f) => f.severity === 'critical' || (f.severity === 'high' && f.pattern !== 'google-api-key')
+      ).length,
+      presentValidHeaders,
+    },
+    resilience: {
+      manifestResolved: Boolean(resilienceData.installabilitySignals?.manifestResolved),
+      serviceWorkerRegistered: Boolean(resilienceData.installabilitySignals?.serviceWorkerRegistered),
+      offlineRenderable:
+        resilienceData.offline != null ? resilienceData.offline.navigationFailed === false : null,
+    },
+  };
+}
+
 /**
  * Computes consistent 6-outcome web-uplift scores from deterministic web-uplift CDP primitives + Lighthouse
  * whenever `--skip-judge` is requested or if an agentic judge run did not emit a complete report.json.
  */
-function computeEvidenceBackedUpliftScores(primitives, lhMobile) {
+export function computeEvidenceBackedUpliftScores(primitives = {}, lhMobile = null, mwgVersion = null) {
   const disc = primitives.discoverability || {};
   const axe = primitives.axe || {};
   const layout = primitives.layout || {};
   const targets = primitives.targets || {};
   const consoleData = primitives.console || {};
+  const highlights = extractPrimitiveHighlights(primitives);
 
   const speed = lhMobile?.scores?.performance ?? 75;
   const clsPenalty = Math.min(40, Math.round((layout.cls || lhMobile?.metrics?.cls || 0) * 150));
-  const speedOutcome = Math.max(0, Math.min(100, Math.round(speed - clsPenalty * 0.25)));
+  const imgPenalty = Math.min(
+    18,
+    highlights.imageHygiene.missingDimensions * 2 +
+      highlights.imageHygiene.oversized * 3 +
+      highlights.imageHygiene.notLazyBelowFold * 2
+  );
+  const speedOutcome = Math.max(0, Math.min(100, Math.round(speed - clsPenalty * 0.25 - imgPenalty)));
 
   const axeViolations = Array.isArray(axe.violations) ? axe.violations.length : 0;
+  const a11yTreePenalty = Math.min(
+    20,
+    highlights.focusAndA11yTree.stopsWithoutVisibleIndicator * 2 +
+      highlights.focusAndA11yTree.stopsInsideAriaHidden * 6 +
+      highlights.imageHygiene.missingAlt * 3
+  );
   const inclusiveOutcome =
     lhMobile?.scores?.accessibility != null
-      ? Math.max(0, Math.round(lhMobile.scores.accessibility - axeViolations * 3))
-      : Math.max(0, 100 - axeViolations * 12);
+      ? Math.max(0, Math.round(lhMobile.scores.accessibility - axeViolations * 3 - a11yTreePenalty * 0.5))
+      : Math.max(0, 100 - axeViolations * 12 - a11yTreePenalty);
 
   // Discoverability & AI: web-uplift's raw HTML vs rendered DOM coverage signal!
   const rawCoverage = typeof disc.coveragePct === 'number' ? disc.coveragePct : disc.isJsShell ? 15 : 85;
@@ -510,11 +624,27 @@ function computeEvidenceBackedUpliftScores(primitives, lhMobile) {
   const discoverableOutcome = Math.round(seoBase * 0.45 + rawCoverage * 0.55);
 
   const undersizedTargets = Array.isArray(targets.undersized) ? targets.undersized.length : 0;
-  const usabilityOutcome = Math.max(20, Math.min(100, 92 - undersizedTargets * 4 - clsPenalty));
+  const divModalPenalty =
+    highlights.overlays.highZIndexCount > 2 &&
+    highlights.overlays.dialogElements === 0 &&
+    highlights.overlays.popoverElements === 0 &&
+    highlights.overlays.roleDialogElements > 0
+      ? 4
+      : 0;
+  const resilienceBonus = highlights.resilience.offlineRenderable ? 3 : 0;
+  const usabilityOutcome = Math.max(
+    20,
+    Math.min(100, 92 - undersizedTargets * 4 - clsPenalty - divModalPenalty + resilienceBonus)
+  );
 
   const errCount = Array.isArray(consoleData.errors) ? consoleData.errors.length : 0;
+  const criticalSecrets = highlights.securityAndSecrets.criticalOrHighSecrets;
+  const secHeaderBonus = Math.min(6, highlights.securityAndSecrets.presentValidHeaders.length * 2);
   const bpBase = lhMobile?.scores?.bestPractices ?? 85;
-  const trustOutcome = Math.max(0, Math.min(100, Math.round(bpBase - errCount * 8)));
+  const trustOutcome = Math.max(
+    0,
+    Math.min(100, Math.round(bpBase - errCount * 8 - criticalSecrets * 25 + secHeaderBonus))
+  );
 
   const memoryOutcome = 85; // Refined by dedicated memory.bench.mjs in overall aggregation
 
@@ -531,6 +661,7 @@ function computeEvidenceBackedUpliftScores(primitives, lhMobile) {
 
   return {
     evaluationMode: 'evidence-primitives',
+    mwgVersion,
     overall,
     outcomes,
     discoverabilityMeta: {
@@ -539,13 +670,14 @@ function computeEvidenceBackedUpliftScores(primitives, lhMobile) {
     },
     axeViolationCount: axeViolations,
     undersizedTargetCount: undersizedTargets,
+    primitiveHighlights: highlights,
   };
 }
 
 export default {
   id: 'lighthouse-uplift',
   label: 'Lighthouse & web-uplift Audit',
-  version: '1.0.0',
+  version: '1.1.0',
   requiresBrowser: true,
 
   async run(ctx) {
@@ -556,7 +688,7 @@ export default {
     onProgress?.({ stage: 'lighthouse-uplift', detail: 'Running Lighthouse (Mobile & Desktop)' });
     const { mobile, desktop } = await runLighthouseSuite(url);
 
-    onProgress?.({ stage: 'lighthouse-uplift', detail: 'Gathering web-uplift raw-CDP evidence primitives' });
+    onProgress?.({ stage: 'lighthouse-uplift', detail: 'Gathering 11 web-uplift raw-CDP evidence primitives (MWG 0.0.197)' });
     const evidenceBundle = await gatherWebUpliftPrimitives(url, upliftDir);
 
     let upliftSummary = null;
@@ -567,16 +699,28 @@ export default {
       });
       const agentRes = await runAgenticWebUplift(url, upliftDir, config);
       if (agentRes?.succeeded) {
-        upliftSummary = agentRes;
+        upliftSummary = {
+          ...agentRes,
+          mwgVersion: evidenceBundle.mwgVersion,
+          primitiveHighlights: extractPrimitiveHighlights(evidenceBundle.primitives || {}),
+        };
       } else {
-        const fallback = computeEvidenceBackedUpliftScores(evidenceBundle.primitives || {}, mobile);
+        const fallback = computeEvidenceBackedUpliftScores(
+          evidenceBundle.primitives || {},
+          mobile,
+          evidenceBundle.mwgVersion
+        );
         upliftSummary = {
           ...fallback,
           judgeFallbackNote: agentRes?.error || agentRes?.logTail || 'Agentic judge unavailable; used web-uplift CDP primitives.',
         };
       }
     } else {
-      upliftSummary = computeEvidenceBackedUpliftScores(evidenceBundle.primitives || {}, mobile);
+      upliftSummary = computeEvidenceBackedUpliftScores(
+        evidenceBundle.primitives || {},
+        mobile,
+        evidenceBundle.mwgVersion
+      );
     }
 
     const lighthouseComposite = Math.round(
@@ -613,6 +757,7 @@ export default {
       mobilePerformance: result?.lighthouse?.mobile?.scores?.performance ?? null,
       mobileAccessibility: result?.lighthouse?.mobile?.scores?.accessibility ?? null,
       upliftOutcomes: result?.uplift?.outcomes || null,
+      mwgVersion: result?.uplift?.mwgVersion || null,
     };
   },
 };

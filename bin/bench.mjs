@@ -14,9 +14,11 @@ export function parseCliArgs(argv) {
     categories: null,
     benchmarkIds: null,
     pilot: false,
+    harness: null,
     mode: null,
     spec: null,
     stage: 'all',
+    judgeOnly: false,
     auditRuns: 1,
     skipCanary: false,
     markdownSummaryPath: null,
@@ -33,12 +35,17 @@ export function parseCliArgs(argv) {
     else if (arg === '--force') opts.force = true;
     else if (arg === '--skip-canary') opts.skipCanary = true;
     else if (arg === '--skip-judge' || arg === '--fast-uplift') opts.skipJudge = true;
+    else if (arg === '--judge-only') {
+      opts.judgeOnly = true;
+      opts.stage = 'judge';
+    }
     else if (arg === '--score-only') opts.scoreOnly = true;
     else if (arg === '--help' || arg === '-h') opts.help = true;
     else if (arg.startsWith('--models=')) opts.modelKeys = arg.slice(9).split(',').filter(Boolean);
     else if (arg.startsWith('--prompts=')) opts.promptIds = arg.slice(10).split(',').filter(Boolean);
     else if (arg.startsWith('--category=')) opts.categories = arg.slice(11).split(',').filter(Boolean);
     else if (arg.startsWith('--benchmarks=')) opts.benchmarkIds = arg.slice(13).split(',').filter(Boolean);
+    else if (arg.startsWith('--harness=')) opts.harness = arg.slice(10);
     else if (arg.startsWith('--mode=')) opts.mode = arg.slice(7);
     else if (arg.startsWith('--spec=')) opts.spec = arg.slice(7);
     else if (arg.startsWith('--stage=')) opts.stage = arg.slice(8);
@@ -66,6 +73,8 @@ export function formatPhaseBreakdownLine(telemetry) {
   if (typeof p.materializeMs === 'number') parts.push(`mat ${fmtSec(p.materializeMs)}`);
   if (typeof p.flowCompileMs === 'number') parts.push(`flow ${fmtSec(p.flowCompileMs)}`);
   if (typeof b['tech-stack'] === 'number') parts.push(`stack ${fmtSec(b['tech-stack'])}`);
+  if (typeof b['prompt-judge'] === 'number') parts.push(`judge ${fmtSec(b['prompt-judge'])}`);
+  if (typeof b['console-errors'] === 'number') parts.push(`console ${fmtSec(b['console-errors'])}`);
   if (typeof b['lighthouse-uplift'] === 'number') parts.push(`lh+up ${fmtSec(b['lighthouse-uplift'])}`);
   if (typeof b['deep-perf'] === 'number') parts.push(`perf ${fmtSec(b['deep-perf'])}`);
   if (typeof b.memory === 'number') parts.push(`mem ${fmtSec(b.memory)}`);
@@ -80,11 +89,19 @@ export function formatMarkdownSummary(summary) {
   const env = summary.environment || {};
   const canary = summary.canary || null;
   const obs = summary.observability || null;
+  const disqNote =
+    (summary.totals?.disqualifiedCells ?? 0) > 0
+      ? `, ${summary.totals.disqualifiedCells} disqualified off-topic/stub`
+      : '';
+  const acpNote =
+    (summary.totals?.acpCells ?? 0) > 0 ? `, ${summary.totals.acpCells} ACP harness` : '';
   lines.push(
-    `- **Cells Evaluated**: ${summary.totals?.cells ?? 0} (${summary.totals?.agentCells ?? 0} agent loop, ${summary.totals?.oneshotCells ?? 0} 1-shot)`
+    `- **Cells Evaluated**: ${summary.totals?.cells ?? 0} (${summary.totals?.agentCells ?? 0} agent loop, ${summary.totals?.oneshotCells ?? 0} 1-shot${acpNote}${disqNote})`
   );
   if (env.piVersion) {
-    lines.push(`- **Clean-Room \`pi\` Runtime**: \`v${env.piVersion}\` (\`${env.piSource || 'local'}\`)`);
+    lines.push(
+      `- **Clean-Room \`pi\` Runtime & Catalogs**: \`pi v${env.piVersion}\` (\`${env.piSource || 'local'}\`) · \`modern-web-guidance@${env.mwgCatalogVersion || '0.0.197'}\` · \`web-uplift MWG ${env.webUpliftMwgVersion || '0.0.197'}\``
+    );
   }
   if (obs?.vmCanaryFleet?.shardCount > 1) {
     const fleet = obs.vmCanaryFleet;
@@ -100,13 +117,14 @@ export function formatMarkdownSummary(summary) {
 
   if (Array.isArray(summary.leaderboard) && summary.leaderboard.length > 0) {
     lines.push(
-      '| Model | Mode | Cells | Composite | Lighthouse | web-uplift | Deep Perf | Memory | Mob. LCP | W3C INP | P95 TTFB | Default Stack |'
+      '| Model | Harness · Mode | Cells | Valid% | Composite | Judge | Console | Lighthouse | web-uplift | Deep Perf | Memory | Mob. LCP | W3C INP | Default Stack |'
     );
-    lines.push('|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|');
+    lines.push('|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|');
     for (const r of summary.leaderboard) {
-      const modeLabel = r.spec === 'guided' ? `${r.mode} · guided` : r.mode;
+      const harnessPrefix = r.harness && r.harness !== 'pi' ? `${r.harness} · ` : '';
+      const modeLabel = `${harnessPrefix}${r.spec === 'guided' ? `${r.mode} · guided` : r.mode}`;
       lines.push(
-        `| **${r.label}** | \`${modeLabel}\` | ${r.cellsRun} | **${r.scores.composite}** | ${r.scores.lighthouse ?? '—'} | ${r.scores.uplift ?? '—'} | ${r.scores.deepPerf ?? '—'} | ${r.scores.memory ?? '—'} | ${r.averages.mobileLcpMs != null ? `${r.averages.mobileLcpMs}ms` : '—'} | ${r.averages.inpMs != null ? `${r.averages.inpMs}ms` : '—'} | ${r.averages.burstP95TtfbMs != null ? `${r.averages.burstP95TtfbMs}ms` : '—'} | \`${r.dominantStack}\` |`
+        `| **${r.label}** | \`${modeLabel}\` | ${r.cellsRun} | ${r.validRatePct ?? r.validBuildRatePct ?? r.buildSuccessRatePct ?? 100}% | **${r.scores.composite}** | ${r.scores.judge ?? '—'} | ${r.scores.consoleErrors ?? '—'} | ${r.scores.lighthouse ?? '—'} | ${r.scores.uplift ?? '—'} | ${r.scores.deepPerf ?? '—'} | ${r.scores.memory ?? '—'} | ${r.averages.mobileLcpMs != null ? `${r.averages.mobileLcpMs}ms` : '—'} | ${r.averages.inpMs != null ? `${r.averages.inpMs}ms` : '—'} | \`${r.dominantStack}\` |`
       );
     }
     lines.push('');
@@ -127,13 +145,13 @@ export function formatMarkdownSummary(summary) {
       }
       if ((audT.count || 0) > 0) {
         lines.push(
-          `- **Stage 2 4-Pillar Audit (${audT.count} cells)**: median \`${fmtSec(audT.medianMs)}\` · p95 \`${fmtSec(audT.p95Ms)}\` · max \`${fmtSec(audT.maxMs)}\` · cumulative \`${fmtSec(audT.totalMs)}\``
+          `- **Stage 2 6-Pillar Audit (${audT.count} cells)**: median \`${fmtSec(audT.medianMs)}\` · p95 \`${fmtSec(audT.p95Ms)}\` · max \`${fmtSec(audT.maxMs)}\` · cumulative \`${fmtSec(audT.totalMs)}\``
         );
         lines.push('');
-        lines.push('| Materialize & Boot | Flow Compile | Tech Stack | Lighthouse + web-uplift | Deep Perf / W3C INP | Memory & Heap Diff |');
-        lines.push('|---:|---:|---:|---:|---:|---:|');
+        lines.push('| Materialize & Boot | Flow Compile | Tech Stack | Judge | Console & Net | Lighthouse + web-uplift | Deep Perf / W3C INP | Memory & Heap Diff |');
+        lines.push('|---:|---:|---:|---:|---:|---:|---:|---:|');
         lines.push(
-          `| \`${fmtSec(pm.materializeMs)}\` | \`${fmtSec(pm.flowCompileMs)}\` | \`${fmtSec(pm.techStackMs)}\` | \`${fmtSec(pm.lighthouseUpliftMs)}\` | \`${fmtSec(pm.deepPerfMs)}\` | \`${fmtSec(pm.memoryMs)}\` |`
+          `| \`${fmtSec(pm.materializeMs)}\` | \`${fmtSec(pm.flowCompileMs)}\` | \`${fmtSec(pm.techStackMs)}\` | \`${fmtSec(pm.promptJudgeMs)}\` | \`${fmtSec(pm.consoleErrorsMs)}\` | \`${fmtSec(pm.lighthouseUpliftMs)}\` | \`${fmtSec(pm.deepPerfMs)}\` | \`${fmtSec(pm.memoryMs)}\` |`
         );
       }
       lines.push('');
@@ -179,31 +197,40 @@ Usage:
   node bin/bench.mjs [options]
 
 Options:
-  --stage=all|generate|audit     Execution stage:
-                                   all      (default) Run LLM generation + Canary + serialized Chrome audits
-                                   generate           Stage 1 LLM generation ONLY (no Chrome needed; parallelizable)
-                                   audit              Stage 2 Canary + serialized Chrome/MemLab audits on cached cells
-  --audit-runs=<N>               Run browser audits N times per cell and select median score (default: 1, CI: 3)
-  --mode=agent|oneshot|both      Harness mode:
-                                   agent   (default) Autonomous pi coding loop + real $PORT server + saved transcript
-                                   oneshot           Single-shot pi-ai generateText baseline
-                                   both              Run both agent and oneshot head-to-head
-  --spec=freeform|guided|both    Prompt specification mode:
-                                   freeform (default) Open 1-sentence prompt only (unconstrained layout & content)
-                                   guided             Attach gemini-nano-banana-2.1 layout image + design.md + seedData
-                                   both               Run both freeform and guided head-to-head
-  --pilot                        Run pilot matrix (10 categories x pilot models)
-  --models=<k1,k2,...>           Filter by model keys (e.g. gemini-4-argon,deepseek-flash)
-  --prompts=<p1,p2,...>          Filter by prompt IDs (e.g. plumbing-appointment,filmmakers-community)
-  --category=<c1,c2,...>         Filter by website category (e.g. booking-scheduling,membership-community)
-  --benchmarks=<b1,b2,...>       Run specific benchmarks (tech-stack,lighthouse-uplift,deep-perf,memory)
-  --reuse-generation             Skip LLM calls and audit already-generated cells
-  --skip-canary                  Skip host hardware canary calibration pass
-  --skip-judge                   Use deterministic web-uplift CDP primitives without LLM judge pass
-  --markdown-summary=<path>      Write Markdown leaderboard + Canary summary (e.g. $GITHUB_STEP_SUMMARY)
-  --force                        Re-run even if cached results exist
-  --score-only                   Recompute data/summary.json from existing cell artifacts
-  --help, -h                     Show help
+  --stage=all|generate|audit|judge Execution stage:
+                                     all      (default) Run LLM generation + Canary + serialized Chrome audits
+                                     generate           Stage 1 LLM generation ONLY (no Chrome needed; parallelizable)
+                                     audit              Stage 2 Canary + serialized Chrome/MemLab audits on cached cells
+                                     judge              Post-audit multimodal LLM on-topic judge pass (zero untrusted servers)
+  --judge-only                     Alias for --stage=judge (upgrade cached prompt-judge.json with multimodal LLM judge)
+  --harness=pi|claude-acp|codex-acp|acp|all
+                                   Coding harness driver:
+                                     pi         (default) Clean-room pi coding loop
+                                     claude-acp           Claude Code via Agent Client Protocol (stdio JSON-RPC 2.0)
+                                     codex-acp            OpenAI Codex via Agent Client Protocol (stdio JSON-RPC 2.0)
+                                     acp                  Both claude-acp and codex-acp
+                                     all                  Compare pi + claude-acp + codex-acp across compatible models
+  --audit-runs=<N>                 Run browser audits N times per cell and select median score (default: 1, CI: 3)
+  --mode=agent|oneshot|both        Harness mode:
+                                     agent   (default) Autonomous coding loop + real $PORT server + saved transcript
+                                     oneshot           Single-shot pi-ai generateText baseline
+                                     both              Run both agent and oneshot head-to-head
+  --spec=freeform|guided|both      Prompt specification mode:
+                                     freeform (default) Open 1-sentence prompt only (unconstrained layout & content)
+                                     guided             Attach gemini-nano-banana-2.1 layout image + design.md + seedData
+                                     both               Run both freeform and guided head-to-head
+  --pilot                          Run pilot matrix (10 categories x pilot models)
+  --models=<k1,k2,...>             Filter by model keys (e.g. gemini-4-argon,deepseek-flash)
+  --prompts=<p1,p2,...>            Filter by prompt IDs (e.g. plumbing-appointment,filmmakers-community)
+  --category=<c1,c2,...>           Filter by website category (e.g. booking-scheduling,membership-community)
+  --benchmarks=<b1,b2,...>         Run specific benchmarks (tech-stack,prompt-judge,lighthouse-uplift,deep-perf,memory)
+  --reuse-generation               Skip LLM calls and audit already-generated cells
+  --skip-canary                    Skip host hardware canary calibration pass
+  --skip-judge                     Use deterministic DOM/CDP checks without LLM judge pass
+  --markdown-summary=<path>        Write Markdown leaderboard + Canary summary (e.g. $GITHUB_STEP_SUMMARY)
+  --force                          Re-run even if cached results exist
+  --score-only                     Recompute data/summary.json from existing cell artifacts
+  --help, -h                       Show help
 `);
 }
 
@@ -217,14 +244,15 @@ async function main() {
   if (opts.scoreOnly) {
     const summary = aggregateAllResults();
     console.log(
-      `[score] Aggregated ${summary.totals.cells} cells (${summary.totals.agentCells} agent, ${summary.totals.oneshotCells} oneshot) -> data/summary.json`
+      `[score] Aggregated ${summary.totals.cells} cells (${summary.totals.validCells ?? summary.totals.cells} valid, ${summary.totals.disqualifiedCells ?? 0} disqualified, ${summary.totals.acpCells ?? 0} ACP) -> data/summary.json`
     );
     if (opts.markdownSummaryPath) {
       writeFileSync(opts.markdownSummaryPath, formatMarkdownSummary(summary), 'utf8');
     }
     for (const row of summary.leaderboard) {
+      const tag = row.harness && row.harness !== 'pi' ? `${row.harness}:${row.mode}` : row.mode;
       console.log(
-        `  ${(row.label + ' [' + row.mode + ']').padEnd(36)} Composite: ${String(row.scores.composite).padStart(5)} | LH: ${row.scores.lighthouse ?? '-'} | Uplift: ${row.scores.uplift ?? '-'} | Perf/INP: ${row.scores.deepPerf ?? '-'} | Mem: ${row.scores.memory ?? '-'} | Stack: ${row.dominantStack}`
+        `  ${(row.label + ' [' + tag + ']').padEnd(40)} Composite: ${String(row.scores.composite).padStart(5)} | Judge: ${row.scores.judge ?? '-'} | LH: ${row.scores.lighthouse ?? '-'} | Uplift: ${row.scores.uplift ?? '-'} | Perf/INP: ${row.scores.deepPerf ?? '-'} | Mem: ${row.scores.memory ?? '-'} | Stack: ${row.dominantStack}`
       );
     }
     return;
@@ -267,8 +295,9 @@ async function main() {
   emitter.on('job:start', (info) => {
     lastStartInfo = info;
     const specsDesc = info.specs ? `, specs=${info.specs.join(', ')}` : '';
+    const harnessDesc = info.harnesses ? `, harnesses=${info.harnesses.join(', ')}` : '';
     console.log(
-      `\n[${clockNow()}] [bench] Starting ${info.jobId} (stage=${info.stage}, auditRuns=${info.auditRuns}, modes=${info.modes.join(', ')}${specsDesc}, totalCells=${info.totalCells})`
+      `\n[${clockNow()}] [bench] Starting ${info.jobId} (stage=${info.stage}, auditRuns=${info.auditRuns}, modes=${info.modes.join(', ')}${specsDesc}${harnessDesc}, totalCells=${info.totalCells})`
     );
     console.log(`[${clockNow()}] [bench] Models (${info.models.length}): ${info.models.join(', ') || '(none)'}`);
     if (info.skippedModels.length > 0) {
@@ -340,7 +369,8 @@ async function main() {
     opts.modelKeys?.length > 0 &&
     lastStartInfo &&
     lastStartInfo.models.length === 0 &&
-    res.stage !== 'audit'
+    res.stage !== 'audit' &&
+    res.stage !== 'judge'
   ) {
     const reasons = [];
     if (lastStartInfo.unknownModels?.length > 0) {
@@ -371,8 +401,9 @@ async function main() {
   if (res.summary.leaderboard.length > 0) {
     console.log('\n=== Leaderboard ===');
     for (const row of res.summary.leaderboard) {
+      const tag = row.harness && row.harness !== 'pi' ? `${row.harness}:${row.mode}` : row.mode;
       console.log(
-        `  ${(row.label + ' [' + row.mode + ']').padEnd(36)} Score: ${String(row.scores.composite).padStart(5)} | LCP: ${row.averages.mobileLcpMs ?? '-'}ms | TTFB(p95): ${row.averages.burstP95TtfbMs ?? '-'}ms | INP: ${row.averages.inpMs ?? '-'}ms | MemScore: ${row.scores.memory ?? '-'} | Stack: ${row.dominantStack}`
+        `  ${(row.label + ' [' + tag + ']').padEnd(40)} Score: ${String(row.scores.composite).padStart(5)} | Judge: ${row.scores.judge ?? '-'} | LCP: ${row.averages.mobileLcpMs ?? '-'}ms | TTFB(p95): ${row.averages.burstP95TtfbMs ?? '-'}ms | INP: ${row.averages.inpMs ?? '-'}ms | MemScore: ${row.scores.memory ?? '-'} | Stack: ${row.dominantStack}`
       );
     }
   }

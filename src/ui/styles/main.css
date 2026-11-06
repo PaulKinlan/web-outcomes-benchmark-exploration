@@ -1665,3 +1665,290 @@ dialog::backdrop {
   border: 1px solid var(--border-strong);
   background: var(--bg-subtle);
 }
+
+/* Harness Badges, On-Topic Judge Disqualification & MWG 0.0.197 Feature Grid */
+.harness-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--ink-secondary);
+}
+
+.harness-claude-acp {
+  background: color-mix(in srgb, hsl(25, 78%, 52%) 15%, var(--bg-elevated));
+  color: hsl(24, 72%, 34%);
+  border-color: color-mix(in srgb, hsl(25, 78%, 45%) 35%, transparent);
+}
+
+[data-theme="dark"] .harness-claude-acp {
+  color: hsl(26, 82%, 74%);
+}
+
+.harness-codex-acp {
+  background: color-mix(in srgb, hsl(212, 78%, 50%) 15%, var(--bg-elevated));
+  color: hsl(212, 74%, 34%);
+  border-color: color-mix(in srgb, hsl(212, 78%, 45%) 35%, transparent);
+}
+
+[data-theme="dark"] .harness-codex-acp {
+  color: hsl(210, 84%, 76%);
+}
+
+.judge-callout {
+  margin-bottom: 16px;
+  border-left: 4px solid var(--accent);
+}
+
+.judge-callout.has-disqualifications {
+  border-left-color: var(--bad-ink);
+}
+
+.disqualified-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.73rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: var(--bad-bg);
+  color: var(--bad-ink);
+  border: 1px solid color-mix(in srgb, var(--bad-ink) 40%, transparent);
+}
+
+.matrix-cell-disq {
+  border: 1px dashed var(--bad-ink) !important;
+  text-decoration: none;
+}
+
+.judge-verdict-banner {
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border-subtle);
+}
+
+.judge-verdict-banner.verdict-pass {
+  background: color-mix(in srgb, var(--good-bg) 45%, var(--bg-elevated));
+  border-color: color-mix(in srgb, var(--good-ink) 35%, transparent);
+}
+
+.judge-verdict-banner.verdict-fail {
+  background: color-mix(in srgb, var(--bad-bg) 55%, var(--bg-elevated));
+  border-color: color-mix(in srgb, var(--bad-ink) 42%, transparent);
+}
+
+.judge-list-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.mwg-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(235px, 1fr));
+  gap: 10px;
+}
+
+.mwg-feature-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, transform 0.1s ease;
+}
+
+.mwg-feature-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.mwg-feature-card.selected-cohort {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--bg-elevated));
+}
+
+.mwg-feature-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+
+.mwg-cat-pill {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Prompt Visualizer Gallery & Reference Target Cards */
+.prompt-visualizer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 18px;
+}
+
+.prompt-vis-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.prompt-vis-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-md);
+}
+
+.prompt-vis-img-wrap {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.prompt-vis-img-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.2s ease;
+}
+
+.prompt-vis-img-wrap:hover img {
+  transform: scale(1.02);
+}
+
+.prompt-vis-overlay-badges {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.prompt-vis-chip {
+  background: color-mix(in srgb, var(--bg-surface) 90%, transparent);
+  backdrop-filter: blur(6px);
+  color: var(--ink-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-family: var(--font-mono);
+  font-size: 0.71rem;
+  font-weight: 600;
+}
+
+.prompt-vis-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  flex: 1;
+}
+
+.prompt-vis-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.prompt-vis-quote {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--ink-secondary);
+}
+
+.prompt-vis-seed {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  font-size: 0.78rem;
+  color: var(--ink-secondary);
+}
+
+.prompt-vis-actions {
+  margin-top: auto;
+  padding-top: 6px;
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.lib-ver-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.73rem;
+}
+
+.lib-ver-num {
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.console-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.console-log-entry {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.77rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.console-log-entry.err {
+  background: color-mix(in srgb, var(--bad-bg) 45%, var(--bg-elevated));
+  border-color: color-mix(in srgb, var(--bad-ink) 35%, transparent);
+}
+
+.console-log-entry.warn {
+  background: color-mix(in srgb, var(--warn-bg) 45%, var(--bg-elevated));
+  border-color: color-mix(in srgb, var(--warn-ink) 35%, transparent);
+}

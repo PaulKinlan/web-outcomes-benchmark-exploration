@@ -15,6 +15,7 @@
     "bench": "node bin/bench.mjs",
     "bench:generate": "node bin/bench.mjs --stage=generate",
     "bench:audit": "node bin/bench.mjs --stage=audit",
+    "bench:judge": "node bin/bench.mjs --judge-only",
     "pilot": "node bin/bench.mjs --pilot",
     "score": "node bin/bench.mjs --score-only",
     "canary": "node src/benchmarks/canary.mjs",

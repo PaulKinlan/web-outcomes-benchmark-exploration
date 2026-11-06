@@ -66,12 +66,14 @@ test('freeform vs guided spec modes compose cleanly with distinct cell IDs and p
   assert.equal(buildCellId('deepseek-flash', 'plumbing-appointment', 'agent', 'guided'), 'deepseek-flash__plumbing-appointment__agent__guided');
 
   assert.deepEqual(parseCellDirIdentity('deepseek-flash__minecraft-clone__agent'), {
+    harness: 'pi',
     modelKey: 'deepseek-flash',
     promptId: 'minecraft-clone',
     mode: 'agent',
     spec: 'freeform',
   });
   assert.deepEqual(parseCellDirIdentity('deepseek-flash__minecraft-clone__agent__guided'), {
+    harness: 'pi',
     modelKey: 'deepseek-flash',
     promptId: 'minecraft-clone',
     mode: 'agent',

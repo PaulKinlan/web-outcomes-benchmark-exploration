@@ -17,6 +17,8 @@ import { validateSinglePrompt } from '../registry/validate-prompts.mjs';
 import { initializeModelRuntime, addModelToConfig } from '../harness/model-registry.mjs';
 import { syncLatestModels } from '../harness/sync-models.mjs';
 import { buildCanonicalPromptAndEnvMetadata, detectPiVersion } from '../harness/generate.mjs';
+import { listAllHarnessStatuses } from '../harness/harness-registry.mjs';
+import { parseAcpSessionTimeline } from '../harness/acp-client.mjs';
 import { parsePiSessionTimeline } from '../harness/pi-transcript.mjs';
 import { BENCHMARK_PLUGINS } from '../benchmarks/registry.mjs';
 import { aggregateAllResults, CELLS_ROOT, SUMMARY_OUT_PATH } from '../scoring/aggregate.mjs';
@@ -256,6 +258,7 @@ export async function startStudioServer({ port = null } = {}) {
           staticMode: false,
           piVersion: runtime.piRuntime?.version || detectPiVersion(),
           piRuntime: runtime.piRuntime || null,
+          harnesses: listAllHarnessStatuses(),
           providerBridges: (runtime.providerBridges || []).map((b) => ({
             id: b.id,
             label: b.label,
@@ -266,6 +269,10 @@ export async function startStudioServer({ port = null } = {}) {
             source: b.source,
             version: b.version,
             builtInAuthSupported: Boolean(b.builtInAuthSupported),
+            directAuthReady: Boolean(b.directAuthReady),
+            configuredEnvVars: b.configuredEnvVars || [],
+            directEnvVars: b.directEnvVars || [],
+            nativeAcpHarness: b.nativeAcpHarness || null,
             envOverrideVar: b.envOverrideVar,
           })),
           nodeVersion: process.version,
@@ -343,7 +350,12 @@ export async function startStudioServer({ port = null } = {}) {
         const promptEntry = promptReg.prompts.find((p) => p.id === gen?.promptId) || null;
         const { exactPrompt, harnessEnvironment } = buildCanonicalPromptAndEnvMetadata(gen, promptEntry, latestConfig);
         const sessionPath = join(cellDir, 'pi-session.jsonl');
-        const transcriptTimeline = existsSync(sessionPath) ? parsePiSessionTimeline(sessionPath) : null;
+        const acpSessionPath = join(cellDir, 'acp-session.jsonl');
+        const transcriptTimeline = existsSync(sessionPath)
+          ? parsePiSessionTimeline(sessionPath)
+          : existsSync(acpSessionPath)
+            ? parseAcpSessionTimeline(acpSessionPath)
+            : null;
         const rawOutputPath = join(cellDir, 'raw-output.md');
         const rawOutputPreview = existsSync(rawOutputPath)
           ? readFileSync(rawOutputPath, 'utf8').slice(0, 48000)
@@ -372,10 +384,13 @@ export async function startStudioServer({ port = null } = {}) {
           rawOutputPreview,
           hasPiTranscript: existsSync(join(cellDir, 'pi-transcript.html')),
           hasPiSession: existsSync(sessionPath),
+          hasAcpSession: existsSync(acpSessionPath),
           hasStaticPreview: Boolean(materialization?.ok && hasResolvableStaticPreview(cellDir)),
           livePreviewUrl,
           benchmarks: {
             'tech-stack': readJsonOpt(join(cellDir, 'results', 'tech-stack.json')),
+            'prompt-judge': readJsonOpt(join(cellDir, 'results', 'prompt-judge.json')),
+            'console-errors': readJsonOpt(join(cellDir, 'results', 'console-errors.json')),
             'lighthouse-uplift': readJsonOpt(join(cellDir, 'results', 'lighthouse-uplift.json')),
             'deep-perf': readJsonOpt(join(cellDir, 'results', 'deep-perf.json')),
             memory: readJsonOpt(join(cellDir, 'results', 'memory.json')),

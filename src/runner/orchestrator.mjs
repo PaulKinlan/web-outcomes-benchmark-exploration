@@ -1,20 +1,27 @@
-import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { loadBenchmarkConfig, PROJECT_ROOT } from '../util/env.mjs';
-import { selectPrompts, loadDesignDoc } from '../registry/prompts.mjs';
+import { selectPrompts, loadDesignDoc, loadPromptRegistry } from '../registry/prompts.mjs';
 import { initializeModelRuntime, selectModels } from '../harness/model-registry.mjs';
+import {
+  expandHarnessSelection,
+  getHarnessSpec,
+  isModelCompatibleWithHarness,
+} from '../harness/harness-registry.mjs';
 import {
   generateWebsite,
   normalizeHarnessMode,
   normalizeSpecMode,
   buildCellId,
+  parseCellDirIdentity,
 } from '../harness/generate.mjs';
 import { extractGeneratedFiles } from '../materialize/extract-files.mjs';
 import { prepareCellRuntime, startCellServer } from '../materialize/server-runner.mjs';
 import { captureStaticPreviewMirror } from '../materialize/static-mirror.mjs';
 import { compileCanonicalFlow } from '../flows/compile-flow.mjs';
 import { selectBenchmarks } from '../benchmarks/registry.mjs';
+import { upgradeCellWithLlmJudge } from '../benchmarks/prompt-judge.bench.mjs';
 import { withTimeout, killAllActiveChromes } from '../benchmarks/cdp-helpers.mjs';
 import { runHostCanaryCalibration } from '../benchmarks/canary.mjs';
 import { aggregateAllResults, CELLS_ROOT } from '../scoring/aggregate.mjs';
@@ -23,11 +30,15 @@ export function normalizePipelineStage(stage) {
   if (!stage || stage === 'all') return 'all';
   if (stage === 'generate' || stage === 'gen') return 'generate';
   if (stage === 'audit' || stage === 'bench') return 'audit';
+  if (stage === 'judge' || stage === 'judge-only') return 'judge';
   return 'all';
 }
 
 function extractPrimaryBenchScore(benchId, resultObj) {
   if (!resultObj || typeof resultObj !== 'object') return 0;
+  if (benchId === 'prompt-judge') {
+    return resultObj.passedGate ? (resultObj.overall ?? 0) : 0;
+  }
   if (benchId === 'lighthouse-uplift') {
     const lh = resultObj.lighthouse?.performanceScore ?? resultObj.lighthouse?.compositeScore ?? 0;
     const up = resultObj.uplift?.overallScore ?? resultObj.uplift?.overall ?? 0;
@@ -50,7 +61,9 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
     pilot = false,
     mode = null,
     spec = null,
+    harness = null,
     stage: rawStage = 'all',
+    judgeOnly = false,
     auditRuns: rawAuditRuns = 1,
     skipCanary = false,
     reuseGeneration: rawReuseGeneration = false,
@@ -59,12 +72,15 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
     signal = null,
   } = options;
 
-  const pipelineStage = normalizePipelineStage(rawStage);
-  const reuseGeneration = pipelineStage === 'audit' ? true : Boolean(rawReuseGeneration);
+  const pipelineStage = judgeOnly ? 'judge' : normalizePipelineStage(rawStage);
+  const reuseGeneration =
+    pipelineStage === 'audit' || pipelineStage === 'judge' ? true : Boolean(rawReuseGeneration);
   const auditRuns = Math.max(1, Math.min(7, Number(rawAuditRuns) || 1));
 
   const config = loadBenchmarkConfig();
   const designDoc = loadDesignDoc();
+  const requestedHarness = harness || config.generation?.defaultHarness || 'pi';
+  const harnessesToRun = expandHarnessSelection(requestedHarness);
   const requestedMode = normalizeHarnessMode(mode || config.generation.defaultMode || 'agent');
   const modesToRun = requestedMode === 'both' ? ['agent', 'oneshot'] : [requestedMode];
   const requestedSpec = normalizeSpecMode(spec || config.generation.defaultSpec || 'freeform');
@@ -80,17 +96,186 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
   const benchmarks = selectBenchmarks(benchmarkIds);
 
   const jobId = `job-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-  const totalCells = models.length * prompts.length * modesToRun.length * specsToRun.length;
+
+  // Post-server multimodal LLM Judge upgrade stage (`--judge-only` / `--stage=judge`)
+  if (pipelineStage === 'judge') {
+    const promptReg = loadPromptRegistry();
+    const promptMap = new Map(promptReg.prompts.map((p) => [p.id, p]));
+    const allowedModelSet = modelKeys?.length ? new Set(models.map((m) => m.key)) : null;
+    const allowedPromptSet = promptIds?.length || categories?.length || pilot ? new Set(prompts.map((p) => p.id)) : null;
+    const allowedHarnessSet = harness ? new Set(harnessesToRun) : null;
+    const allowedModeSet = mode ? new Set(modesToRun) : null;
+    const allowedSpecSet = spec ? new Set(specsToRun) : null;
+
+    const candidateDirs = existsSync(CELLS_ROOT) ? readdirSync(CELLS_ROOT).sort() : [];
+    const targetCells = [];
+    for (const dirName of candidateDirs) {
+      const cellDir = join(CELLS_ROOT, dirName);
+      const judgeResPath = join(cellDir, 'results', 'prompt-judge.json');
+      const genJsonPath = join(cellDir, 'generation.json');
+      if (!existsSync(judgeResPath) || !existsSync(genJsonPath)) continue;
+
+      let gen = {};
+      try {
+        gen = JSON.parse(readFileSync(genJsonPath, 'utf8'));
+      } catch {
+        continue;
+      }
+      const parsed = parseCellDirIdentity(dirName, gen);
+      if (allowedModelSet && !allowedModelSet.has(gen.modelKey)) continue;
+      if (allowedPromptSet && !allowedPromptSet.has(gen.promptId)) continue;
+      if (allowedHarnessSet && !allowedHarnessSet.has(parsed.harness)) continue;
+      if (allowedModeSet && !allowedModeSet.has(parsed.mode)) continue;
+      if (allowedSpecSet && !allowedSpecSet.has(parsed.spec)) continue;
+
+      const promptEntry = promptMap.get(gen.promptId);
+      if (!promptEntry) continue;
+      targetCells.push({ cellId: dirName, cellDir, promptEntry });
+    }
+
+    emitter.emit('job:start', {
+      jobId,
+      stage: 'judge',
+      auditRuns: 1,
+      harness: requestedHarness,
+      harnesses: harnessesToRun,
+      mode: requestedMode,
+      modes: modesToRun,
+      spec: requestedSpec,
+      specs: specsToRun,
+      models: models.map((m) => m.key),
+      skippedModels: [],
+      unknownModels: unknownKeys,
+      prompts: prompts.map((p) => p.id),
+      benchmarks: ['prompt-judge'],
+      totalCells: targetCells.length,
+    });
+
+    const tJudgeJob0 = performance.now();
+    let completedJudgeCells = 0;
+    let failedJudgeCells = 0;
+
+    for (let i = 0; i < targetCells.length; i++) {
+      if (signal?.aborted) break;
+      const { cellId, cellDir, promptEntry } = targetCells[i];
+      const existing = JSON.parse(readFileSync(join(cellDir, 'results', 'prompt-judge.json'), 'utf8'));
+      if (!force && existing.evaluationMode === 'multimodal-llm-judge') {
+        emitter.emit('cell:stage', {
+          jobId,
+          cellId,
+          index: i + 1,
+          total: targetCells.length,
+          stage: 'prompt-judge',
+          detail: `Reusing cached multimodal-llm-judge verdict (${existing.passedGate ? 'PASS' : 'DISQUALIFIED'})`,
+        });
+        completedJudgeCells++;
+        emitter.emit('cell:done', { jobId, cellId, index: i + 1, total: targetCells.length, ok: true });
+        continue;
+      }
+
+      emitter.emit('cell:stage', {
+        jobId,
+        cellId,
+        index: i + 1,
+        total: targetCells.length,
+        stage: 'prompt-judge',
+        detail: 'Running post-server multimodal LLM on-topic & feature coverage judge',
+      });
+      try {
+        const upgraded = await upgradeCellWithLlmJudge({
+          cellDir,
+          promptEntry,
+          config,
+          runtime,
+        });
+        completedJudgeCells++;
+        emitter.emit('cell:done', {
+          jobId,
+          cellId,
+          index: i + 1,
+          total: targetCells.length,
+          ok: true,
+          verdict: upgraded,
+        });
+      } catch (err) {
+        failedJudgeCells++;
+        emitter.emit('cell:done', {
+          jobId,
+          cellId,
+          index: i + 1,
+          total: targetCells.length,
+          ok: false,
+          error: err.message || String(err),
+        });
+      }
+    }
+
+    const durationMs = Math.round(performance.now() - tJudgeJob0);
+    const summary = aggregateAllResults();
+    emitter.emit('job:done', {
+      jobId,
+      stage: 'judge',
+      completedCells: completedJudgeCells,
+      failedCells: failedJudgeCells,
+      durationMs,
+      summary,
+    });
+    return {
+      jobId,
+      stage: 'judge',
+      completedCells: completedJudgeCells,
+      failedCells: failedJudgeCells,
+      durationMs,
+      summary,
+    };
+  }
+
+  const cellQueue = [];
+  for (const cellHarness of harnessesToRun) {
+    const harnessSpec = getHarnessSpec(cellHarness);
+    for (const cellSpec of specsToRun) {
+      for (const cellMode of modesToRun) {
+        // ACP harnesses (`claude-acp`, `codex-acp`) drive interactive agent loops rather than 1-shot text generation
+        if (cellHarness !== 'pi' && cellMode === 'oneshot') continue;
+        if (harnessSpec?.supportsModes && !harnessSpec.supportsModes.includes(cellMode)) continue;
+
+        for (const modelEntry of models) {
+          const explicitSingleOverride =
+            Array.isArray(modelKeys) && modelKeys.length === 1 && harnessesToRun.length === 1;
+          if (!explicitSingleOverride && !isModelCompatibleWithHarness(modelEntry, cellHarness)) {
+            continue;
+          }
+          for (const promptEntry of prompts) {
+            const cellId = buildCellId(modelEntry.key, promptEntry.id, cellMode, cellSpec, cellHarness);
+            cellQueue.push({
+              cellId,
+              cellDir: join(CELLS_ROOT, cellId),
+              cellHarness,
+              cellMode,
+              cellSpec,
+              modelEntry,
+              promptEntry,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  const totalCells = cellQueue.length;
+  const activeModelKeys = Array.from(new Set(cellQueue.map((c) => c.modelEntry.key)));
 
   emitter.emit('job:start', {
     jobId,
     stage: pipelineStage,
     auditRuns,
+    harness: requestedHarness,
+    harnesses: harnessesToRun,
     mode: requestedMode,
     modes: modesToRun,
     spec: requestedSpec,
     specs: specsToRun,
-    models: models.map((m) => m.key),
+    models: activeModelKeys.length > 0 ? activeModelKeys : models.map((m) => m.key),
     skippedModels: skippedModels.map((m) => ({ key: m.key, missingProviders: m.missingProviders })),
     unknownModels: unknownKeys,
     prompts: prompts.map((p) => p.id),
@@ -98,7 +283,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
     totalCells,
   });
 
-  if (models.length === 0 || prompts.length === 0) {
+  if (cellQueue.length === 0) {
     const summary = aggregateAllResults();
     emitter.emit('job:done', { jobId, stage: pipelineStage, completedCells: 0, failedCells: 0, summary });
     return { jobId, stage: pipelineStage, completedCells: 0, failedCells: 0, summary };
@@ -107,25 +292,6 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
   mkdirSync(CELLS_ROOT, { recursive: true });
   let completedCells = 0;
   let failedCells = 0;
-
-  const cellQueue = [];
-  for (const cellSpec of specsToRun) {
-    for (const cellMode of modesToRun) {
-      for (const modelEntry of models) {
-        for (const promptEntry of prompts) {
-          const cellId = buildCellId(modelEntry.key, promptEntry.id, cellMode, cellSpec);
-          cellQueue.push({
-            cellId,
-            cellDir: join(CELLS_ROOT, cellId),
-            cellMode,
-            cellSpec,
-            modelEntry,
-            promptEntry,
-          });
-        }
-      }
-    }
-  }
 
   // Stage 1: LLM Generation (or cache inspection when stage="audit" / reuseGeneration=true)
   const hasAgentWork = modesToRun.includes('agent');
@@ -141,7 +307,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
     while (nextIdx < cellQueue.length) {
       if (signal?.aborted) return;
       const item = cellQueue[nextIdx++];
-      const { cellId, cellDir, cellMode, cellSpec, modelEntry, promptEntry } = item;
+      const { cellId, cellDir, cellHarness, cellMode, cellSpec, modelEntry, promptEntry } = item;
       const genJsonPath = join(cellDir, 'generation.json');
 
       let hasExistingGen = false;
@@ -163,7 +329,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
           jobId,
           cellId,
           stage: 'generating',
-          detail: `Reusing cached ${cellMode} (${cellSpec}) generation output`,
+          detail: `Reusing cached ${cellMode} (${cellSpec}, harness=${cellHarness}) generation output`,
         });
         item.generation = JSON.parse(readFileSync(genJsonPath, 'utf8'));
       } else if (reuseGeneration && !hasExistingGen) {
@@ -174,6 +340,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
           cellId,
           modelKey: modelEntry.key,
           promptId: promptEntry.id,
+          harness: cellHarness,
           mode: cellMode,
           spec: cellSpec,
         });
@@ -183,6 +350,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
           promptEntry,
           cellDir,
           config,
+          harness: cellHarness,
           mode: cellMode,
           spec: cellSpec,
           designDoc,
@@ -390,8 +558,8 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
             }
 
             const tBench0 = performance.now();
-            const isStaticAnalysisOnly = bench.id === 'tech-stack';
-            const passes = isStaticAnalysisOnly ? 1 : auditRuns;
+            const isSinglePassBench = bench.id === 'tech-stack' || bench.id === 'prompt-judge';
+            const passes = isSinglePassBench ? 1 : auditRuns;
 
             if (passes === 1) {
               await bench.run({

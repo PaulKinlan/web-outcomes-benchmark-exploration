@@ -1,52 +1,60 @@
 {
-  "version": "2026.10",
-  "updatedAt": "2026-10-29",
+  "version": "2026.11",
+  "updatedAt": "2026-11-06",
   "providerBridges": [
     {
       "id": "antigravity",
-      "label": "Antigravity / Cloud Code Assist Bridge",
+      "label": "Antigravity / Cloud Code Assist Bridge (Local OAuth)",
       "providers": ["antigravity"],
       "packageName": "pi-antigravity",
       "defaultInstallSpec": "git+https://github.com/Rahularya01/pi-antigravity.git",
       "envOverrideVar": "PI_BRIDGE_ANTIGRAVITY",
+      "builtInAuthSupported": true,
+      "directEnvVars": ["GEMINI_API_KEY", "ANTHROPIC_API_KEY"],
       "transportOnly": true,
       "allowGlobalFallback": true,
-      "description": "Clean-room OAuth/transport extension bridging pi to Antigravity Gemini & Claude endpoints."
+      "description": "Local desktop OAuth bridge for Antigravity endpoints; on cloud VMs/CI, GEMINI_API_KEY & ANTHROPIC_API_KEY run directly via built-in pi-ai without needing this extension."
     },
     {
       "id": "codex-bridge",
-      "label": "OpenAI Codex Transport Bridge",
-      "providers": ["openai-codex", "codex"],
+      "label": "OpenAI Codex Transport & ACP Native App",
+      "providers": ["openai-codex", "codex", "openai"],
       "packageName": "pi-codex-bridge",
       "defaultInstallSpec": null,
       "envOverrideVar": "PI_BRIDGE_CODEX",
       "builtInAuthSupported": true,
+      "directEnvVars": ["OPENAI_API_KEY", "CODEX_API_KEY"],
+      "nativeAcpHarness": "codex-acp",
       "transportOnly": true,
       "allowGlobalFallback": true,
-      "description": "Supports pi's built-in openai-codex OAuth store plus optional explicit -e Codex extension bridges."
+      "description": "Supports OPENAI_API_KEY / pi built-in Codex OAuth directly, or native OpenAI Codex CLI via --harness=codex-acp (@zed-industries/codex-acp)."
     },
     {
       "id": "claude-bridge",
-      "label": "Claude OAuth / CLI Transport Bridge",
+      "label": "Claude Transport & ACP Native App",
       "providers": ["claude-bridge", "claude-code", "anthropic"],
       "packageName": "pi-claude-bridge",
       "defaultInstallSpec": null,
       "envOverrideVar": "PI_BRIDGE_CLAUDE",
       "builtInAuthSupported": true,
+      "directEnvVars": ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"],
+      "nativeAcpHarness": "claude-acp",
       "transportOnly": true,
       "allowGlobalFallback": true,
-      "description": "Optional explicit -e transport extension bridging pi to Claude Code / OAuth sessions when ANTHROPIC_API_KEY is not used."
+      "description": "Supports ANTHROPIC_API_KEY / Claude OAuth directly, or native Claude Code via --harness=claude-acp (@zed-industries/claude-code-acp)."
     },
     {
       "id": "muse",
-      "label": "Muse Provider Transport Bridge",
+      "label": "Meta Muse Direct API & Clean-Room Config",
       "providers": ["muse"],
       "packageName": "pi-muse",
       "defaultInstallSpec": null,
       "envOverrideVar": "PI_BRIDGE_MUSE",
+      "builtInAuthSupported": true,
+      "directEnvVars": ["MUSE_API_KEY", "OPENROUTER_API_KEY"],
       "transportOnly": true,
       "allowGlobalFallback": true,
-      "description": "Explicit -e transport extension bridging pi to Muse model endpoints in clean-room mode."
+      "description": "Native clean-room OpenAI-compatible Muse provider hydrated automatically from MUSE_API_KEY (https://api.meta.ai/v1) with OpenRouter fallback."
     }
   ],
   "models": [
@@ -461,17 +469,116 @@
     {
       "key": "kimi-k3-1-pro",
       "label": "Kimi K3.1 Pro",
-      "family": "Frontier Peers",
+      "family": "Kimi (Moonshot)",
       "tier": "flagship",
+      "pilot": true,
+      "enabled": true,
+      "releaseDate": "2026-10-23",
+      "aliases": ["kimi-3.1", "kimi-3-1", "kimi-k3.1", "kimi-k3.1-pro", "k3.1-pro"],
+      "routes": [
+        { "provider": "kimi-coding", "modelId": "k3.1-pro", "api": "anthropic-messages" },
+        { "provider": "moonshotai", "modelId": "kimi-k3.1-pro", "api": "openai-completions" },
+        { "provider": "openrouter", "modelId": "moonshotai/kimi-k3.1-pro", "api": "openai-completions" }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 65536
+    },
+    {
+      "key": "kimi-k3",
+      "label": "Kimi K3 (3.0)",
+      "family": "Kimi (Moonshot)",
+      "tier": "flagship",
+      "pilot": true,
+      "enabled": true,
+      "releaseDate": "2026-07-16",
+      "aliases": ["kimi-3.0", "kimi-3", "k3", "moonshotai/kimi-k3"],
+      "routes": [
+        { "provider": "kimi-coding", "modelId": "k3", "api": "anthropic-messages" },
+        { "provider": "moonshotai", "modelId": "kimi-k3", "api": "openai-completions" },
+        { "provider": "openrouter", "modelId": "moonshotai/kimi-k3", "api": "openai-completions" }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 65536
+    },
+    {
+      "key": "kimi-k3-1-highspeed",
+      "label": "Kimi K3.1 Pro Highspeed",
+      "family": "Kimi (Moonshot)",
+      "tier": "fast",
       "pilot": false,
       "enabled": true,
       "releaseDate": "2026-10-23",
+      "aliases": ["k3.1-pro-highspeed", "kimi-3.1-fast"],
       "routes": [
-        { "provider": "kimi-coding", "modelId": "k3" },
+        { "provider": "kimi-coding", "modelId": "k3.1-pro-highspeed", "api": "anthropic-messages" },
         { "provider": "openrouter", "modelId": "moonshotai/kimi-k3.1-pro", "api": "openai-completions" }
       ],
-      "contextWindow": 1000000,
+      "contextWindow": 1048576,
       "maxTokens": 65536
+    },
+    {
+      "key": "muse-spark",
+      "label": "Muse Spark 1.3",
+      "family": "Muse (Meta)",
+      "tier": "flagship",
+      "pilot": true,
+      "enabled": true,
+      "releaseDate": "2026-09-02",
+      "aliases": ["muse", "muse-spark-1.3", "muse-spark-1-3", "muse-1.3"],
+      "routes": [
+        { "provider": "muse", "modelId": "muse-spark-1.3", "api": "openai-completions" },
+        { "provider": "openrouter", "modelId": "meta/muse-spark-1.3", "api": "openai-completions" }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 65536
+    },
+    {
+      "key": "muse-spark-open",
+      "label": "Muse Spark Open",
+      "family": "Muse (Meta)",
+      "tier": "open-weights",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-10-15",
+      "aliases": ["muse-open", "muse-code", "meta/muse-spark-open"],
+      "routes": [
+        { "provider": "muse", "modelId": "muse-spark-open", "api": "openai-completions" },
+        { "provider": "openrouter", "modelId": "meta/muse-spark-open", "api": "openai-completions" }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 65536
+    },
+    {
+      "key": "muse-wonder",
+      "label": "Muse Wonder",
+      "family": "Muse (Meta)",
+      "tier": "flagship",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-10-12",
+      "aliases": ["meta/muse-wonder"],
+      "routes": [
+        { "provider": "muse", "modelId": "muse-wonder", "api": "openai-completions" },
+        { "provider": "openrouter", "modelId": "meta/muse-wonder", "api": "openai-completions" }
+      ],
+      "contextWindow": 1048576,
+      "maxTokens": 65536
+    },
+    {
+      "key": "muse-glimmer-30b",
+      "label": "Muse Glimmer 30B",
+      "family": "Muse (Meta)",
+      "tier": "fast",
+      "pilot": false,
+      "enabled": true,
+      "releaseDate": "2026-08-09",
+      "aliases": ["muse-glimmer", "meta/muse-glimmer-30b"],
+      "routes": [
+        { "provider": "muse", "modelId": "muse-glimmer-30b", "api": "openai-completions" },
+        { "provider": "openrouter", "modelId": "meta/muse-glimmer-30b", "api": "openai-completions" }
+      ],
+      "contextWindow": 131072,
+      "maxTokens": 16384
     },
     {
       "key": "glm-5-3-prime",

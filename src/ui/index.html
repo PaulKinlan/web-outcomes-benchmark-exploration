@@ -15,11 +15,20 @@
     <div class="header-inner">
       <div class="brand-group">
         <h1 class="site-title"><a href="#/leaderboard" class="brand-home-link">Web Generation Benchmark</a></h1>
-        <p class="site-subtitle">Clean-Room <code>pi</code> Agent Loop (0 skills · 0 extensions) + Real <code>$PORT</code> Server vs. Self-Contained 1-Shot across Lighthouse, <code>web-uplift</code>, CWV/INP/LoAF &amp; MemLab</p>
+        <p class="site-subtitle">Clean-Room <code>pi</code> &amp; ACP Harnesses (<code>Claude Code</code> · <code>Codex</code>) · On-Topic Judge Gate · <code>modern-web-guidance@0.0.197</code> + <code>web-uplift</code> · CWV/INP/LoAF &amp; MemLab</p>
       </div>
 
       <div class="header-actions">
         <div id="header-kpis" class="kpi-strip" aria-label="Benchmark corpus summary"></div>
+        <label class="inline-select" for="global-harness-select">
+          <span>Harness</span>
+          <select id="global-harness-select">
+            <option value="all">All Harnesses</option>
+            <option value="pi">Clean-Room pi</option>
+            <option value="claude-acp">Claude Code (ACP)</option>
+            <option value="codex-acp">OpenAI Codex (ACP)</option>
+          </select>
+        </label>
         <label class="inline-select" for="global-mode-select">
           <span>Track</span>
           <select id="global-mode-select">
@@ -53,9 +62,10 @@
       <a id="tab-matrix" class="tab-btn" href="#/matrix" data-view="matrix">2. Model × Prompt Matrix</a>
       <a id="tab-observatory" class="tab-btn" href="#/observatory" data-view="observatory">3. Default Stack Observatory</a>
       <a id="tab-arena" class="tab-btn" href="#/arena" data-view="arena">4. Side-by-Side Arena</a>
-      <a id="tab-methodology" class="tab-btn" href="#/methodology" data-view="methodology">5. Methodology &amp; Clean-Room</a>
+      <a id="tab-prompts" class="tab-btn" href="#/prompts" data-view="prompts">5. Prompt Visualizer (37)</a>
+      <a id="tab-methodology" class="tab-btn" href="#/methodology" data-view="methodology">6. Methodology &amp; Clean-Room</a>
       <a id="tab-run" class="tab-btn" href="#/run" data-view="run">
-        6. Run &amp; Extend
+        7. Run &amp; Extend
         <span id="live-run-indicator" class="run-dot hidden" aria-hidden="true"></span>
       </a>
     </nav>
@@ -68,25 +78,35 @@
       <p>Adjust pillar importance and recompute rankings across all stored runs.</p>
     </div>
     <form id="weights-form" class="weights-grid">
+      <label for="weight-judge">
+        <span>On-Topic Judge &amp; Feature Coverage</span>
+        <output id="out-weight-judge">20%</output>
+        <input id="weight-judge" name="judge" type="range" min="0" max="100" value="20" />
+      </label>
       <label for="weight-lighthouse">
         <span>Lighthouse (Mobile/Desktop)</span>
-        <output id="out-weight-lighthouse">25%</output>
-        <input id="weight-lighthouse" name="lighthouse" type="range" min="0" max="100" value="25" />
+        <output id="out-weight-lighthouse">18%</output>
+        <input id="weight-lighthouse" name="lighthouse" type="range" min="0" max="100" value="18" />
       </label>
       <label for="weight-uplift">
-        <span>web-uplift (6 Outcomes)</span>
-        <output id="out-weight-uplift">25%</output>
-        <input id="weight-uplift" name="uplift" type="range" min="0" max="100" value="25" />
+        <span>web-uplift (11 Primitives · MWG 0.0.197)</span>
+        <output id="out-weight-uplift">18%</output>
+        <input id="weight-uplift" name="uplift" type="range" min="0" max="100" value="18" />
       </label>
       <label for="weight-deepPerf">
         <span>Deep Perf (LCP, W3C INP, LoAF)</span>
-        <output id="out-weight-deepPerf">25%</output>
-        <input id="weight-deepPerf" name="deepPerf" type="range" min="0" max="100" value="25" />
+        <output id="out-weight-deepPerf">18%</output>
+        <input id="weight-deepPerf" name="deepPerf" type="range" min="0" max="100" value="18" />
+      </label>
+      <label for="weight-consoleErrors">
+        <span>Console, JS Exception &amp; Network Hygiene</span>
+        <output id="out-weight-consoleErrors">8%</output>
+        <input id="weight-consoleErrors" name="consoleErrors" type="range" min="0" max="100" value="8" />
       </label>
       <label for="weight-memory">
         <span>Memory &amp; MemLab Leaks</span>
-        <output id="out-weight-memory">15%</output>
-        <input id="weight-memory" name="memory" type="range" min="0" max="100" value="15" />
+        <output id="out-weight-memory">8%</output>
+        <input id="weight-memory" name="memory" type="range" min="0" max="100" value="8" />
       </label>
       <label for="weight-functionalFlow">
         <span>Multi-Step Flow Completion</span>
@@ -117,6 +137,8 @@
 
       <div id="category-filter-bar" class="category-pills" role="group" aria-label="Filter leaderboard by website category"></div>
 
+      <article id="judge-summary-callout" class="panel-card judge-callout hidden" aria-live="polite"></article>
+
       <div id="leaderboard-empty" class="empty-callout hidden">
         <h3>No benchmark cells recorded yet</h3>
         <p>Open the <strong>6. Run &amp; Extend</strong> tab or run <code>npm run bench -- --pilot</code> to evaluate models and populate rankings.</p>
@@ -129,9 +151,11 @@
             <tr>
               <th>Rank</th>
               <th data-th-col="label"><button type="button" class="th-sort-btn" data-sort-col="label">Model <span class="sort-glyph">↕</span></button></th>
-              <th data-th-col="mode"><button type="button" class="th-sort-btn" data-sort-col="mode">Mode <span class="sort-glyph">↕</span></button></th>
-              <th class="num" data-th-col="cellsRun"><button type="button" class="th-sort-btn num" data-sort-col="cellsRun">Cells <span class="sort-glyph">↕</span></button></th>
+              <th data-th-col="mode"><button type="button" class="th-sort-btn" data-sort-col="mode">Harness &amp; Track <span class="sort-glyph">↕</span></button></th>
+              <th class="num" data-th-col="cellsRun"><button type="button" class="th-sort-btn num" data-sort-col="cellsRun">Valid / Cells <span class="sort-glyph">↕</span></button></th>
               <th class="num" data-th-col="composite"><button type="button" class="th-sort-btn num" data-sort-col="composite">Composite <span class="sort-glyph">↓</span></button></th>
+              <th class="num" data-th-col="judge"><button type="button" class="th-sort-btn num" data-sort-col="judge" title="On-Topic &amp; Feature Coverage Judge Score (disqualified off-topic/stub builds receive Composite = 0)">Judge <span class="sort-glyph">↕</span></button></th>
+              <th class="num" data-th-col="consoleErrors"><button type="button" class="th-sort-btn num" data-sort-col="consoleErrors" title="Console, Uncaught JS Exception &amp; Network 4xx/5xx Hygiene Score across Load + User Journey">Console <span class="sort-glyph">↕</span></button></th>
               <th class="num" data-th-col="lighthouse"><button type="button" class="th-sort-btn num" data-sort-col="lighthouse">Lighthouse <span class="sort-glyph">↕</span></button></th>
               <th class="num" data-th-col="uplift"><button type="button" class="th-sort-btn num" data-sort-col="uplift">web-uplift <span class="sort-glyph">↕</span></button></th>
               <th class="num" data-th-col="deepPerf"><button type="button" class="th-sort-btn num" data-sort-col="deepPerf">Deep Perf <span class="sort-glyph">↕</span></button></th>
@@ -148,6 +172,29 @@
           <tbody id="leaderboard-tbody"></tbody>
         </table>
       </div>
+
+      <article id="harness-head-to-head-panel" class="panel-card mt-lg hidden">
+        <h3>Paired Harness Comparison: Clean-Room <code>pi</code> vs. Agent Client Protocol (<code>Claude Code ACP</code> / <code>Codex ACP</code>)</h3>
+        <p class="panel-sub">Same underlying model &amp; identical zero-bias prompt driven via clean-room <code>pi</code> vs. JSON-RPC 2.0 ACP v1 agent harnesses.</p>
+        <div class="table-surface">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Model &amp; ACP Harness</th>
+                <th>Prompt</th>
+                <th class="num">pi Score</th>
+                <th class="num">ACP Score</th>
+                <th class="num">Δ (ACP − pi)</th>
+                <th>pi Stack</th>
+                <th>ACP Stack</th>
+                <th class="num">pi / ACP LCP</th>
+                <th class="num">pi / ACP Turns</th>
+              </tr>
+            </thead>
+            <tbody id="harness-h2h-tbody"></tbody>
+          </table>
+        </div>
+      </article>
 
       <article id="mode-head-to-head-panel" class="panel-card mt-lg hidden">
         <h3>Paired Head-to-Head: Autonomous <code>pi</code> Agent Loop vs. 1-Shot Generation</h3>
@@ -205,10 +252,20 @@
               <span>Split Columns</span>
               <select id="lh-split-select">
                 <option value="none">Combined Corpus</option>
+                <option value="harness">By Harness (pi vs ACP)</option>
                 <option value="mode">By Lead (Agent vs 1-Shot)</option>
                 <option value="family">By Model Family</option>
                 <option value="spec">By Spec (Free-form vs Guided)</option>
                 <option value="model">By Individual Model</option>
+              </select>
+            </label>
+            <label class="inline-select" for="lh-harness-select">
+              <span>Harness</span>
+              <select id="lh-harness-select">
+                <option value="all">All Harnesses</option>
+                <option value="pi">Clean-Room pi</option>
+                <option value="claude-acp">Claude Code (ACP)</option>
+                <option value="codex-acp">OpenAI Codex (ACP)</option>
               </select>
             </label>
             <label class="inline-select" for="lh-family-select">
@@ -266,13 +323,17 @@
             <span>Cell Display</span>
             <select id="matrix-metric-select">
               <option value="composite">Composite Score (0–100)</option>
+              <option value="judge">On-Topic Judge Score (0–100)</option>
+              <option value="consoleErrors">Console &amp; Network Score (0–100)</option>
+              <option value="errorCount">JS + Network Error Count</option>
               <option value="lighthouse">Lighthouse Score</option>
               <option value="lhFailures">Lighthouse Failed Audits</option>
               <option value="framework">Default Frontend + Backend</option>
+              <option value="mwgFeatures">MWG 0.0.197 Platform Features</option>
               <option value="inpMs">W3C INP Latency (ms)</option>
               <option value="mobileLcpMs">Mobile LCP (ms)</option>
               <option value="burstP95TtfbMs">Server Burst P95 TTFB (ms)</option>
-              <option value="agentTurns">pi Agent Turns</option>
+              <option value="agentTurns">Agent Turns (pi / ACP)</option>
               <option value="memory">Memory Health Score</option>
               <option value="uplift">web-uplift Score</option>
               <option value="functionalFlow">Journey Completion %</option>
@@ -313,8 +374,30 @@
         </article>
       </div>
 
+      <article id="library-detector-panel" class="panel-card mt-lg">
+        <div class="cohort-header-row">
+          <div>
+            <h3>Detected Libraries, UI Kits &amp; Runtime Versions (<code>Library-Detector</code> + Wappalyzer Engine)</h3>
+            <p class="panel-sub">Multi-signal detection reconciling live <code>window</code> JS globals &amp; React/Vue/Svelte fiber roots, CSS custom-property tokens, <code>&lt;script src&gt;</code> CDN semvers, HTTP headers, and <code>package.json</code> dependencies.</p>
+          </div>
+          <span id="library-detector-badge" class="fw-tag mono">Library-Detector v2.0</span>
+        </div>
+        <div id="library-detector-body" class="mwg-feature-grid"></div>
+      </article>
+
+      <article id="mwg-adoption-panel" class="panel-card mt-lg">
+        <div class="cohort-header-row">
+          <div>
+            <h3>Modern Web Guidance (<code>modern-web-guidance@0.0.197</code>) Platform Feature Adoption</h3>
+            <p class="panel-sub">Spontaneous, unprompted adoption of baseline modern HTML, CSS, security, and agentic web primitives across evaluated builds.</p>
+          </div>
+          <span id="mwg-version-badge" class="fw-tag mono">MWG 0.0.197 · web-uplift 0.0.197</span>
+        </div>
+        <div id="mwg-adoption-body" class="mwg-feature-grid"></div>
+      </article>
+
       <article class="panel-card mt-lg">
-        <h3>Controlled Cohort Comparison: Performance, Server TTFB &amp; Memory by Stack / Mode</h3>
+        <h3>Controlled Cohort Comparison: Performance, Server TTFB &amp; Memory by Stack / Harness / Mode</h3>
         <p class="panel-sub">Click any cohort row to drill down into the exact generated websites matching that mode, frontend framework, backend server, or delivery pattern.</p>
         <div class="table-surface">
           <table class="data-table" id="tech-cohort-table">
@@ -370,7 +453,44 @@
       <div id="arena-split-grid" class="arena-grid"></div>
     </section>
 
-    <!-- VIEW 5: METHODOLOGY & CLEAN-ROOM ENVIRONMENT -->
+    <!-- VIEW 5: PROMPT VISUALIZER & REFERENCE TARGETS -->
+    <section id="view-prompts" class="studio-view hidden" aria-labelledby="heading-prompts">
+      <div class="section-toolbar">
+        <div>
+          <h2 id="heading-prompts" class="section-heading">Prompt Visualizer &amp; <code>gemini-nano-banana-2.1</code> Reference Layouts</h2>
+          <p class="section-desc">Inspect all 37 functional prompts across 10 categories alongside the target <code>gemini-nano-banana-2.1</code> reference layout images, canonical domain seed data, and generated builds.</p>
+        </div>
+        <div class="toolbar-controls">
+          <label class="inline-select" for="prompts-scope-select">
+            <span>Show</span>
+            <select id="prompts-scope-select">
+              <option value="all">All 37 Prompts</option>
+              <option value="pilot">10 Pilot Prompts (1/Cat)</option>
+              <option value="evaluated">With Generated Builds</option>
+              <option value="auth">Requires Auth Flow 🔒</option>
+            </select>
+          </label>
+          <input id="prompts-search-input" class="transcript-search" type="search" placeholder="Search title, prompt, brand..." aria-label="Search prompts" />
+          <button id="toggle-design-doc-btn" type="button" class="btn btn-secondary">View <code>design.md</code></button>
+        </div>
+      </div>
+
+      <article id="prompts-design-doc-panel" class="panel-card hidden" style="margin-bottom:16px">
+        <div class="cohort-header-row">
+          <div>
+            <h3 style="margin:0">Shared UI Design Specification (<code>prompts/design.md</code>)</h3>
+            <p class="panel-sub" style="margin:4px 0 0">Attached in <code>--spec=guided</code> runs alongside each prompt's <code>gemini-nano-banana-2.1</code> layout reference image and canonical <code>seed-data.json</code>.</p>
+          </div>
+          <button id="close-design-doc-btn" type="button" class="btn btn-ghost">Hide ✕</button>
+        </div>
+        <pre id="prompts-design-doc-pre" class="code-viewer" style="max-height:260px;margin-top:10px;white-space:pre-wrap"></pre>
+      </article>
+
+      <div id="prompts-category-pills" class="category-pills" role="group" aria-label="Filter prompt visualizer by category"></div>
+      <div id="prompts-gallery-grid" class="prompt-visualizer-grid"></div>
+    </section>
+
+    <!-- VIEW 6: METHODOLOGY & CLEAN-ROOM ENVIRONMENT -->
     <section id="view-methodology" class="studio-view hidden" aria-labelledby="heading-methodology">
       <div class="section-toolbar">
         <div>
@@ -415,10 +535,10 @@
 
           <div class="selector-block">
             <div class="selector-header">
-              <h3>2. Select Prompts (10 Categories)</h3>
+              <h3>2. Select Prompts (All 37 Across 10 Categories)</h3>
               <div class="mini-actions">
+                <button type="button" class="link-btn" id="select-all-prompts-btn">All 37 Prompts</button>
                 <button type="button" class="link-btn" id="select-pilot-prompts-btn">10 Pilot Prompts</button>
-                <button type="button" class="link-btn" id="select-all-prompts-btn">All Prompts</button>
                 <button type="button" class="link-btn" id="clear-prompts-btn">None</button>
               </div>
             </div>
@@ -442,10 +562,20 @@
                 <input type="checkbox" id="opt-skip-judge" />
                 <span>Fast deterministic uplift (skip LLM judge pass)</span>
               </label>
+              <label class="inline-select" for="opt-harness-mode">
+                <span>Coding Harness</span>
+                <select id="opt-harness-mode">
+                  <option value="pi" selected>Clean-Room pi (Default)</option>
+                  <option value="claude-acp">Claude Code via ACP (@zed-industries/claude-code-acp)</option>
+                  <option value="codex-acp">OpenAI Codex via ACP (@zed-industries/codex-acp)</option>
+                  <option value="acp">All ACP Harnesses (Claude + Codex)</option>
+                  <option value="all">All Harnesses Side-by-Side (pi + Claude ACP + Codex ACP)</option>
+                </select>
+              </label>
               <label class="inline-select" for="opt-gen-mode">
-                <span>Harness Mode</span>
+                <span>Execution Track</span>
                 <select id="opt-gen-mode">
-                  <option value="agent" selected>Clean-Room pi Agent Loop + Real $PORT Server (Default)</option>
+                  <option value="agent" selected>Autonomous Agent Loop + Real $PORT Server (Default)</option>
                   <option value="oneshot">Self-Contained 1-Shot HTML Stream</option>
                   <option value="both">Both Side-by-Side (Agent + 1-Shot)</option>
                 </select>
@@ -453,17 +583,18 @@
               <label class="inline-select" for="opt-spec-mode">
                 <span>Prompt Spec</span>
                 <select id="opt-spec-mode">
-                  <option value="freeform" selected>Free-form (Open Prompt Only)</option>
+                  <option value="both" selected>Both Side-by-Side (Free-form + Guided)</option>
+                  <option value="freeform">Free-form (Open Prompt Only)</option>
                   <option value="guided">Guided (Ref Layout Image + design.md + Seed Data)</option>
-                  <option value="both">Both Side-by-Side (Free-form + Guided)</option>
                 </select>
               </label>
               <label class="inline-select" for="opt-run-stage">
                 <span>Pipeline Stage</span>
                 <select id="opt-run-stage">
-                  <option value="all" selected>All (Generate + Canary + Audit)</option>
+                  <option value="all" selected>All (Generate + Canary + Audit + Judge)</option>
                   <option value="generate">Stage 1 Only: Generate (No Chrome)</option>
                   <option value="audit">Stage 2 Only: Audit Cached Cells</option>
+                  <option value="judge">Stage 3 Only: Post-Audit Multimodal Judge</option>
                 </select>
               </label>
               <label class="inline-select" for="opt-audit-runs">
@@ -536,6 +667,26 @@
         </div>
       </header>
       <div id="lh-audit-dialog-body" class="dialog-body"></div>
+    </div>
+  </dialog>
+
+  <!-- PROMPT REFERENCE TARGET & MODEL BUILDS COMPARISON DIALOG -->
+  <dialog id="prompt-visualizer-dialog" class="detail-dialog" closedby="any" aria-labelledby="prompt-vis-dialog-title">
+    <div class="dialog-shell">
+      <header class="dialog-header">
+        <div>
+          <p id="prompt-vis-dialog-eyebrow" class="dialog-eyebrow">Prompt Visualizer &amp; Target Layout Reference</p>
+          <h2 id="prompt-vis-dialog-title" class="dialog-title">Prompt Target</h2>
+        </div>
+        <div class="dialog-header-actions">
+          <button id="prompt-vis-open-arena-btn" type="button" class="btn btn-secondary">Compare in Arena →</button>
+          <button id="prompt-vis-run-btn" type="button" class="btn btn-primary">Run This Prompt</button>
+          <form method="dialog">
+            <button id="close-prompt-vis-dialog-btn" type="submit" class="btn btn-ghost" aria-label="Close prompt visualizer dialog">✕</button>
+          </form>
+        </div>
+      </header>
+      <div id="prompt-vis-dialog-body" class="dialog-body"></div>
     </div>
   </dialog>
 
