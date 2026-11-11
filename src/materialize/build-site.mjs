@@ -398,16 +398,24 @@ export async function materializeSite({ cellDir, extraction, onProgress = () => 
     }
   }
 
+  // Say what was actually there, so "nothing runnable" can be told apart from "the agent wrote nothing" or
+  // "the agent wrote a project somewhere the benchmark does not look" without downloading the workspace.
+  const seenPaths = (files || []).map((f) => f.path).sort();
+  const seenSummary = seenPaths.length
+    ? ` Workspace held ${seenPaths.length} text file(s): ${seenPaths.slice(0, 12).join(', ')}${seenPaths.length > 12 ? ', …' : ''}.`
+    : ' Workspace held no text files.';
+
   const failed = {
     ok: false,
     outputShape,
+    workspaceFiles: seenPaths.slice(0, 200),
     materializeTier: 'failed',
     runnableWithoutBuildStep: false,
     synthesizedWrapper: false,
     installedPackages: [],
     buildDurationMs: Math.round(performance.now() - t0),
     distBytes: 0,
-    error: `Output shape "${outputShape}" produced no runnable HTML or component files.`,
+    error: `Output shape "${outputShape}" produced no runnable HTML or component files.${seenSummary}`,
   };
   writeFileSync(join(cellDir, 'materialization.json'), JSON.stringify(failed, null, 2) + '\n', 'utf8');
   return { distDir, ...failed };
