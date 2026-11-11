@@ -556,7 +556,7 @@
       "pilot": false,
       "enabled": true,
       "releaseDate": "2026-10-12",
-      "aliases": ["meta/muse-wonder"],
+      "aliases": ["meta/muse-wonder", "muse-wonder-1.0", "muse-wonder-1"],
       "routes": [
         { "provider": "muse", "modelId": "muse-wonder", "api": "openai-completions" },
         { "provider": "openrouter", "modelId": "meta/muse-wonder", "api": "openai-completions" }

@@ -512,6 +512,12 @@ export async function generateWebsite({
         route?.modelId ||
         modelEntry.key;
 
+      // Pin the model through the adapter's own env var too (e.g. ANTHROPIC_MODEL for Claude Code), so the
+      // agent starts on the requested model even before session/set_model is negotiated.
+      if (harnessSpec.modelEnvVar && desiredModelId) {
+        childEnv[harnessSpec.modelEnvVar] = desiredModelId;
+      }
+
       const customArgs =
         normalizedHarness === 'custom-acp' && process.env.ACP_CUSTOM_ARGS
           ? process.env.ACP_CUSTOM_ARGS.split(/\s+/).filter(Boolean)
@@ -568,6 +574,7 @@ export async function generateWebsite({
         acpSource: binInfo.source,
         selectedModelId: acpRes.selectedModelId || desiredModelId,
         selectedModeId: acpRes.selectedModeId || null,
+        modelSelection: acpRes.modelSelection || null,
         isolationFlags: ['acp-v1-stdio', 'mcpServers=[]', 'settingSources=[]'],
         skillsLoaded: 0,
         ambientExtensionsLoaded: 0,
@@ -594,6 +601,8 @@ export async function generateWebsite({
         protocol: 'acp-v1',
         provider: targetProvider,
         modelId: acpRes.selectedModelId || desiredModelId,
+        requestedModelId: desiredModelId,
+        modelVerified: acpRes.modelSelection?.verified ?? null,
         via: `${harnessSpec.label} (ACP v1 stdio)`,
         exactPrompt,
         harnessEnvironment,

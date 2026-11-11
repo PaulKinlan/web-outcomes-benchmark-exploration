@@ -23,6 +23,7 @@
       "provider": "anthropic",
       "compatibleFamilies": ["Claude (Anthropic)"],
       "defaultModelKey": "claude-sonnet-5-5",
+      "modelEnvVar": "ANTHROPIC_MODEL",
       "supportsModes": ["agent"],
       "preferredModeIds": ["bypassPermissions", "acceptEdits", "default"],
       "sessionMeta": {

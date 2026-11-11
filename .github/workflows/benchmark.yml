@@ -80,6 +80,11 @@ on:
         required: true
         default: 'ubuntu-latest'
         type: string
+      allow_unregistered_models:
+        description: 'Allow model selectors that are not in config/models.json (otherwise the planner fails fast on typos)'
+        required: false
+        default: false
+        type: boolean
       deploy_pages:
         description: 'Deploy static Benchmark Studio report to GitHub Pages'
         required: false
@@ -122,6 +127,7 @@ jobs:
           INPUT_AUDIT_RUNS: ${{ inputs.audit_runs }}
           INPUT_REUSE_RUN_ID: ${{ inputs.reuse_generation_run_id }}
           INPUT_REUSE_AUDIT_RUN_ID: ${{ inputs.reuse_audit_run_id }}
+          INPUT_ALLOW_UNREGISTERED: ${{ inputs.allow_unregistered_models }}
         run: |
           node --input-type=module -e '
             import { appendFileSync } from "node:fs";
@@ -139,7 +145,12 @@ jobs:
               spec: process.env.INPUT_SPEC || "freeform",
               auditRuns: Number(process.env.INPUT_AUDIT_RUNS || 1),
               reuseGenerationRunId: process.env.INPUT_REUSE_RUN_ID || reuseAuditRunId,
+              strictModels: String(process.env.INPUT_ALLOW_UNREGISTERED || "false") !== "true",
             });
+            for (const u of plan.unknownModels) {
+              console.log(`::warning::Model selector "${u.selector}" is not in config/models.json; relying on the pi-ai catalog at runtime.`);
+            }
+            for (const w of plan.warnings) console.log(`::warning::${w}`);
 
             const skipGenerate = plan.skipGenerate || skipAudit;
             const genMatrix = skipGenerate
@@ -222,6 +233,9 @@ jobs:
             ${{ matrix.shard.promptFlag }}
 
       - name: Upload generated workspace & pi session artifacts (without node_modules)
+        # Upload even when the shard fails or times out so finished cells and session transcripts survive;
+        # cells without generation.json are incomplete and skipped by the audit stage.
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: generated-cells-${{ matrix.shard.shardId }}

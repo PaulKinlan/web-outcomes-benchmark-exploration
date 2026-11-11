@@ -109,7 +109,9 @@ describe('Kimi (3.0 & 3.1) + Muse Auth Bridge, Full 37-Prompt Shards, Library-De
     assert.equal(defaultPlan.promptCount, 37);
     assert.deepEqual(defaultPlan.specs, ['freeform', 'guided']);
     assert.equal(defaultPlan.totalCells, 8 * 37 * 2); // 592 cells!
-    assert.ok(defaultPlan.generateShards.length <= 120);
+    // Stays under GitHub's 256-job matrix cap while keeping agent shards small enough to finish in time.
+    assert.ok(defaultPlan.generateShards.length <= 256);
+    assert.ok(defaultPlan.generateShards.every((s) => s.promptCount <= 10));
     assert.ok(defaultPlan.auditShards.length <= 160);
   });
 
