@@ -89,13 +89,17 @@
   },
   "scoring": {
     "weights": {
-      "judge": 0.20,
-      "lighthouse": 0.18,
-      "uplift": 0.18,
-      "deepPerf": 0.18,
-      "consoleErrors": 0.08,
-      "memory": 0.08,
-      "functionalFlow": 0.10
+      "judge": 0.18,
+      "lighthouse": 0.16,
+      "uplift": 0.16,
+      "deepPerf": 0.16,
+      "security": 0.12,
+      "functionalFlow": 0.09,
+      "consoleErrors": 0.07,
+      "memory": 0.06
     }
+  },
+  "security": {
+    "advisoryLookup": true
   }
 }

@@ -21,6 +21,7 @@ const DEFAULT_SORT_DIR = {
   lighthouse: 'desc',
   uplift: 'desc',
   deepPerf: 'desc',
+  security: 'desc',
   memory: 'desc',
   functionalFlow: 'desc',
   mobileLcpMs: 'asc',
@@ -586,6 +587,8 @@ function getRowSortValue(row, col) {
       return row.scores?.uplift ?? null;
     case 'deepPerf':
       return row.scores?.deepPerf ?? null;
+    case 'security':
+      return row.scores?.security ?? null;
     case 'memory':
       return row.scores?.memory ?? null;
     case 'functionalFlow':
@@ -698,6 +701,7 @@ function computeFilteredLeaderboard() {
           lighthouse: avg(built.map((c) => c.scores.lighthouse)),
           uplift: avg(built.map((c) => c.scores.uplift)),
           deepPerf: avg(built.map((c) => c.scores.deepPerf)),
+          security: avg(built.map((c) => c.scores.security)),
           memory: avg(built.map((c) => c.scores.memory)),
           functionalFlow: avg(list.map((c) => c.scores.functionalFlow)),
         },
@@ -1628,6 +1632,7 @@ function renderLeaderboard() {
             <td class="num"><span class="score-badge ${scoreClass(r.scores.lighthouse)}">${fmtScore(r.scores.lighthouse)}</span></td>
             <td class="num"><span class="score-badge ${scoreClass(r.scores.uplift)}">${fmtScore(r.scores.uplift)}</span></td>
             <td class="num"><span class="score-badge ${scoreClass(r.scores.deepPerf)}">${fmtScore(r.scores.deepPerf)}</span></td>
+            <td class="num"><span class="score-badge ${scoreClass(r.scores.security)}">${fmtScore(r.scores.security)}</span></td>
             <td class="num"><span class="score-badge ${scoreClass(r.scores.memory)}">${fmtScore(r.scores.memory)}</span></td>
             <td class="num">${r.scores.functionalFlow != null ? `${Math.round(r.scores.functionalFlow)}%` : '—'}</td>
             <td class="num"><span class="score-badge ${latencyClass(r.averages.mobileLcpMs, 2500, 4000)}">${fmtMs(r.averages.mobileLcpMs)}</span></td>
@@ -4678,7 +4683,7 @@ async function init() {
   }
 
   // Weight sliders
-  const weightInputs = ['judge', 'lighthouse', 'uplift', 'deepPerf', 'consoleErrors', 'memory', 'functionalFlow'];
+  const weightInputs = ['judge', 'lighthouse', 'uplift', 'deepPerf', 'security', 'consoleErrors', 'memory', 'functionalFlow'];
   for (const key of weightInputs) {
     const inp = document.getElementById(`weight-${key}`);
     const out = document.getElementById(`out-weight-${key}`);
@@ -4690,13 +4695,14 @@ async function init() {
 
   document.getElementById('reset-weights-btn').addEventListener('click', () => {
     const defaults = {
-      judge: 20,
-      lighthouse: 18,
-      uplift: 18,
-      deepPerf: 18,
-      consoleErrors: 8,
-      memory: 8,
-      functionalFlow: 10,
+      judge: 18,
+      lighthouse: 16,
+      uplift: 16,
+      deepPerf: 16,
+      security: 12,
+      consoleErrors: 7,
+      memory: 6,
+      functionalFlow: 9,
     };
     for (const [k, v] of Object.entries(defaults)) {
       const inp = document.getElementById(`weight-${k}`);

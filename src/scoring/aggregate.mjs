@@ -182,6 +182,9 @@ export function aggregateAllResults({
       const deepPerfScore = pillarScores['deep-perf']?.overall ?? null;
       const memoryScore = pillarScores['memory']?.overall ?? null;
       const functionalFlowScore = compiledFlow?.flowCompletionPct ?? (buildSucceeded ? 50 : 0);
+      const sec = rawBenchmarks['security'] || null;
+      const securityScored = sec ? pillarScores['security'] : null;
+      const securityScore = securityScored?.overall ?? null;
 
       let compositeScore = 0;
       if (validBuild) {
@@ -193,6 +196,7 @@ export function aggregateAllResults({
           [upliftScore, weights.uplift],
           [deepPerfScore, weights.deepPerf],
           [consoleErrorsScore, weights.consoleErrors],
+          [securityScore, weights.security],
           [memoryScore, weights.memory],
           [functionalFlowScore, weights.functionalFlow],
         ];
@@ -282,9 +286,34 @@ export function aggregateAllResults({
           deepPerf: deepPerfScore,
           memory: memoryScore,
           functionalFlow: functionalFlowScore,
+          security: securityScore,
         },
 
         consoleAudit,
+        securityAudit: sec
+          ? {
+              evaluated: true,
+              version: sec.version || null,
+              score: securityScore,
+              passed: securityScored.passed,
+              failed: securityScored.failed,
+              notApplicable: securityScored.notApplicable,
+              criticalFailures: securityScored.criticalFailures,
+              groups: securityScored.groups,
+              scope: sec.scope || null,
+              checks: (sec.checks || []).map((c) => ({
+                id: c.id,
+                group: c.group,
+                title: c.title,
+                severity: c.severity,
+                status: c.status,
+                detail: c.detail,
+                confidence: c.confidence,
+                evidence: (c.evidence || []).slice(0, 4),
+                ref: c.ref || null,
+              })),
+            }
+          : null,
 
         techStack: tech
           ? {
@@ -512,6 +541,7 @@ export function aggregateAllResults({
         deepPerf: avg(built.map((c) => c.scores.deepPerf)),
         memory: avg(built.map((c) => c.scores.memory)),
         functionalFlow: avg(mCells.map((c) => c.scores.functionalFlow)),
+        security: avg(built.map((c) => c.scores.security)),
       },
       averages: {
         mobileLcpMs: avg(built.map((c) => c.keyMetrics.mobileLcpMs)),
@@ -603,6 +633,7 @@ export function aggregateAllResults({
         avgUplift: avg(list.map((c) => c.scores.uplift)),
         avgDeepPerf: avg(list.map((c) => c.scores.deepPerf)),
         avgMemory: avg(list.map((c) => c.scores.memory)),
+        avgSecurity: avg(list.map((c) => c.scores.security)),
         avgFlowCompletion: avg(list.map((c) => c.scores.functionalFlow)),
         avgMobileLcpMs: avg(list.map((c) => c.keyMetrics.mobileLcpMs)),
         avgInpMs: avg(list.map((c) => c.keyMetrics.inpMs)),
