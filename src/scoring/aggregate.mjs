@@ -19,6 +19,7 @@ import { MODERN_WEB_CATALOG_VERSION, MODERN_WEB_FEATURE_RULES } from '../benchma
 import { LIBRARY_DETECTOR_ENGINE_VERSION } from '../benchmarks/library-signatures.mjs';
 import { computeConsoleErrorScore } from '../benchmarks/console-errors.bench.mjs';
 import { loadLatestCanary } from '../benchmarks/canary.mjs';
+import { PILLARS, flattenCellTests, rollupTests, buildTestCatalog } from './test-catalog.mjs';
 
 export const CELLS_ROOT = join(PROJECT_ROOT, 'runs', 'cells');
 export const SUMMARY_OUT_PATH = join(PROJECT_ROOT, 'data', 'summary.json');
@@ -86,6 +87,7 @@ export function aggregateAllResults({
   const modelMap = new Map(modelReg.models.map((m) => [m.key, m]));
 
   const cells = [];
+  const testsByCell = [];
   if (existsSync(cellsRoot)) {
     const dirs = readdirSync(cellsRoot).sort();
     for (const dirName of dirs) {
@@ -222,8 +224,13 @@ export function aggregateAllResults({
         tech?.staticAnalysis?.modernWebAdoptionCount ??
         Object.values(detectedFeatureMap).filter(Boolean).length;
 
+      const cellTests = buildSucceeded ? flattenCellTests({ rawBenchmarks, pillarScores, compiledFlow }) : [];
+      testsByCell.push({ cellId: dirName, tests: cellTests });
+
       cells.push({
         cellId: dirName,
+        pillarRollups: rollupTests(cellTests),
+        demo: generation.demo === true,
         modelKey: generation.modelKey,
         modelLabel: modelInfo?.label || generation.modelLabel || generation.modelKey,
         family: modelInfo?.family || generation.family || 'Other',
@@ -459,6 +466,9 @@ export function aggregateAllResults({
       });
     }
   }
+
+  const { catalog: testCatalog, compact: compactTests } = buildTestCatalog(testsByCell);
+  for (const c of cells) c.testResults = compactTests.get(c.cellId) || [];
 
   // 1. Leaderboard Aggregation by (modelKey + mode + spec + harness) so Harnesses, Agent vs 1-Shot & Free-form vs Guided tracks are cleanly ranked & filterable
   const byModelMode = new Map();
@@ -1164,6 +1174,7 @@ export function aggregateAllResults({
     },
     totals: {
       cells: cells.length,
+      demoCells: cells.filter((c) => c.demo).length,
       validCells: validCellsCount,
       disqualifiedCells: disqualifiedCellsCount,
       agentCells: agentCellsCount,
@@ -1179,6 +1190,8 @@ export function aggregateAllResults({
     leaderboard,
     judgeSummary,
     consoleErrorSummary,
+    pillars: PILLARS.map((p) => ({ ...p, weight: weights[p.weightKey] ?? null })),
+    testCatalog,
     trackComparison: {
       byTrack: byTrackRows,
     },

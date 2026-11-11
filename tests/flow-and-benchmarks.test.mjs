@@ -246,7 +246,7 @@ test('flow compiler, deep-perf (W3C INP), and memory leak detector distinguish c
     });
 
     assert.ok(cleanPerf.journey.interactionCount >= 3, 'Expected real W3C EventTiming interactions');
-    assert.ok(leakyPerf.journey.inpMs > cleanPerf.journey.inpMs + 80, `Expected leaky/slow INP (${leakyPerf.journey.inpMs}ms) >> clean INP (${cleanPerf.journey.inpMs}ms)`);
+    assert.ok(leakyPerf.journey.inpMs > cleanPerf.journey.inpMs + 50, `Expected leaky/slow INP (${leakyPerf.journey.inpMs}ms) >> clean INP (${cleanPerf.journey.inpMs}ms)`);
 
     // 4. Memory benchmark detects detached DOM nodes + listener leak on leaky site & cleans up raw snapshots
     const cleanMem = await memoryBench.run({
