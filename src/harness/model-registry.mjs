@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { PROJECT_ROOT } from '../util/env.mjs';
 import { loadPiAi, getPiRuntimeInfo } from './pi-loader.mjs';
-import { createBridgedCredentialStore, getPiExtensionModels } from './pi-auth-bridge.mjs';
+import { createBridgedCredentialStore, getPiExtensionModels, anthropicCompatForModel } from './pi-auth-bridge.mjs';
 import { listProviderBridges, resolveBridgeForProvider } from './provider-bridges.mjs';
 
 export const MODELS_CONFIG_PATH = join(PROJECT_ROOT, 'config', 'models.json');
@@ -82,7 +82,9 @@ function buildSyntheticPiModel(piModels, route, modelSpec) {
     cost: modelSpec.cost || template?.cost || { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: modelSpec.contextWindow || template?.contextWindow || 200000,
     maxTokens: modelSpec.maxTokens || template?.maxTokens || 32768,
-    ...(route.provider === 'anthropic' ? { compat: { supportsTemperature: false } } : {}),
+    ...(route.provider === 'anthropic'
+      ? { compat: { supportsTemperature: false, ...(anthropicCompatForModel(route.modelId) || {}) } }
+      : {}),
   };
 }
 

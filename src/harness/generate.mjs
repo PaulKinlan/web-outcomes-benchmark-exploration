@@ -17,6 +17,7 @@ import {
   getTrackForCell,
 } from './harness-registry.mjs';
 import { runAcpCodingSession } from './acp-client.mjs';
+import { resolveLiveRoute } from './model-id-resolver.mjs';
 import { loadDesignDoc } from '../registry/prompts.mjs';
 import { PROJECT_ROOT, sleep } from '../util/env.mjs';
 
@@ -481,9 +482,15 @@ export async function generateWebsite({
   const normalizedHarness = normalizeHarnessId(harness);
   const harnessSpec = getHarnessSpec(normalizedHarness) || getHarnessSpec('pi');
   mkdirSync(cellDir, { recursive: true });
-  const route = modelEntry.activeRoute;
+  const route = harnessSpec.protocol === 'pi' ? await resolveLiveRoute(modelEntry, modelEntry.activeRoute) : modelEntry.activeRoute;
   if (!route && harnessSpec.protocol === 'pi') {
     throw new Error(`Model "${modelEntry.key}" has no authenticated provider route.`);
+  }
+  if (route?.modelIdResolution?.method === 'not-listed') {
+    // Fail with the ids the key can actually use, rather than an opaque 404 from the provider.
+    throw new Error(
+      `Provider "${route.provider}" does not list model "${route.modelId}" for this API key. Available: ${route.modelIdResolution.availableModelIds.join(', ')}`
+    );
   }
 
   const startedAt = new Date().toISOString();
@@ -716,6 +723,7 @@ export async function generateWebsite({
           provider: piProvider,
           modelId: piModelId,
           via: piVia,
+        modelIdResolution: route?.modelIdResolution || null,
           startedAt,
           completedAt: new Date().toISOString(),
           durationMs: 0,
@@ -855,6 +863,7 @@ export async function generateWebsite({
         provider: piProvider,
         modelId: piModelId,
         via: piVia,
+        modelIdResolution: route?.modelIdResolution || null,
         thinkingLevel,
         exactPrompt,
         harnessEnvironment,
@@ -897,6 +906,7 @@ export async function generateWebsite({
         provider: piProvider,
         modelId: piModelId,
         via: piVia,
+        modelIdResolution: route?.modelIdResolution || null,
         thinkingLevel,
         exactPrompt,
         harnessEnvironment,
@@ -1011,6 +1021,7 @@ export async function generateWebsite({
       provider: route.provider,
       modelId: route.modelId,
       via: route.via,
+      modelIdResolution: route.modelIdResolution || null,
       exactPrompt,
       harnessEnvironment,
       startedAt,
@@ -1112,6 +1123,7 @@ export async function generateWebsite({
       provider: route.provider,
       modelId: route.modelId,
       via: route.via,
+      modelIdResolution: route.modelIdResolution || null,
       exactPrompt,
       harnessEnvironment: {
         ...harnessEnvironment,
@@ -1147,6 +1159,7 @@ export async function generateWebsite({
       provider: route.provider,
       modelId: route.modelId,
       via: route.via,
+      modelIdResolution: route.modelIdResolution || null,
       exactPrompt,
       harnessEnvironment,
       startedAt,

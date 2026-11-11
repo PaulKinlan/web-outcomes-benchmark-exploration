@@ -224,6 +224,26 @@ export function renderAcpTranscriptHtml({
  * Executes a full autonomous coding session over Agent Client Protocol (ACP v1, JSON-RPC 2.0 over stdio).
  * Supports `@zed-industries/claude-code-acp`, `@zed-industries/codex-acp`, and any compliant ACP v1 binary.
  */
+export function isAcpAuthRequiredError(err) {
+  return err?.code === -32000 || /auth(?:entication)? required|not authenticated|unauthenticated|please log ?in/i.test(String(err?.message || ''));
+}
+
+/**
+ * Orders the auth methods an ACP agent advertises so a headless run can pick one: the harness spec's own
+ * preference first, then anything that looks like an API-key method. Interactive logins are never chosen.
+ */
+export function pickAcpAuthMethods(authMethods, preferredIds = []) {
+  const offered = (Array.isArray(authMethods) ? authMethods : []).map((m) => m?.id).filter(Boolean);
+  const out = [];
+  for (const id of preferredIds || []) if (offered.includes(id) && !out.includes(id)) out.push(id);
+  for (const id of offered) {
+    if (out.includes(id)) continue;
+    if (/oauth|login|chatgpt|browser|personal|device/i.test(id)) continue;
+    if (/api[-_]?key|apikey|^openai$|token/i.test(id)) out.push(id);
+  }
+  return out;
+}
+
 export async function runAcpCodingSession({
   command,
   args = [],
@@ -740,6 +760,7 @@ export async function runAcpCodingSession({
 
   let sessionError = null;
   let modelSelection = null;
+  let authMethodUsed = null;
   try {
     // 1. ACP initialize handshake
     const initRes = await sendRequest(
@@ -765,18 +786,44 @@ export async function runAcpCodingSession({
     negotiatedProtocolVersion = initRes?.protocolVersion ?? ACP_PROTOCOL_VERSION;
     agentInfo = initRes?.agentInfo || null;
 
-    // 2. Create isolated ACP session in workspaceDir with zero MCP servers
-    const sessionRes = await sendRequest(
-      'session/new',
-      {
-        cwd: workspaceDir,
-        mcpServers: [],
-        ...(harnessSpec?.sessionMeta && Object.keys(harnessSpec.sessionMeta).length > 0
-          ? { _meta: harnessSpec.sessionMeta }
-          : {}),
-      },
-      45000
-    );
+    // 2. Create isolated ACP session in workspaceDir with zero MCP servers.
+    // Agents such as codex-acp answer "Authentication required" until the client picks one of the advertised
+    // auth methods, even when the API key is already in the environment. Pick an API-key method (never an
+    // interactive login) and retry once per candidate.
+    const newSessionParams = {
+      cwd: workspaceDir,
+      mcpServers: [],
+      ...(harnessSpec?.sessionMeta && Object.keys(harnessSpec.sessionMeta).length > 0
+        ? { _meta: harnessSpec.sessionMeta }
+        : {}),
+    };
+    let sessionRes = null;
+    try {
+      sessionRes = await sendRequest('session/new', newSessionParams, 45000);
+    } catch (err) {
+      const candidates = pickAcpAuthMethods(initRes?.authMethods, harnessSpec?.authMethodIds);
+      if (!isAcpAuthRequiredError(err) || candidates.length === 0) {
+        if (isAcpAuthRequiredError(err)) {
+          const offered = (initRes?.authMethods || []).map((m) => m.id).join(', ') || 'none';
+          throw new Error(`${err.message} (agent offered auth methods: ${offered}; none usable without a login)`);
+        }
+        throw err;
+      }
+      let lastErr = err;
+      for (const methodId of candidates) {
+        try {
+          await sendRequest('authenticate', { methodId }, 30000);
+          sessionRes = await sendRequest('session/new', newSessionParams, 45000);
+          authMethodUsed = methodId;
+          break;
+        } catch (authErr) {
+          lastErr = authErr;
+        }
+      }
+      if (!sessionRes) {
+        throw new Error(`${lastErr.message} (tried auth methods: ${candidates.join(', ')})`);
+      }
+    }
 
     activeSessionId = sessionRes?.sessionId;
     if (!activeSessionId) {
@@ -999,6 +1046,7 @@ export async function runAcpCodingSession({
       selectedModelId,
       selectedModeId,
       modelSelection,
+      authMethodUsed,
       permissionGrants,
       planEntryCount: planEntries.length,
       planEntries: planEntries.slice(0, 20),

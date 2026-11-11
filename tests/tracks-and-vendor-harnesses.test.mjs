@@ -12,6 +12,8 @@ import {
 import { planWorkflowShards } from '../src/runner/shard-planner.mjs';
 import { loadModelRegistryConfig } from '../src/harness/model-registry.mjs';
 import { capturePiSystemPrompt } from '../src/harness/generate.mjs';
+import { anthropicCompatForModel, buildCleanRoomPiModelsConfig } from '../src/harness/pi-auth-bridge.mjs';
+import { pickLiveModelId, resolveLiveRoute, resetLiveModelIdCache } from '../src/harness/model-id-resolver.mjs';
 
 const models = loadModelRegistryConfig().models;
 const byKey = (k) => models.find((m) => m.key === k);
@@ -110,5 +112,56 @@ describe('System prompt capture', () => {
     assert.ok(a && a.text.length > 100);
     assert.match(a.sha256, /^[0-9a-f]{64}$/);
     assert.equal(a.sha256, b.sha256);
+  });
+});
+
+describe('Pilot regressions (run 11)', () => {
+  it('sends adaptive thinking to Claude 4.6+ and 5.x models that pi does not know yet', () => {
+    assert.equal(anthropicCompatForModel('claude-sonnet-5-5').forceAdaptiveThinking, true);
+    assert.equal(anthropicCompatForModel('claude-opus-4-7').forceAdaptiveThinking, true);
+    assert.equal(anthropicCompatForModel('claude-haiku-4-5-20251001'), null);
+    assert.equal(anthropicCompatForModel('claude-sonnet-4-20250514'), null);
+    assert.equal(anthropicCompatForModel('claude-3-5-sonnet-latest'), null);
+    const cfg = buildCleanRoomPiModelsConfig();
+    const sonnet = cfg.providers.anthropic.models.find((m) => m.id === 'claude-sonnet-5-5');
+    assert.equal(sonnet.compat.forceAdaptiveThinking, true);
+  });
+
+  it('switches a short model name to the versioned id the provider actually lists', async () => {
+    assert.deepEqual(pickLiveModelId('muse-wonder', [], ['muse-spark-1.3', 'muse-wonder-1.0', 'muse-wonder-1.1']), {
+      modelId: 'muse-wonder-1.1',
+      method: 'versioned-id',
+    });
+    assert.equal(pickLiveModelId('muse-wonder', ['muse-wonder-1.0'], ['muse-wonder-1.0', 'muse-wonder-1.1']).method, 'alias');
+    assert.equal(pickLiveModelId('muse-wonder', [], ['muse-spark-1.3']), null);
+
+    const env = { MUSE_API_KEY: 'test-key' };
+    const fetchImpl = async (url, init) => {
+      assert.match(url, /\/models$/);
+      assert.equal(init.headers.Authorization, 'Bearer test-key');
+      return { ok: true, json: async () => ({ data: [{ id: 'muse-spark-1.3' }, { id: 'muse-wonder-1.0' }] }) };
+    };
+    resetLiveModelIdCache();
+    const entry = byKey('muse-wonder');
+    const route = { provider: 'muse', modelId: 'muse-wonder', api: 'openai-completions' };
+    const live = await resolveLiveRoute(entry, route, { fetchImpl, env });
+    assert.equal(live.modelId, 'muse-wonder-1.0');
+    assert.equal(live.modelIdResolution.requested, 'muse-wonder');
+    assert.ok(buildCleanRoomPiModelsConfig().providers.muse.models.some((m) => m.id === 'muse-wonder-1.0'));
+
+    resetLiveModelIdCache();
+    const missing = await resolveLiveRoute(entry, route, {
+      env,
+      fetchImpl: async () => ({ ok: true, json: async () => ({ data: [{ id: 'muse-spark-1.3' }] }) }),
+    });
+    assert.equal(missing.modelIdResolution.method, 'not-listed');
+    assert.deepEqual(missing.modelIdResolution.availableModelIds, ['muse-spark-1.3']);
+
+    resetLiveModelIdCache();
+    const offline = await resolveLiveRoute(entry, route, { env, fetchImpl: async () => { throw new Error('offline'); } });
+    assert.equal(offline.modelId, 'muse-wonder');
+    resetLiveModelIdCache();
+    const other = await resolveLiveRoute(byKey('claude-sonnet-5-5'), { provider: 'anthropic', modelId: 'claude-sonnet-5-5' });
+    assert.equal(other.modelIdResolution, undefined);
   });
 });

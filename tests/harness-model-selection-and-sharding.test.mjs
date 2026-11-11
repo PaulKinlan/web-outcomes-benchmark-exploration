@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { runAcpCodingSession } from '../src/harness/acp-client.mjs';
+import { runAcpCodingSession, pickAcpAuthMethods } from '../src/harness/acp-client.mjs';
 import { getHarnessSpec } from '../src/harness/harness-registry.mjs';
 import {
   planWorkflowShards,
@@ -20,12 +20,20 @@ const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity 
 const send = (m) => process.stdout.write(JSON.stringify(m) + '\\n');
 let current = process.env.MOCK_CURRENT || 'default';
 const withConfig = process.env.MOCK_CONFIG_OPTION === '1';
+const needAuth = process.env.MOCK_REQUIRE_AUTH === '1';
+let authed = false;
 rl.on('line', (line) => {
   if (!line.trim()) return;
   const msg = JSON.parse(line);
   if (msg.id != null && !msg.method) return;
   if (msg.method === 'initialize') {
-    send({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: 1, agentInfo: { name: 'mock-cc-acp', version: '0.0.1' }, agentCapabilities: {} } });
+    send({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: 1, agentInfo: { name: 'mock-cc-acp', version: '0.0.1' }, agentCapabilities: {}, authMethods: needAuth ? [{ id: 'chatgpt', name: 'Login' }, { id: process.env.MOCK_AUTH_METHOD || 'openai-api-key', name: 'API key' }] : [] } });
+  } else if (msg.method === 'authenticate') {
+    if (msg.params.methodId === 'chatgpt') { send({ jsonrpc: '2.0', id: msg.id, error: { code: -32603, message: 'needs a browser' } }); return; }
+    authed = true;
+    send({ jsonrpc: '2.0', id: msg.id, result: {} });
+  } else if (msg.method === 'session/new' && needAuth && !authed) {
+    send({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: 'Authentication required' } });
   } else if (msg.method === 'session/new') {
     send({ jsonrpc: '2.0', id: msg.id, result: {
       sessionId: 's1',
@@ -107,6 +115,20 @@ describe('ACP model selection', () => {
     assert.equal(res.ok, true, res.error);
     assert.equal(res.modelSelection.method, 'already-current');
     assert.equal(res.modelSelection.verified, true);
+  });
+
+  it('authenticates with an API-key method when the agent answers "Authentication required"', async () => {
+    const res = await runMock({ MOCK_REQUIRE_AUTH: '1' });
+    assert.equal(res.ok, true, res.error);
+    assert.equal(res.trajectory.acpMeta.authMethodUsed, 'openai-api-key');
+    assert.equal(res.selectedModelId, 'claude-sonnet-5-5');
+  });
+
+  it('never picks an interactive login, and says which methods were offered', async () => {
+    assert.deepEqual(pickAcpAuthMethods([{ id: 'chatgpt' }, { id: 'oauth-personal' }, { id: 'gemini-api-key' }, { id: 'openai' }], ['openai']), ['openai', 'gemini-api-key']);
+    const res = await runMock({ MOCK_REQUIRE_AUTH: '1', MOCK_AUTH_METHOD: 'device-login' });
+    assert.equal(res.ok, false);
+    assert.match(res.error, /Authentication required \(agent offered auth methods: chatgpt, device-login/);
   });
 
   it('pins Claude Code to the requested model through ANTHROPIC_MODEL', () => {

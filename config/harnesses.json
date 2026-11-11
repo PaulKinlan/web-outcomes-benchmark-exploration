@@ -91,6 +91,10 @@
         "codex",
         "o3",
         "o4"
+      ],
+      "authMethodIds": [
+        "openai-api-key",
+        "codex-api-key"
       ]
     },
     {
@@ -126,7 +130,10 @@
         "default"
       ],
       "sessionMeta": {},
-      "description": "Drives Google's Gemini CLI over the Agent Client Protocol (`gemini --acp`) in an empty workspace with zero MCP servers or GEMINI.md context files."
+      "description": "Drives Google's Gemini CLI over the Agent Client Protocol (`gemini --acp`) in an empty workspace with zero MCP servers or GEMINI.md context files.",
+      "authMethodIds": [
+        "gemini-api-key"
+      ]
     },
     {
       "id": "qwen-acp",
@@ -171,7 +178,10 @@
         "default"
       ],
       "sessionMeta": {},
-      "description": "Drives Alibaba's Qwen Code CLI over the Agent Client Protocol (`qwen --acp`) against the DashScope OpenAI-compatible endpoint."
+      "description": "Drives Alibaba's Qwen Code CLI over the Agent Client Protocol (`qwen --acp`) against the DashScope OpenAI-compatible endpoint.",
+      "authMethodIds": [
+        "openai"
+      ]
     },
     {
       "id": "kimi-acp",
