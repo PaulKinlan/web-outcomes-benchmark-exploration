@@ -186,11 +186,29 @@ export function planWorkflowShards({
   const generateShards = [];
   if (!skipGenerate) {
     const promptTotal = selectedPromptIds.length;
-    const ONESHOT_CHUNK = 10;
+    const ONESHOT_IDEAL_CHUNK = 10;
     const AGENT_IDEAL_CHUNK = 4;
     const oneshotCombos = activeCombos.filter((c) => c.cellMode === 'oneshot').length;
     const agentCombos = comboCount - oneshotCombos;
-    const oneshotChunksEach = Math.ceil(promptTotal / ONESHOT_CHUNK);
+    if (comboCount > maxGenerateShards) {
+      throw new Error(
+        `Matrix has ${comboCount} model/harness/mode/spec combinations but at most ${maxGenerateShards} generate jobs fit ` +
+          'one workflow run; split the run into smaller model or harness selections.'
+      );
+    }
+    // One-shot combos keep their ideal chunking unless that would starve the agent combos (which need at
+    // least one shard each); then their chunks grow to fit what is left.
+    const oneshotChunksEach =
+      oneshotCombos > 0
+        ? Math.max(
+            1,
+            Math.min(
+              Math.ceil(promptTotal / ONESHOT_IDEAL_CHUNK),
+              Math.floor((maxGenerateShards - agentCombos) / oneshotCombos)
+            )
+          )
+        : 0;
+    const oneshotChunkSize = Math.max(1, Math.ceil(promptTotal / Math.max(1, oneshotChunksEach)));
     const agentBudget = Math.max(agentCombos, maxGenerateShards - oneshotCombos * oneshotChunksEach);
     const maxAgentChunksPerCombo = Math.max(1, Math.floor(agentBudget / Math.max(1, agentCombos)));
     const agentTimeCap = maxAgentPromptsPerShard({
@@ -216,7 +234,7 @@ export function planWorkflowShards({
       const specTag = specs.length > 1 || cellSpec === 'guided' ? `:${cellSpec}` : '';
       const harnessTag = harnesses.length > 1 || cellHarness !== 'pi' ? `:${cellHarness}` : '';
 
-      const chunkSize = cellMode === 'agent' ? agentChunkSize : ONESHOT_CHUNK;
+      const chunkSize = cellMode === 'agent' ? agentChunkSize : oneshotChunkSize;
       const promptChunks = chunkArray(selectedPromptIds, chunkSize);
       promptChunks.forEach((chunk, idx) => {
         const shardNum = idx + 1;

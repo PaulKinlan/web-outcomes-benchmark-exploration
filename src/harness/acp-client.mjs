@@ -809,53 +809,64 @@ export async function runAcpCodingSession({
     let reportedModelId = null;
     const configOptions = Array.isArray(sessionRes?.configOptions) ? sessionRes.configOptions : [];
     const modelConfigOpt = configOptions.find((o) => o.category === 'model' || o.id === 'model');
-    if (modelConfigOpt && requestedModelId) {
-      const flatOpts = (modelConfigOpt.options || []).flatMap((item) =>
-        Array.isArray(item.options) ? item.options : [item]
-      );
-      reportedModelId = modelConfigOpt.currentValue ?? modelConfigOpt.value ?? null;
+    const listedModels = Array.isArray(sessionRes?.models?.availableModels) ? sessionRes.models.availableModels : null;
+
+    if (requestedModelId && (modelConfigOpt || listedModels)) {
+      reportedModelId =
+        (modelConfigOpt ? modelConfigOpt.currentValue ?? modelConfigOpt.value : null) ??
+        sessionRes?.models?.currentModelId ??
+        null;
       selectedModelId = reportedModelId;
-      const matchedVal = matchDesiredModel(
-        flatOpts.map((o) => ({ modelId: o.value, name: o.name })),
-        desiredModelId,
-        desiredModelKey
-      );
-      if (matchedVal) {
-        try {
-          await sendRequest(
-            'session/set_config_option',
-            { sessionId: activeSessionId, configId: modelConfigOpt.id, value: matchedVal },
-            15000
-          );
-          selectedModelId = matchedVal;
-          modelSelectionMethod = 'config-option';
-        } catch {
-          // ignore if adapter locks model via env/CLI
+
+      // a) ACP config option (session/set_config_option) when the adapter lists the model there.
+      if (modelConfigOpt) {
+        const flatOpts = (modelConfigOpt.options || []).flatMap((item) =>
+          Array.isArray(item.options) ? item.options : [item]
+        );
+        const matchedVal = matchDesiredModel(
+          flatOpts.map((o) => ({ modelId: o.value, name: o.name })),
+          desiredModelId,
+          desiredModelKey
+        );
+        if (matchedVal && matchedVal === reportedModelId) {
+          modelSelectionMethod = 'already-current';
+        } else if (matchedVal) {
+          try {
+            await sendRequest(
+              'session/set_config_option',
+              { sessionId: activeSessionId, configId: modelConfigOpt.id, value: matchedVal },
+              15000
+            );
+            selectedModelId = matchedVal;
+            modelSelectionMethod = 'config-option';
+          } catch {
+            // fall through to session/set_model below
+          }
         }
       }
-    } else if (sessionRes?.models?.availableModels && requestedModelId) {
-      reportedModelId = sessionRes.models.currentModelId || null;
-      selectedModelId = reportedModelId;
-      const matchedModelId = matchDesiredModel(
-        sessionRes.models.availableModels,
-        desiredModelId,
-        desiredModelKey
-      );
-      const candidates = [];
-      if (matchedModelId) candidates.push({ id: matchedModelId, method: 'listed-model' });
-      if (desiredModelId && desiredModelId !== matchedModelId) candidates.push({ id: desiredModelId, method: 'passthrough-model-id' });
-      for (const cand of candidates) {
-        if (cand.id === reportedModelId) {
-          modelSelectionMethod = 'already-current';
-          break;
+
+      // b) session/set_model with a listed match, then the exact requested id (passed through by adapters
+      //    such as claude-code-acp that only list aliases).
+      if (!modelSelectionMethod) {
+        const matchedModelId = listedModels ? matchDesiredModel(listedModels, desiredModelId, desiredModelKey) : null;
+        const candidates = [];
+        if (matchedModelId) candidates.push({ id: matchedModelId, method: 'listed-model' });
+        if (desiredModelId && desiredModelId !== matchedModelId) {
+          candidates.push({ id: desiredModelId, method: 'passthrough-model-id' });
         }
-        try {
-          await sendRequest('session/set_model', { sessionId: activeSessionId, modelId: cand.id }, 15000);
-          selectedModelId = cand.id;
-          modelSelectionMethod = cand.method;
-          break;
-        } catch {
-          // try the next candidate; unsupported adapters fall through to the verification below
+        for (const cand of candidates) {
+          if (cand.id === reportedModelId) {
+            modelSelectionMethod = 'already-current';
+            break;
+          }
+          try {
+            await sendRequest('session/set_model', { sessionId: activeSessionId, modelId: cand.id }, 15000);
+            selectedModelId = cand.id;
+            modelSelectionMethod = cand.method;
+            break;
+          } catch {
+            // try the next candidate; unsupported adapters fall through to the verification below
+          }
         }
       }
     } else {
@@ -863,7 +874,7 @@ export async function runAcpCodingSession({
       modelSelectionMethod = requestedModelId ? 'unverifiable' : null;
     }
 
-    const adapterExposesModels = Boolean(modelConfigOpt || sessionRes?.models?.availableModels);
+    const adapterExposesModels = Boolean(modelConfigOpt || listedModels);
     const modelVerified = adapterExposesModels
       ? Boolean(modelSelectionMethod && modelSelectionMethod !== 'unverifiable')
       : null;

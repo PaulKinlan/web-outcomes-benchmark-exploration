@@ -18,7 +18,8 @@ const MOCK_AGENT = `
 import readline from 'node:readline';
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 const send = (m) => process.stdout.write(JSON.stringify(m) + '\\n');
-let current = 'default';
+let current = process.env.MOCK_CURRENT || 'default';
+const withConfig = process.env.MOCK_CONFIG_OPTION === '1';
 rl.on('line', (line) => {
   if (!line.trim()) return;
   const msg = JSON.parse(line);
@@ -30,11 +31,14 @@ rl.on('line', (line) => {
       sessionId: 's1',
       modes: { availableModes: [{ id: 'bypassPermissions', name: 'Bypass' }] },
       models: { currentModelId: current, availableModels: [{ modelId: 'default', name: 'Default (recommended)' }, { modelId: 'sonnet', name: 'Sonnet' }] },
+      configOptions: withConfig ? [{ id: 'model', category: 'model', currentValue: current, options: [{ value: 'default' }, { value: 'sonnet' }, ...(current !== 'default' ? [{ value: current }] : [])] }] : undefined,
     } });
+  } else if (msg.method === 'session/set_config_option') {
+    send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'locked' } });
   } else if (msg.method === 'session/set_mode') {
     send({ jsonrpc: '2.0', id: msg.id, result: {} });
   } else if (msg.method === 'session/set_model') {
-    if (process.env.MOCK_REJECT_SET_MODEL === '1') {
+    if (process.env.MOCK_REJECT_SET_MODEL === '1' || process.env.MOCK_CURRENT) {
       send({ jsonrpc: '2.0', id: msg.id, error: { code: -32602, message: 'unknown model' } });
     } else {
       current = msg.params.modelId;
@@ -91,6 +95,20 @@ describe('ACP model selection', () => {
     assert.equal(res.assistantText, '');
   });
 
+  it('falls back to session/set_model when the model config option cannot select the requested id', async () => {
+    const res = await runMock({ MOCK_CONFIG_OPTION: '1' });
+    assert.equal(res.ok, true, res.error);
+    assert.equal(res.modelSelection.method, 'passthrough-model-id');
+    assert.equal(res.selectedModelId, 'claude-sonnet-5-5');
+  });
+
+  it('accepts a session that already reports the requested model even when every setter is locked', async () => {
+    const res = await runMock({ MOCK_CONFIG_OPTION: '1', MOCK_CURRENT: 'claude-sonnet-5-5' });
+    assert.equal(res.ok, true, res.error);
+    assert.equal(res.modelSelection.method, 'already-current');
+    assert.equal(res.modelSelection.verified, true);
+  });
+
   it('pins Claude Code to the requested model through ANTHROPIC_MODEL', () => {
     assert.equal(getHarnessSpec('claude-acp').modelEnvVar, 'ANTHROPIC_MODEL');
   });
@@ -132,5 +150,21 @@ describe('Workflow shard planning', () => {
     assert.ok(agentShards.length > 0);
     assert.ok(agentShards.every((s) => s.promptCount <= cap), 'agent shard exceeds time budget');
     assert.deepEqual(plan.warnings, []);
+  });
+
+  it('bounds one-shot-only matrices to the generate job budget', () => {
+    const keys = registryModels.filter((m) => m.enabled !== false).map((m) => m.key);
+    assert.ok(keys.length >= 30);
+    const plan = planWorkflowShards({ modelsRaw: keys.join(','), harness: 'pi', mode: 'oneshot', spec: 'both' });
+    assert.ok(plan.generateShards.length <= 240, `too many generate jobs: ${plan.generateShards.length}`);
+    const covered = plan.generateShards.reduce((n, s) => n + s.promptCount, 0);
+    assert.equal(covered, plan.totalCells);
+  });
+
+  it('rejects a matrix with more combinations than generate jobs', () => {
+    assert.throws(
+      () => planWorkflowShards({ modelsRaw: 'a,b,c', mode: 'both', spec: 'both', maxGenerateShards: 10 }),
+      /split the run/
+    );
   });
 });
