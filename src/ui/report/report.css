@@ -96,3 +96,5 @@ details.grp table td:first-child { width: 84px; }
 .meter { grid-template-columns: minmax(0, 1.2fr) minmax(40px, 1fr) auto; }
 .meter .fig { font-size: 12.5px; }
 .grid2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr)); }
+pre.cmd { font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--wash); padding: 12px 14px; border-radius: 8px; overflow-x: auto; white-space: pre; margin: 10px 0; }
+details.card > summary { cursor: pointer; }

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { writeCellContainerKit } from '../hosting/containerize.mjs';
 import {
   mkdirSync,
   cpSync,
@@ -139,6 +140,16 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
         }
       }
 
+      // Full-app builds get a Dockerfile and source archive so anyone can run and test the exact site.
+      let container = null;
+      try {
+        const kit = writeCellContainerKit({ cellDir, outDir: join(outDir, 'artifacts', cellId, 'container'), materialization });
+        if (kit.ok) container = { ...kit, path: `artifacts/${cellId}/container/` };
+      } catch (err) {
+        container = null;
+        console.warn(`[export] Could not write a container kit for ${cellId}: ${err.message}`);
+      }
+
       const gen = readOpt(join(cellDir, 'generation.json'));
       const promptEntry = promptReg.prompts.find((p) => p.id === gen?.promptId) || null;
       const { exactPrompt, harnessEnvironment } = buildCanonicalPromptAndEnvMetadata(gen, promptEntry, config);
@@ -176,6 +187,7 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
           harnessEnvironment,
           materialization,
           hasStaticPreview,
+          container,
           staticPreviewSource: previewSource?.source || null,
           auditTelemetry: readOpt(join(cellDir, 'audit-telemetry.json')),
           compiledFlow: readOpt(join(cellDir, 'compiled-flow.json')),
