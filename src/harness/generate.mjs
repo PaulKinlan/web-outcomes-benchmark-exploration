@@ -1,5 +1,7 @@
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync, rmSync, cpSync } from 'node:fs';
-import { join, basename, extname } from 'node:path';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync, rmSync, cpSync, realpathSync } from 'node:fs';
+import { join, basename, extname, dirname, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { resolvePiBin, getPiRuntimeInfo } from './pi-loader.mjs';
 import { buildPiCliEnv } from './pi-auth-bridge.mjs';
@@ -10,8 +12,12 @@ import {
   getHarnessSpec,
   resolveAcpHarnessBinInfo,
   installAcpHarnessAdapter,
+  resolvePiExtensionHarness,
+  installPiExtensionHarness,
+  getTrackForCell,
 } from './harness-registry.mjs';
 import { runAcpCodingSession } from './acp-client.mjs';
+import { resolveLiveRoute } from './model-id-resolver.mjs';
 import { loadDesignDoc } from '../registry/prompts.mjs';
 import { PROJECT_ROOT, sleep } from '../util/env.mjs';
 
@@ -65,7 +71,15 @@ export function normalizeSpecMode(spec) {
   return 'freeform';
 }
 
-export function buildCellId(modelKey, promptId, mode = 'agent', spec = 'freeform', harness = 'pi') {
+/** Sample 1 keeps the plain cell id; repeat samples (2, 3, …) of the same cell get a `__s<N>` suffix. */
+export function normalizeSampleIndex(sample) {
+  const n = Math.floor(Number(sample));
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, 9) : 1;
+}
+
+export function buildCellId(modelKey, promptId, mode = 'agent', spec = 'freeform', harness = 'pi', sample = 1) {
+  const sampleIndex = normalizeSampleIndex(sample);
+  if (sampleIndex > 1) return `${buildCellId(modelKey, promptId, mode, spec, harness)}__s${sampleIndex}`;
   const cleanMode = mode === 'agent' ? 'agent' : 'oneshot';
   const cleanSpec = spec === 'guided' ? 'guided' : 'freeform';
   const cleanHarness = normalizeHarnessId(harness);
@@ -76,9 +90,73 @@ export function buildCellId(modelKey, promptId, mode = 'agent', spec = 'freeform
   return cleanHarness !== 'pi' ? `${base}__${cleanHarness}` : base;
 }
 
-const KNOWN_NON_PI_HARNESS_RE = /^(?:claude-acp|codex-acp|custom-acp|[a-z0-9-]+-acp)$/i;
+let cachedPiPromptBuilder;
+
+/**
+ * Where pi's `buildSystemPrompt` module can live for a given `pi` binary. The published package points its bin at
+ * `dist/bundle/cli.js`, older and source checkouts at `dist/cli.js`, so walk up from the real binary to the package
+ * root rather than assuming one layout. The project-local runtime is only a last resort: capturing its prompt when a
+ * different pi was actually selected would publish the wrong text.
+ */
+export function piSystemPromptModuleCandidates(piBin) {
+  const out = [];
+  if (piBin) {
+    let real = piBin;
+    try {
+      real = realpathSync(piBin);
+    } catch {
+      // keep the unresolved path
+    }
+    let dir = dirname(real);
+    for (let i = 0; i < 6; i++) {
+      if (existsSync(join(dir, 'package.json'))) {
+        out.push(join(dir, 'dist', 'core', 'system-prompt.js'));
+        break;
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+  const local = join(PROJECT_ROOT, '.pi-runtime', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'core', 'system-prompt.js');
+  if (!out.includes(local)) out.push(local);
+  return out;
+}
+/**
+ * Reconstructs the system prompt the clean-room pi agent sends, using pi's own `buildSystemPrompt`, so the
+ * "direct agent" baseline is published rather than described. Tool one-liners registered at runtime are not
+ * included, which the `source` field states.
+ */
+export async function capturePiSystemPrompt(cwd) {
+  try {
+    if (cachedPiPromptBuilder === undefined) {
+      const candidates = piSystemPromptModuleCandidates(resolvePiBin()).filter((c) => existsSync(c));
+      cachedPiPromptBuilder = candidates.length
+        ? (await import(pathToFileURL(candidates[0]).href)).buildSystemPrompt || null
+        : null;
+    }
+    if (!cachedPiPromptBuilder) return null;
+    const text = cachedPiPromptBuilder({ cwd, selectedTools: ['read', 'bash', 'edit', 'write'] });
+    const stable = text.replaceAll(String(cwd).replace(/\\/g, '/'), '<workspace>');
+    return {
+      text: stable,
+      sha256: createHash('sha256').update(stable).digest('hex'),
+      source: `reconstructed with pi ${detectPiVersion()} buildSystemPrompt (tools read/bash/edit/write; runtime tool one-liners omitted)`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+const KNOWN_NON_PI_HARNESS_RE = /^(?:[a-z0-9-]+-(?:acp|msp))$/i;
 
 export function parseCellDirIdentity(dirName, generation = null) {
+  const sampleMatch = String(dirName || '').match(/__s([2-9])$/);
+  const base = parseCellDirIdentityBase(sampleMatch ? String(dirName).slice(0, sampleMatch.index) : dirName, generation);
+  return sampleMatch ? { ...base, sample: Number(sampleMatch[1]) } : base;
+}
+
+function parseCellDirIdentityBase(dirName, generation = null) {
   const raw = String(dirName || '');
   const parts = raw.split('__');
   let dirHarness = null;
@@ -444,9 +522,15 @@ export async function generateWebsite({
   const normalizedHarness = normalizeHarnessId(harness);
   const harnessSpec = getHarnessSpec(normalizedHarness) || getHarnessSpec('pi');
   mkdirSync(cellDir, { recursive: true });
-  const route = modelEntry.activeRoute;
-  if (!route && normalizedHarness === 'pi') {
+  const route = harnessSpec.protocol === 'pi' ? await resolveLiveRoute(modelEntry, modelEntry.activeRoute) : modelEntry.activeRoute;
+  if (!route && harnessSpec.protocol === 'pi') {
     throw new Error(`Model "${modelEntry.key}" has no authenticated provider route.`);
+  }
+  if (route?.modelIdResolution?.method === 'not-listed') {
+    // Fail with the ids the key can actually use, rather than an opaque 404 from the provider.
+    throw new Error(
+      `Provider "${route.provider}" does not list model "${route.modelId}" for this API key. Available: ${route.modelIdResolution.availableModelIds.join(', ')}`
+    );
   }
 
   const startedAt = new Date().toISOString();
@@ -517,11 +601,22 @@ export async function generateWebsite({
       if (harnessSpec.modelEnvVar && desiredModelId) {
         childEnv[harnessSpec.modelEnvVar] = desiredModelId;
       }
+      // Vendor CLIs that read differently named variables (e.g. Qwen Code reads OPENAI_API_KEY for DashScope):
+      // copy the first configured source key across, plus any static endpoint settings.
+      for (const [target, sources] of Object.entries(harnessSpec.envFrom || {})) {
+        const hit = (Array.isArray(sources) ? sources : [sources]).find((v) => childEnv[v] || process.env[v]);
+        if (hit && !childEnv[target]) childEnv[target] = childEnv[hit] || process.env[hit];
+      }
+      for (const [k, v] of Object.entries(harnessSpec.env || {})) {
+        if (!childEnv[k]) childEnv[k] = v;
+      }
 
       const customArgs =
         normalizedHarness === 'custom-acp' && process.env.ACP_CUSTOM_ARGS
           ? process.env.ACP_CUSTOM_ARGS.split(/\s+/).filter(Boolean)
-          : [];
+          : Array.isArray(harnessSpec.args)
+            ? harnessSpec.args
+            : [];
 
       onProgress({
         stage: 'generating',
@@ -572,6 +667,8 @@ export async function generateWebsite({
         acpAdapterVersion: acpRes.agentInfo?.version || harnessSpec.version || null,
         acpAgentTitle: acpRes.agentInfo?.title || harnessSpec.label,
         acpSource: binInfo.source,
+        harnessVersion: acpRes.agentInfo?.version || harnessSpec.version || null,
+        systemPromptSource: 'harness-native (set by the vendor agent; not exposed over ACP)',
         selectedModelId: acpRes.selectedModelId || desiredModelId,
         selectedModeId: acpRes.selectedModeId || null,
         modelSelection: acpRes.modelSelection || null,
@@ -598,6 +695,8 @@ export async function generateWebsite({
         spec: normalizedSpec,
         harness: normalizedHarness,
         harnessLabel: harnessSpec.label,
+        track: getTrackForCell(normalizedHarness, 'agent'),
+        harnessVersion: acpRes.agentInfo?.version || harnessSpec.version || null,
         protocol: 'acp-v1',
         provider: targetProvider,
         modelId: acpRes.selectedModelId || desiredModelId,
@@ -628,13 +727,80 @@ export async function generateWebsite({
     }
 
     const thinkingLevel = config.generation.thinkingLevel || 'low';
-    const childEnv = await buildPiCliEnv(runtime, route.provider);
-    const activeBridge = resolveBridgeForProvider(route.provider);
+
+    // --- Vendor agent host driven through a pi provider extension (e.g. muse-msp -> `muse serve`) ---
+    let piProvider = route?.provider;
+    let piModelId = route?.modelId;
+    let piVia = route?.via;
+    let extHarness = null;
+    if (harnessSpec.protocol === 'pi-extension') {
+      extHarness = resolvePiExtensionHarness(normalizedHarness);
+      if (!extHarness.entrypoints?.length) {
+        onProgress({ stage: 'generating', detail: `Installing ${harnessSpec.extensionPackage} into .acp-runtime/...` });
+        try {
+          extHarness = installPiExtensionHarness(normalizedHarness);
+        } catch (err) {
+          extHarness = { ...extHarness, installError: err.message };
+        }
+      }
+      piProvider = harnessSpec.piProvider;
+      piModelId =
+        modelEntry.routes?.find((r) => r.provider === harnessSpec.provider)?.modelId || route?.modelId || modelEntry.key;
+      piVia = `${harnessSpec.label} (pi extension ${harnessSpec.extensionPackage})`;
+      if (!extHarness.available) {
+        const meta = {
+          modelKey: modelEntry.key,
+          modelLabel: modelEntry.label,
+          family: modelEntry.family,
+          promptId: promptEntry.id,
+          category: promptEntry.category,
+          mode: 'agent',
+          spec: normalizedSpec,
+          harness: normalizedHarness,
+          harnessLabel: harnessSpec.label,
+          track: getTrackForCell(normalizedHarness, 'agent'),
+          protocol: 'pi-extension',
+          provider: piProvider,
+          modelId: piModelId,
+          via: piVia,
+        modelIdResolution: route?.modelIdResolution || null,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          durationMs: 0,
+          exitCode: 127,
+          createdFiles: [],
+          outputChars: 0,
+          error: `Harness "${normalizedHarness}" is not runnable here: missing ${(extHarness.missing || []).join(' and ')}.${extHarness.installError ? ` ${extHarness.installError.slice(0, 300)}` : ''}`,
+        };
+        writeFileSync(join(cellDir, 'generation.json'), JSON.stringify(meta, null, 2) + '\n', 'utf8');
+        return meta;
+      }
+    }
+    if (!piProvider) {
+      throw new Error(`Model "${modelEntry.key}" has no authenticated provider route.`);
+    }
+
+    const childEnv = await buildPiCliEnv(runtime, extHarness ? harnessSpec.provider : piProvider);
+    const activeBridge = extHarness
+      ? {
+          id: normalizedHarness,
+          packageName: harnessSpec.extensionPackage,
+          version: extHarness.extensionVersion,
+          source: extHarness.source,
+          entrypoints: extHarness.entrypoints,
+          cliFlags: extHarness.cliFlags,
+        }
+      : resolveBridgeForProvider(piProvider);
     const piInfo = getPiRuntimeInfo();
+    const metaHarness = extHarness ? normalizedHarness : 'pi';
+    const metaHarnessLabel = extHarness ? harnessSpec.label : 'Clean-Room pi';
+    const metaProtocol = extHarness ? 'pi-extension' : 'pi-cli';
+    const metaTrack = getTrackForCell(metaHarness, 'agent');
+    const piSystemPrompt = extHarness ? null : await capturePiSystemPrompt(workspaceDir);
 
     onProgress({
       stage: 'generating',
-      detail: `Running clean-room pi agent loop (${route.provider}/${route.modelId}, spec=${normalizedSpec}, thinking=${thinkingLevel}${activeBridge ? `, bridge=${activeBridge.id}` : ', 0 skills/extensions'})`,
+      detail: `Running clean-room pi agent loop (${piProvider}/${piModelId}, spec=${normalizedSpec}, thinking=${thinkingLevel}${activeBridge ? `, bridge=${activeBridge.id}` : ', 0 skills/extensions'})`,
     });
 
     const cliArgs = [
@@ -647,9 +813,9 @@ export async function generateWebsite({
       '--thinking',
       thinkingLevel,
       '--provider',
-      route.provider,
+      piProvider,
       '--model',
-      route.modelId,
+      piModelId,
       '--',
       ...piFileAttachments,
       agentPrompt,
@@ -659,7 +825,13 @@ export async function generateWebsite({
       mode: 'agent',
       spec: normalizedSpec,
       userPrompt: promptEntry.prompt,
-      systemPrompt: '(pi default coding-agent system prompt — zero custom overrides)',
+      systemPrompt: extHarness
+        ? `(${harnessSpec.agentProduct || harnessSpec.label} native system prompt — owned by the vendor agent host)`
+        : piSystemPrompt?.text || '(pi default coding-agent system prompt — zero custom overrides)',
+      systemPromptSha256: piSystemPrompt?.sha256 || null,
+      systemPromptSource: extHarness
+        ? 'harness-native (set by the vendor agent host; not exposed to the benchmark)'
+        : piSystemPrompt?.source || 'pi default (text not captured)',
       workspaceContract: contract,
       fullDispatchedPrompt: agentPrompt,
       referenceImages: resolvedRefImages.map(({ path, label, caption }) => ({ path, label, caption })),
@@ -723,12 +895,15 @@ export async function generateWebsite({
         category: promptEntry.category,
         mode: 'agent',
         spec: normalizedSpec,
-        harness: 'pi',
-        harnessLabel: 'Clean-Room pi',
-        protocol: 'pi-cli',
-        provider: route.provider,
-        modelId: route.modelId,
-        via: route.via,
+        harness: metaHarness,
+        harnessLabel: metaHarnessLabel,
+        track: metaTrack,
+        harnessVersion: extHarness ? extHarness.extensionVersion : piInfo.version || null,
+        protocol: metaProtocol,
+        provider: piProvider,
+        modelId: piModelId,
+        via: piVia,
+        modelIdResolution: route?.modelIdResolution || null,
         thinkingLevel,
         exactPrompt,
         harnessEnvironment,
@@ -763,12 +938,15 @@ export async function generateWebsite({
         category: promptEntry.category,
         mode: 'agent',
         spec: normalizedSpec,
-        harness: 'pi',
-        harnessLabel: 'Clean-Room pi',
-        protocol: 'pi-cli',
-        provider: route.provider,
-        modelId: route.modelId,
-        via: route.via,
+        harness: metaHarness,
+        harnessLabel: metaHarnessLabel,
+        track: metaTrack,
+        harnessVersion: extHarness ? extHarness.extensionVersion : piInfo.version || null,
+        protocol: metaProtocol,
+        provider: piProvider,
+        modelId: piModelId,
+        via: piVia,
+        modelIdResolution: route?.modelIdResolution || null,
         thinkingLevel,
         exactPrompt,
         harnessEnvironment,
@@ -877,11 +1055,13 @@ export async function generateWebsite({
       mode: 'oneshot',
       spec: normalizedSpec,
       harness: 'pi',
+      track: 'direct-oneshot',
       harnessLabel: 'Clean-Room pi',
       protocol: 'pi-ai',
       provider: route.provider,
       modelId: route.modelId,
       via: route.via,
+      modelIdResolution: route.modelIdResolution || null,
       exactPrompt,
       harnessEnvironment,
       startedAt,
@@ -977,11 +1157,13 @@ export async function generateWebsite({
       mode: 'oneshot',
       spec: normalizedSpec,
       harness: 'pi',
+      track: 'direct-oneshot',
       harnessLabel: 'Clean-Room pi',
       protocol: 'pi-ai',
       provider: route.provider,
       modelId: route.modelId,
       via: route.via,
+      modelIdResolution: route.modelIdResolution || null,
       exactPrompt,
       harnessEnvironment: {
         ...harnessEnvironment,
@@ -1011,11 +1193,13 @@ export async function generateWebsite({
       mode: 'oneshot',
       spec: normalizedSpec,
       harness: 'pi',
+      track: 'direct-oneshot',
       harnessLabel: 'Clean-Room pi',
       protocol: 'pi-ai',
       provider: route.provider,
       modelId: route.modelId,
       via: route.via,
+      modelIdResolution: route.modelIdResolution || null,
       exactPrompt,
       harnessEnvironment,
       startedAt,

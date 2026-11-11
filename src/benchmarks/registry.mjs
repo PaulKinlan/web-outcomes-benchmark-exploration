@@ -4,6 +4,7 @@ import consoleErrorsBench from './console-errors.bench.mjs';
 import lighthouseUpliftBench from './lighthouse-uplift.bench.mjs';
 import deepPerfBench from './deep-perf.bench.mjs';
 import memoryBench from './memory.bench.mjs';
+import securityBench from './security.bench.mjs';
 
 export const BENCHMARK_PLUGINS = [
   techStackBench,
@@ -12,6 +13,8 @@ export const BENCHMARK_PLUGINS = [
   lighthouseUpliftBench,
   deepPerfBench,
   memoryBench,
+  // Last on purpose: its active probes write junk into the app, which must not colour the other measurements.
+  securityBench,
 ];
 
 export function getBenchmarkById(id) {

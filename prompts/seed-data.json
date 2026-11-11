@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "description": "Canonical brand identities, addresses, contact details, visual palette notes, and starter datasets for all 37 prompts in Guided (Reference-Anchored) mode.",
+  "description": "Canonical brand identities, addresses, contact details, visual palette notes, and starter datasets for every prompt in Guided (Reference-Anchored) mode.",
   "prompts": {
     "photo-portfolio": {
       "brandName": "Elena Rostova — Documentary & Portrait Photography",
@@ -532,6 +532,144 @@
       "layoutMockupPrompt": "Clean desktop creative app UI mockup (1440x900 viewport, no browser frame) for 'SpriteLoom — Pixel Art Drawing & Animation Studio'. Left tool rail (Pencil, Bucket Fill, Eraser, Eyedropper, Line, Grid Size 16x16 / 32x32 / 64x64, Undo / Redo), center checkerboard pixel canvas displaying a colorful 32x32 pixel lantern/character sprite, right panel with 16-color palette swatches & Layers list, and bottom Animation Frames timeline with Play FPS & Export PNG button.",
       "records": [
         { "paletteName": "Loom-16 Palette", "swatches": ["#14181F", "#333C57", "#566C86", "#94B0C2", "#F4F4F4", "#B13E53", "#EF7D57", "#FFCD75", "#A7F070", "#38B764", "#257179", "#29366F", "#3B5DC9", "#41A6F6", "#73EFF7", "#5D275D"] }
+      ]
+    },
+    "neighborhood-forum": {
+      "brandName": "Maple Court Neighbors",
+      "tagline": "The residents' forum for Maple Court and the streets around it.",
+      "location": "Maple Court Residents' Association, 12 Maple Court, Leeds LS6 2QT",
+      "contact": { "email": "hello@maplecourt.example", "demoAccount": "resident@maplecourt.example / Password123!", "moderatorAccount": "moderator@maplecourt.example / Password123!" },
+      "palette": "Warm paper (#FAF7F2), leaf green (#2F6B4F), brick (#B4533C), ink (#1F2933)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Maple Court Neighbors'. Header with Boards, Search, New Thread and a Log in button. Left column listing boards (Events, Safety, Lost & Found, Gardens, General). Main column with a thread list showing titles, author names, reply counts and last activity.",
+      "records": [
+        { "board": "Events", "thread": "Summer street party planning", "author": "Priya N.", "replies": 14 },
+        { "board": "Safety", "thread": "Streetlight out by number 31", "author": "Tom A.", "replies": 6 },
+        { "board": "Lost & Found", "thread": "Grey tabby seen near the allotments", "author": "Dana K.", "replies": 9 },
+        { "board": "Gardens", "thread": "Seed swap this Sunday", "author": "Imani O.", "replies": 4 }
+      ]
+    },
+    "support-ticket-desk": {
+      "brandName": "Brightdesk Support",
+      "tagline": "Help for Brightdesk reporting customers, answered by people.",
+      "location": "Brightdesk Ltd, 9 Canal Wharf, Manchester M1 5AN",
+      "contact": { "email": "support@brightdesk.example", "demoAccount": "agent@brightdesk.example / Password123!" },
+      "palette": "Cloud (#F5F7FA), deep teal (#0F5257), signal amber (#D98E04), graphite (#22272E)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Brightdesk Support'. Header with Submit a Ticket, Check Status and Staff Login. Main area with a ticket form (name, email, subject, message) beside a panel explaining response times. Below, a staff dashboard preview: table of tickets with number, subject, customer, status pill and last updated.",
+      "records": [
+        { "ticket": "BD-1042", "subject": "Cannot reset password", "customer": "Lena Fischer", "status": "Open" },
+        { "ticket": "BD-1041", "subject": "Invoice shows wrong VAT number", "customer": "Omar Haddad", "status": "Pending" },
+        { "ticket": "BD-1039", "subject": "Dashboard chart is blank", "customer": "Grace Lin", "status": "Resolved" }
+      ]
+    },
+    "shared-notes-workspace": {
+      "brandName": "Inkwell Notes",
+      "tagline": "Notebooks for the things you want to keep.",
+      "location": "Inkwell Notes, online",
+      "contact": { "email": "hello@inkwell.example", "demoAccount": "demo@inkwell.example / Password123!" },
+      "palette": "Paper (#FBFAF7), ink blue (#1E3A5F), highlighter yellow (#F2C94C), pencil grey (#5B6470)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Inkwell Notes'. Three-pane layout: notebooks list on the left (Personal, Work, Recipes), note list in the middle with titles and dates, and an editor on the right with a formatting toolbar (heading, bold, list, link) and a Share button showing a public link toggle.",
+      "records": [
+        { "notebook": "Personal", "note": "Books to read this year", "updated": "2 days ago" },
+        { "notebook": "Work", "note": "Quarterly review talking points", "updated": "Yesterday" },
+        { "notebook": "Recipes", "note": "Sourdough timings", "updated": "Last week", "shared": true }
+      ]
+    },
+    "event-ticket-shop": {
+      "brandName": "The Lantern Room",
+      "tagline": "Live music, 220 capacity, four nights a week.",
+      "location": "The Lantern Room, 31 Tanner Street, Bristol BS1 4HQ",
+      "contact": { "email": "boxoffice@lanternroom.example", "phone": "0117 555 0134", "demoAccount": "manager@lanternroom.example / Password123!" },
+      "palette": "Stage black (#111418), lantern amber (#F2A33A), velvet red (#8E2A34), chalk (#F3F0EA)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'The Lantern Room'. Header with What's On, My Order and Basket. Grid of event cards (artist photo, date, door time, from-price, Tickets button). Side panel showing a basket with ticket types, quantity steppers, a discount code field and a total.",
+      "records": [
+        { "event": "Saffron Hollow + support", "date": "Fri 14 Mar", "doors": "19:30", "tickets": { "Standing": 18, "Balcony seated": 26 } },
+        { "event": "Late Show: The Brass Tacks", "date": "Sat 22 Mar", "doors": "22:00", "tickets": { "Standing": 14 } },
+        { "event": "Open mic night", "date": "Wed 26 Mar", "doors": "19:00", "tickets": { "Entry": 5 } },
+        { "discountCode": "LATESHOW10", "effect": "10% off late shows" }
+      ]
+    },
+    "job-board-listings": {
+      "brandName": "Coastline Hospitality Jobs",
+      "tagline": "Kitchen, bar and front-of-house roles across the Cornish coast.",
+      "location": "Coastline Hospitality Jobs, 4 Quay Road, Falmouth TR11 3HH",
+      "contact": { "email": "team@coastlinejobs.example", "employerAccount": "employer@coastlinejobs.example / Password123!" },
+      "palette": "Sea mist (#EEF4F3), harbour navy (#16324F), buoy orange (#E4572E), slate (#3A4750)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Coastline Hospitality Jobs'. Header with Find Jobs, Post a Job and Employer Login. Search bar with keyword and location fields. Left filter column (job type, salary range). Results list of job cards with title, employer, town, salary and a View button.",
+      "records": [
+        { "title": "Sous Chef", "employer": "The Harbour Kitchen", "town": "Falmouth", "type": "Full-time", "salaryGbp": 34000 },
+        { "title": "Bar Supervisor", "employer": "Tide & Tap", "town": "St Ives", "type": "Full-time", "salaryGbp": 28500 },
+        { "title": "Seasonal Waiting Staff", "employer": "Porthcurno Beach Cafe", "town": "Porthcurno", "type": "Seasonal", "hourlyGbp": 12.6 },
+        { "title": "Night Porter", "employer": "The Greenbank Hotel", "town": "Falmouth", "type": "Part-time", "hourlyGbp": 12.9 }
+      ]
+    },
+    "reader-comments-magazine": {
+      "brandName": "Kerbside Green",
+      "tagline": "Growing food and flowers in small city spaces.",
+      "location": "Kerbside Green magazine, Glasgow",
+      "contact": { "email": "editor@kerbsidegreen.example", "demoAccount": "editor@kerbsidegreen.example / Password123!" },
+      "palette": "Seed packet cream (#FBF6EA), tomato red (#C8402E), leaf (#3F7D4A), soil (#3B2F2A)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Kerbside Green'. Masthead with sections (Balcony, Allotment, Indoor, Compost) and a search field. Lead article with large photo and standfirst, a grid of four more articles, and a newsletter sign-up strip. Article page preview with a comments thread and a comment form.",
+      "records": [
+        { "section": "Balcony", "article": "Tomatoes in a 40cm pot: a full season", "author": "Ailsa Grant", "comments": 23 },
+        { "section": "Compost", "article": "A wormery under the sink", "author": "Kofi Mensah", "comments": 11 },
+        { "section": "Indoor", "article": "Windowsill herbs that survive winter", "author": "Ailsa Grant", "comments": 8 },
+        { "section": "Allotment", "article": "What to sow in March", "author": "Rosa Lindqvist", "comments": 15 }
+      ]
+    },
+    "quiz-league-leaderboard": {
+      "brandName": "The Dog & Lantern Quiz League",
+      "tagline": "Thursday night trivia, now with a league table.",
+      "location": "The Dog & Lantern, 58 Bridge Street, York YO1 6DD",
+      "contact": { "email": "quiz@dogandlantern.example", "demoAccount": "host@dogandlantern.example / Password123!" },
+      "palette": "Chalkboard (#1E2A26), chalk (#F4F1E8), brass (#C9A227), beer mat red (#A63A2B)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'The Dog & Lantern Quiz League'. Header with Play, Leaderboard and Host Login. Nickname field and a grid of category tiles (History, Science, Music, Geography, Sport, Film). Right column showing a top-ten leaderboard with nickname, category and score.",
+      "records": [
+        { "category": "History", "question": "In which year did the Berlin Wall fall?", "options": ["1987", "1989", "1991", "1993"], "answer": "1989", "explanation": "The border opened on 9 November 1989." },
+        { "category": "Science", "question": "What is the chemical symbol for sodium?", "options": ["So", "Sd", "Na", "S"], "answer": "Na", "explanation": "From the Latin natrium." },
+        { "category": "Geography", "question": "Which river flows through Budapest?", "options": ["Rhine", "Danube", "Vistula", "Elbe"], "answer": "Danube", "explanation": "The Danube separates Buda from Pest." },
+        { "leaderboard": [{ "nickname": "PintOfNoReturn", "score": 18 }, { "nickname": "Quizteama", "score": 17 }, { "nickname": "LesQuizerables", "score": 15 }] }
+      ]
+    },
+    "link-shortener-dashboard": {
+      "brandName": "Snipl",
+      "tagline": "Short links you can keep track of.",
+      "location": "Snipl, online",
+      "contact": { "email": "hello@snipl.example", "demoAccount": "demo@snipl.example / Password123!" },
+      "palette": "Snow (#FAFBFC), electric violet (#5B3FD9), mint (#2BB673), charcoal (#1D1F24)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Snipl'. Hero with a large field to paste a long address and a Shorten button, showing the resulting short link with a copy button. Below, a dashboard preview: table of links (short code, destination, clicks, expiry) and a line chart of clicks over the past 30 days.",
+      "records": [
+        { "code": "spring-menu", "destination": "https://example.com/restaurant/menus/spring-2030.pdf", "clicks": 412, "expires": null },
+        { "code": "q3deck", "destination": "https://example.com/investors/q3-presentation", "clicks": 87, "expires": "2030-12-31" },
+        { "code": "rsvp", "destination": "https://example.com/events/open-day/rsvp", "clicks": 1260, "expires": "2030-06-01" }
+      ]
+    },
+    "videographer-inquiry-portfolio": {
+      "brandName": "Northlight Wedding Films",
+      "tagline": "Quiet, natural wedding films across the Lake District.",
+      "location": "Northlight Wedding Films, Kendal, Cumbria LA9",
+      "contact": { "email": "hello@northlightfilms.example", "phone": "01539 555 0172", "demoAccount": "owner@northlightfilms.example / Password123!" },
+      "palette": "Mist (#F3F1EE), fell green (#3E5C4B), heather (#8A6F8F), slate (#2B2E33)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Northlight Wedding Films'. Full-width film still as hero with a Watch button. Row of three featured films with couple names and venues. Packages section with three price cards. Testimonials strip, then an inquiry form with names, wedding date, venue and message.",
+      "records": [
+        { "film": "Hannah & Joe", "venue": "Hawthorn Barn, Windermere", "lengthMin": 6 },
+        { "film": "Aisha & Daniel", "venue": "Askham Hall", "lengthMin": 8 },
+        { "package": "Highlights", "priceGbp": 1400, "includes": "5 minute film, one videographer" },
+        { "package": "Full Day", "priceGbp": 2300, "includes": "8 minute film, ceremony and speeches in full, two videographers" },
+        { "testimonial": "We forgot the camera was there. The film is exactly how the day felt.", "from": "Hannah & Joe" }
+      ]
+    },
+    "clinic-patient-portal": {
+      "brandName": "Riverside Physiotherapy",
+      "tagline": "Sports injury and back care clinic by the river.",
+      "location": "Riverside Physiotherapy, 22 Weir Road, Bath BA2 4EL",
+      "contact": { "phone": "01225 555 0119", "email": "reception@riversidephysio.example", "demoAccount": "patient@riversidephysio.example / Password123!", "receptionAccount": "reception@riversidephysio.example / Password123!" },
+      "palette": "Clinic white (#F9FBFB), river teal (#1B6F78), warm sand (#E8D9C3), deep slate (#263238)",
+      "layoutMockupPrompt": "Clean desktop website UI mockup (1440x900 viewport, no browser frame) for 'Riverside Physiotherapy'. Header with Book, My Appointments, My Details and Log out. Therapist cards with photo, name and specialism. Week calendar with available time slots. Sidebar listing upcoming appointments with a Cancel link.",
+      "records": [
+        { "therapist": "Dr. Helen Marsh", "specialism": "Back and neck", "sessionMin": 45, "priceGbp": 58 },
+        { "therapist": "Luis Ortega", "specialism": "Sports injury", "sessionMin": 45, "priceGbp": 58 },
+        { "therapist": "Nadia Rahman", "specialism": "Post-operative rehabilitation", "sessionMin": 60, "priceGbp": 72 },
+        { "slots": ["09:00", "10:30", "14:00", "15:30"] }
       ]
     }
   }

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { writeCellContainerKit } from '../hosting/containerize.mjs';
 import {
   mkdirSync,
   cpSync,
@@ -23,6 +24,8 @@ import {
 } from '../materialize/static-mirror.mjs';
 import { BENCHMARK_PLUGINS } from '../benchmarks/registry.mjs';
 import { aggregateAllResults, CELLS_ROOT } from '../scoring/aggregate.mjs';
+import { flattenCellTests } from '../scoring/test-catalog.mjs';
+import { buildReportData, describeRun } from '../scoring/report-data.mjs';
 
 function collectCompactSourceFiles(cellDir) {
   const extractedDir = join(cellDir, 'extracted');
@@ -137,6 +140,16 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
         }
       }
 
+      // Full-app builds get a Dockerfile and source archive so anyone can run and test the exact site.
+      let container = null;
+      try {
+        const kit = writeCellContainerKit({ cellDir, outDir: join(outDir, 'artifacts', cellId, 'container'), materialization });
+        if (kit.ok) container = { ...kit, path: `artifacts/${cellId}/container/` };
+      } catch (err) {
+        container = null;
+        console.warn(`[export] Could not write a container kit for ${cellId}: ${err.message}`);
+      }
+
       const gen = readOpt(join(cellDir, 'generation.json'));
       const promptEntry = promptReg.prompts.find((p) => p.id === gen?.promptId) || null;
       const { exactPrompt, harnessEnvironment } = buildCanonicalPromptAndEnvMetadata(gen, promptEntry, config);
@@ -152,16 +165,29 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
         ? readFileSync(rawOutputPath, 'utf8').slice(0, 32000)
         : '';
 
+      const rawBenchmarks = {};
+      const pillarScores = {};
+      for (const plugin of BENCHMARK_PLUGINS) {
+        const res = readOpt(join(cellDir, 'results', `${plugin.id}.json`));
+        if (res) {
+          rawBenchmarks[plugin.id] = res;
+          pillarScores[plugin.id] = plugin.score(res);
+        }
+      }
+      const compiledFlowForTests = readOpt(join(cellDir, 'compiled-flow.json'));
+
       writeFileSync(
         join(apiCellsDir, `${cellId}.json`),
         JSON.stringify({
           cellId,
+          tests: materialization?.ok ? flattenCellTests({ rawBenchmarks, pillarScores, compiledFlow: compiledFlowForTests }) : [],
           promptEntry,
           generation: gen,
           exactPrompt,
           harnessEnvironment,
           materialization,
           hasStaticPreview,
+          container,
           staticPreviewSource: previewSource?.source || null,
           auditTelemetry: readOpt(join(cellDir, 'audit-telemetry.json')),
           compiledFlow: readOpt(join(cellDir, 'compiled-flow.json')),
@@ -178,6 +204,7 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
             'lighthouse-uplift': readOpt(join(cellDir, 'results', 'lighthouse-uplift.json')),
             'deep-perf': readOpt(join(cellDir, 'results', 'deep-perf.json')),
             memory: readOpt(join(cellDir, 'results', 'memory.json')),
+            security: readOpt(join(cellDir, 'results', 'security.json')),
           },
           extractedFiles: collectCompactSourceFiles(cellDir),
         }),
@@ -225,17 +252,49 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
     }),
     'utf8'
   );
+  // Compact dataset for the public report, plus an archive entry so earlier runs stay browsable.
+  // Earlier runs are restored into <outDir>/runs/ before export by scripts/fetch-run-archive.mjs.
+  const runId = (process.env.BENCH_RUN_ID || new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')).replace(/[^A-Za-z0-9._-]/g, '-');
+  const reportData = buildReportData(summary, {
+    runId,
+    runLabel: process.env.BENCH_RUN_LABEL || new Date(summary.generatedAt).toISOString().slice(0, 10),
+    source: process.env.GITHUB_SERVER_URL && process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : null,
+  });
+  writeFileSync(join(outDir, 'api-static', 'report-data.json'), JSON.stringify(reportData), 'utf8');
+  const runsDir = join(outDir, 'runs');
+  mkdirSync(join(runsDir, runId), { recursive: true });
+  writeFileSync(join(runsDir, runId, 'report-data.json'), JSON.stringify(reportData), 'utf8');
+  let priorRuns = [];
+  try {
+    priorRuns = JSON.parse(readFileSync(join(runsDir, 'index.json'), 'utf8')).runs || [];
+  } catch {
+    priorRuns = [];
+  }
+  const maxRuns = Number(process.env.BENCH_ARCHIVE_MAX_RUNS || 20);
+  const runs = [describeRun(reportData), ...priorRuns.filter((r) => r.runId !== runId && existsSync(join(runsDir, r.runId, 'report-data.json')))].slice(0, maxRuns);
+  writeFileSync(join(runsDir, 'index.json'), JSON.stringify({ runs }, null, 2) + '\n', 'utf8');
+
   writeFileSync(join(outDir, '.nojekyll'), '', 'utf8');
 
   return {
     outDir,
     cellCount: summary.totals.cells,
+    demoCellCount: summary.totals.demoCells || 0,
+    runId,
+    archivedRuns: runs.length,
     previewCount: exportedPreviewCells.size,
   };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const res = exportStaticReport();
+  if (res.demoCellCount > 0) {
+    console.warn(`[export] WARNING: ${res.demoCellCount} demo cell(s) are in this report. Do not publish it. Remove them with: node scripts/seed-demo-cells.mjs --clean`);
+    if (process.env.GITHUB_ACTIONS) {
+      console.error('[export] Refusing to export demo data in CI.');
+      process.exit(1);
+    }
+  }
   console.log(
     `[export] Exported standalone static report (${res.cellCount} cells, ${res.previewCount} hosted previews) -> ${res.outDir}`
   );

@@ -15,6 +15,7 @@ import {
   normalizeSpecMode,
   buildCellId,
   parseCellDirIdentity,
+  normalizeSampleIndex,
 } from '../harness/generate.mjs';
 import { extractGeneratedFiles } from '../materialize/extract-files.mjs';
 import { prepareCellRuntime, startCellServer } from '../materialize/server-runner.mjs';
@@ -65,6 +66,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
     stage: rawStage = 'all',
     judgeOnly = false,
     auditRuns: rawAuditRuns = 1,
+    sampleIndex: rawSampleIndex = 1,
     skipCanary = false,
     reuseGeneration: rawReuseGeneration = false,
     force = false,
@@ -76,6 +78,8 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
   const reuseGeneration =
     pipelineStage === 'audit' || pipelineStage === 'judge' ? true : Boolean(rawReuseGeneration);
   const auditRuns = Math.max(1, Math.min(7, Number(rawAuditRuns) || 1));
+  // A repeat sample regenerates the same cells into `<cellId>__s<N>` so run-to-run variation can be measured.
+  const sampleIndex = normalizeSampleIndex(rawSampleIndex);
 
   const config = loadBenchmarkConfig();
   const designDoc = loadDesignDoc();
@@ -246,7 +250,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
             continue;
           }
           for (const promptEntry of prompts) {
-            const cellId = buildCellId(modelEntry.key, promptEntry.id, cellMode, cellSpec, cellHarness);
+            const cellId = buildCellId(modelEntry.key, promptEntry.id, cellMode, cellSpec, cellHarness, sampleIndex);
             cellQueue.push({
               cellId,
               cellDir: join(CELLS_ROOT, cellId),
@@ -558,7 +562,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
             }
 
             const tBench0 = performance.now();
-            const isSinglePassBench = bench.id === 'tech-stack' || bench.id === 'prompt-judge';
+            const isSinglePassBench = bench.id === 'tech-stack' || bench.id === 'prompt-judge' || bench.id === 'security';
             const passes = isSinglePassBench ? 1 : auditRuns;
 
             if (passes === 1) {

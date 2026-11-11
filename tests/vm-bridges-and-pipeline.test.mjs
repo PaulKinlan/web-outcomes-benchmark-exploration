@@ -208,16 +208,16 @@ describe('Portable pi Runtime, Clean-Room Provider Bridges & Split VM Pipeline',
     assert.match(md, /DeepSeek Flash \(V4\.1\)/);
   });
 
-  it('dynamically shards 148+ cells across isolated Audit VMs and supports reuse_generation_run_id', () => {
+  it('dynamically shards 188+ cells across isolated Audit VMs and supports reuse_generation_run_id', () => {
     const fullPlan = planWorkflowShards({
       modelsRaw: 'gemini-3.8-flash,deepseek-flash',
       promptScope: 'all',
       mode: 'both',
       auditRuns: 1,
     });
-    assert.equal(fullPlan.totalCells, 148);
+    assert.equal(fullPlan.totalCells, 188);
     assert.equal(fullPlan.skipGenerate, false);
-    assert.equal(fullPlan.auditShards.length, 40); // 2 models × 2 modes × 10 chunks (~3.7 cells/VM shard!)
+    assert.equal(fullPlan.auditShards.length, 48); // 2 models × 2 modes × 12 chunks (~3.9 cells per VM shard)
     assert.ok(fullPlan.auditShards.every((s) => s.cellCount <= 4));
     assert.ok(fullPlan.generateShards.length >= 20 && fullPlan.generateShards.length <= 120);
 
@@ -231,17 +231,17 @@ describe('Portable pi Runtime, Clean-Room Provider Bridges & Split VM Pipeline',
     });
     assert.equal(reusePlan.skipGenerate, true);
     assert.equal(reusePlan.generateShards.length, 0);
-    assert.equal(reusePlan.auditShards.length, 40);
+    assert.equal(reusePlan.auditShards.length, 48);
     assert.ok(reusePlan.auditShards.every((s) => s.artifactPattern === 'generated-cells-*'));
 
-    // Massive 6-model × 37-prompt × 2-mode × 3-auditRuns matrix stays safely below GitHub 256-job cap
+    // Massive 6-model × 47-prompt × 2-mode × 3-auditRuns matrix stays safely below GitHub 256-job cap
     const massivePlan = planWorkflowShards({
       modelsRaw: 'm1,m2,m3,m4,m5,m6',
       promptScope: 'all',
       mode: 'both',
       auditRuns: 3,
     });
-    assert.equal(massivePlan.totalCells, 444);
+    assert.equal(massivePlan.totalCells, 564);
     assert.ok(massivePlan.auditShards.length <= 160);
     assert.ok(massivePlan.generateShards.length <= 120);
   });

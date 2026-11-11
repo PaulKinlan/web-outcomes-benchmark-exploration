@@ -17,7 +17,7 @@ import { computeConsoleErrorScore } from '../src/benchmarks/console-errors.bench
 import { analyzeStaticSource } from '../src/benchmarks/tech-stack.bench.mjs';
 import { aggregateAllResults } from '../src/scoring/aggregate.mjs';
 
-describe('Kimi (3.0 & 3.1) + Muse Auth Bridge, Full 37-Prompt Shards, Library-Detector & Console Audit', () => {
+describe('Kimi (3.0 & 3.1) + Muse Auth Bridge, Full Prompt Shards, Library-Detector & Console Audit', () => {
   it('routes sk-kimi-* keys to kimi-coding (Anthropic API) and standard keys to moonshotai, plus MUSE_API_KEY to muse', () => {
     const skKimiEnv = { KIMI_API_KEY: 'sk-kimi-example-coding-token-123456' };
     assert.equal(resolveProviderApiKeyFromEnv('kimi-coding', skKimiEnv), 'sk-kimi-example-coding-token-123456');
@@ -99,16 +99,16 @@ describe('Kimi (3.0 & 3.1) + Muse Auth Bridge, Full 37-Prompt Shards, Library-De
     }
   });
 
-  it('defaults planWorkflowShards to all 37 prompts and handles 8 models × 37 prompts × both specs (592 cells)', () => {
+  it('defaults planWorkflowShards to all 47 prompts and handles 8 models × 47 prompts × both specs (752 cells)', () => {
     const defaultPlan = planWorkflowShards({
       modelsRaw: 'deepseek-flash,gemini-3.8-flash,grok-4.7,claude-sonnet-5-5,gpt-6-1-sol,kimi-k3,kimi-k3-1-pro,muse-spark',
       mode: 'agent',
       spec: 'both',
       auditRuns: 1,
     });
-    assert.equal(defaultPlan.promptCount, 37);
+    assert.equal(defaultPlan.promptCount, 47);
     assert.deepEqual(defaultPlan.specs, ['freeform', 'guided']);
-    assert.equal(defaultPlan.totalCells, 8 * 37 * 2); // 592 cells!
+    assert.equal(defaultPlan.totalCells, 8 * 47 * 2); // 752 cells
     // Stays under GitHub's 256-job matrix cap while keeping agent shards small enough to finish in time.
     assert.ok(defaultPlan.generateShards.length <= 256);
     assert.ok(defaultPlan.generateShards.every((s) => s.promptCount <= 10));

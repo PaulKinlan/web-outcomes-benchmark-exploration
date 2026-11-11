@@ -22,6 +22,8 @@ import { installProviderBridge, listProviderBridges } from '../src/harness/provi
 import {
   expandHarnessSelection,
   installAcpHarnessAdapter,
+  installPiExtensionHarness,
+  getHarnessSpec,
   listAllHarnessStatuses,
 } from '../src/harness/harness-registry.mjs';
 import { resolveStableChromePath, PINNED_CHROME_POINTER } from '../src/benchmarks/cdp-helpers.mjs';
@@ -195,6 +197,23 @@ async function main() {
   }
 
   for (const harnessId of opts.harnesses) {
+    const spec = getHarnessSpec(harnessId);
+    if (spec?.protocol === 'pi-extension') {
+      let ext;
+      try {
+        ext = installPiExtensionHarness(harnessId);
+      } catch (err) {
+        // Optional harness: a failed extension install must not stop the other lanes from being set up.
+        console.warn(`[setup:vm] ! harness "${harnessId}" could not be installed (${String(err.message).split('\n')[0]}). Its cells will be recorded as failed.`);
+        continue;
+      }
+      if (ext.available) {
+        console.log(`[setup:vm] ✓ harness "${harnessId}" ready (${spec.extensionPackage}@${ext.extensionVersion}, ${spec.requiresBinary} -> ${ext.binaryPath})`);
+      } else {
+        console.warn(`[setup:vm] ! harness "${harnessId}" is not runnable yet: missing ${ext.missing.join(' and ')}. Its cells will be recorded as failed.`);
+      }
+      continue;
+    }
     const h = installAcpHarnessAdapter(harnessId);
     console.log(`[setup:vm] ✓ ACP harness "${h.harnessId}" ready (${h.source} -> ${h.binPath})`);
   }

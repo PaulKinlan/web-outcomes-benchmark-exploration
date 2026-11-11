@@ -58,11 +58,12 @@
     </div>
 
     <nav class="primary-tabs" aria-label="Benchmark studio views">
+      <a id="tab-report" class="tab-link" href="./report/" title="The public report: charts, pillar rollups and every individual test">Report ↗</a>
       <a id="tab-leaderboard" class="tab-btn active" href="#/leaderboard" data-view="leaderboard">1. Leaderboard</a>
       <a id="tab-matrix" class="tab-btn" href="#/matrix" data-view="matrix">2. Model × Prompt Matrix</a>
       <a id="tab-observatory" class="tab-btn" href="#/observatory" data-view="observatory">3. Default Stack Observatory</a>
       <a id="tab-arena" class="tab-btn" href="#/arena" data-view="arena">4. Side-by-Side Arena</a>
-      <a id="tab-prompts" class="tab-btn" href="#/prompts" data-view="prompts">5. Prompt Visualizer (37)</a>
+      <a id="tab-prompts" class="tab-btn" href="#/prompts" data-view="prompts">5. Prompt Visualizer (47)</a>
       <a id="tab-methodology" class="tab-btn" href="#/methodology" data-view="methodology">6. Methodology &amp; Clean-Room</a>
       <a id="tab-run" class="tab-btn" href="#/run" data-view="run">
         7. Run &amp; Extend
@@ -80,38 +81,43 @@
     <form id="weights-form" class="weights-grid">
       <label for="weight-judge">
         <span>On-Topic Judge &amp; Feature Coverage</span>
-        <output id="out-weight-judge">20%</output>
-        <input id="weight-judge" name="judge" type="range" min="0" max="100" value="20" />
+        <output id="out-weight-judge">18%</output>
+        <input id="weight-judge" name="judge" type="range" min="0" max="100" value="18" />
       </label>
       <label for="weight-lighthouse">
         <span>Lighthouse (Mobile/Desktop)</span>
-        <output id="out-weight-lighthouse">18%</output>
-        <input id="weight-lighthouse" name="lighthouse" type="range" min="0" max="100" value="18" />
+        <output id="out-weight-lighthouse">16%</output>
+        <input id="weight-lighthouse" name="lighthouse" type="range" min="0" max="100" value="16" />
       </label>
       <label for="weight-uplift">
         <span>web-uplift (11 Primitives · MWG 0.0.197)</span>
-        <output id="out-weight-uplift">18%</output>
-        <input id="weight-uplift" name="uplift" type="range" min="0" max="100" value="18" />
+        <output id="out-weight-uplift">16%</output>
+        <input id="weight-uplift" name="uplift" type="range" min="0" max="100" value="16" />
       </label>
       <label for="weight-deepPerf">
         <span>Deep Perf (LCP, W3C INP, LoAF)</span>
-        <output id="out-weight-deepPerf">18%</output>
-        <input id="weight-deepPerf" name="deepPerf" type="range" min="0" max="100" value="18" />
+        <output id="out-weight-deepPerf">16%</output>
+        <input id="weight-deepPerf" name="deepPerf" type="range" min="0" max="100" value="16" />
+      </label>
+      <label for="weight-security">
+        <span>Security (headers, secrets, dependencies, code)</span>
+        <output id="out-weight-security">12%</output>
+        <input id="weight-security" name="security" type="range" min="0" max="100" value="12" />
       </label>
       <label for="weight-consoleErrors">
         <span>Console, JS Exception &amp; Network Hygiene</span>
-        <output id="out-weight-consoleErrors">8%</output>
-        <input id="weight-consoleErrors" name="consoleErrors" type="range" min="0" max="100" value="8" />
+        <output id="out-weight-consoleErrors">7%</output>
+        <input id="weight-consoleErrors" name="consoleErrors" type="range" min="0" max="100" value="7" />
       </label>
       <label for="weight-memory">
         <span>Memory &amp; MemLab Leaks</span>
-        <output id="out-weight-memory">8%</output>
-        <input id="weight-memory" name="memory" type="range" min="0" max="100" value="8" />
+        <output id="out-weight-memory">6%</output>
+        <input id="weight-memory" name="memory" type="range" min="0" max="100" value="6" />
       </label>
       <label for="weight-functionalFlow">
         <span>Multi-Step Flow Completion</span>
-        <output id="out-weight-functionalFlow">10%</output>
-        <input id="weight-functionalFlow" name="functionalFlow" type="range" min="0" max="100" value="10" />
+        <output id="out-weight-functionalFlow">9%</output>
+        <input id="weight-functionalFlow" name="functionalFlow" type="range" min="0" max="100" value="9" />
       </label>
       <div class="popover-actions">
         <button id="reset-weights-btn" type="button" class="btn btn-ghost">Reset Default</button>
@@ -159,6 +165,7 @@
               <th class="num" data-th-col="lighthouse"><button type="button" class="th-sort-btn num" data-sort-col="lighthouse">Lighthouse <span class="sort-glyph">↕</span></button></th>
               <th class="num" data-th-col="uplift"><button type="button" class="th-sort-btn num" data-sort-col="uplift">web-uplift <span class="sort-glyph">↕</span></button></th>
               <th class="num" data-th-col="deepPerf"><button type="button" class="th-sort-btn num" data-sort-col="deepPerf">Deep Perf <span class="sort-glyph">↕</span></button></th>
+              <th class="num" data-th-col="security"><button type="button" class="th-sort-btn num" data-sort-col="security" title="Security pillar: CSP and response headers, cookies, client and server code, secrets, exposed files and dependency advisories">Security <span class="sort-glyph">↕</span></button></th>
               <th class="num" data-th-col="memory"><button type="button" class="th-sort-btn num" data-sort-col="memory">Memory <span class="sort-glyph">↕</span></button></th>
               <th class="num" data-th-col="functionalFlow"><button type="button" class="th-sort-btn num" data-sort-col="functionalFlow">Flow % <span class="sort-glyph">↕</span></button></th>
               <th class="num" data-th-col="mobileLcpMs"><button type="button" class="th-sort-btn num" data-sort-col="mobileLcpMs">Mob. LCP <span class="sort-glyph">↕</span></button></th>
@@ -334,6 +341,7 @@
               <option value="mobileLcpMs">Mobile LCP (ms)</option>
               <option value="burstP95TtfbMs">Server Burst P95 TTFB (ms)</option>
               <option value="agentTurns">Agent Turns (pi / ACP)</option>
+              <option value="security">Security Score</option>
               <option value="memory">Memory Health Score</option>
               <option value="uplift">web-uplift Score</option>
               <option value="functionalFlow">Journey Completion %</option>

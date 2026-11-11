@@ -50,6 +50,7 @@ export function parseCliArgs(argv) {
     else if (arg.startsWith('--spec=')) opts.spec = arg.slice(7);
     else if (arg.startsWith('--stage=')) opts.stage = arg.slice(8);
     else if (arg.startsWith('--audit-runs=')) opts.auditRuns = Math.max(1, Number(arg.slice(13)) || 1);
+    else if (arg.startsWith('--sample-index=')) opts.sampleIndex = Math.max(1, Number(arg.slice(15)) || 1);
     else if (arg.startsWith('--markdown-summary=')) opts.markdownSummaryPath = arg.slice(19);
   }
   return opts;
@@ -203,13 +204,14 @@ Options:
                                      audit              Stage 2 Canary + serialized Chrome/MemLab audits on cached cells
                                      judge              Post-audit multimodal LLM on-topic judge pass (zero untrusted servers)
   --judge-only                     Alias for --stage=judge (upgrade cached prompt-judge.json with multimodal LLM judge)
-  --harness=pi|claude-acp|codex-acp|acp|all
+  --harness=pi|claude-acp|codex-acp|gemini-acp|qwen-acp|kimi-acp|muse-msp|acp|vendor|all
                                    Coding harness driver:
                                      pi         (default) Clean-room pi coding loop
                                      claude-acp           Claude Code via Agent Client Protocol (stdio JSON-RPC 2.0)
                                      codex-acp            OpenAI Codex via Agent Client Protocol (stdio JSON-RPC 2.0)
                                      acp                  Both claude-acp and codex-acp
                                      all                  Compare pi + claude-acp + codex-acp across compatible models
+  --sample-index=<N>               Generate and audit these cells again as repeat sample N (2-9), kept beside sample 1
   --audit-runs=<N>                 Run browser audits N times per cell and select median score (default: 1, CI: 3)
   --mode=agent|oneshot|both        Harness mode:
                                      agent   (default) Autonomous coding loop + real $PORT server + saved transcript

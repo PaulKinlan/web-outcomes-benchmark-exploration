@@ -240,6 +240,14 @@ export async function startStudioServer({ port = null } = {}) {
       const pathname = decodeURIComponent(urlObj.pathname);
 
       // 1. API: Full Studio State
+      if (req.method === 'GET' && pathname === '/api/report-data') {
+        const { buildReportData } = await import('../scoring/report-data.mjs');
+        const body = JSON.stringify(buildReportData(aggregateAllResults(), { runId: 'local', runLabel: 'Local results' }));
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(body);
+        return;
+      }
+
       if (req.method === 'GET' && pathname === '/api/state') {
         const runtime = await initializeModelRuntime();
         const promptReg = loadPromptRegistry();

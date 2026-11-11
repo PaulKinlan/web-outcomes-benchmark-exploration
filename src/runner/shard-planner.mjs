@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PROJECT_ROOT } from '../util/env.mjs';
 import { loadModelRegistryConfig, matchesModelSelector } from '../harness/model-registry.mjs';
-import { expandHarnessSelection, isModelCompatibleWithHarness } from '../harness/harness-registry.mjs';
+import { expandHarnessSelection, isModelCompatibleWithHarness, getHarnessSpec } from '../harness/harness-registry.mjs';
 
 function sanitizeSlug(str) {
   return String(str || '')
@@ -27,8 +27,8 @@ function isShardModelHarnessCompatible(modelSlug, cellHarness, modelMap, explici
     return isModelCompatibleWithHarness(known, cellHarness);
   }
   const low = String(modelSlug || '').toLowerCase();
-  if (cellHarness === 'claude-acp') return low.includes('claude') || low.includes('anthropic');
-  if (cellHarness === 'codex-acp') return low.includes('gpt') || low.includes('codex') || low.includes('o3') || low.includes('o4');
+  const hints = getHarnessSpec(cellHarness)?.modelHints;
+  if (Array.isArray(hints) && hints.length > 0) return hints.some((h) => low.includes(h));
   return true;
 }
 
@@ -95,6 +95,8 @@ export function planWorkflowShards({
   mode = 'agent',
   spec = 'freeform',
   auditRuns = 1,
+  samples = 1,
+  samplePromptCount = 2,
   reuseGenerationRunId = '',
   maxGenerateShards = 240,
   maxAuditShards = 160,
@@ -140,6 +142,10 @@ export function planWorkflowShards({
     selectedPromptIds = allPrompts;
   } else if (normalizedScope === 'pilot') {
     selectedPromptIds = pilotPrompts;
+  } else if (normalizedScope === 'fullapp') {
+    // Prompts that need accounts, stored user content or an admin area: the builds where server-side quality
+    // and the security probes have something to measure.
+    selectedPromptIds = (reg.prompts || []).filter((p) => (p.tags || []).includes('full-app')).map((p) => p.id);
   } else {
     const parsedCustom = String(customPromptsRaw || '')
       .split(',')
@@ -178,7 +184,12 @@ export function planWorkflowShards({
   }
 
   const comboCount = activeCombos.length;
-  const totalCells = comboCount * selectedPromptIds.length;
+  // Repeat samples regenerate only a couple of anchor prompts per combo: enough to measure run-to-run variation
+  // without paying for the whole matrix twice.
+  const sampleCount = Math.max(1, Math.min(5, Math.floor(Number(samples) || 1)));
+  const samplePromptIds = sampleCount > 1 ? selectedPromptIds.slice(0, Math.max(1, Math.floor(Number(samplePromptCount) || 2))) : [];
+  const repeatCells = comboCount * samplePromptIds.length * (sampleCount - 1);
+  const totalCells = comboCount * selectedPromptIds.length + repeatCells;
 
   // --- 1. Plan Stage 1 Generate Shards ---
   // One-shot shards are fast, so they get a fixed share of the job budget; agent shards get the rest and
@@ -248,8 +259,27 @@ export function planWorkflowShards({
           label: `${model} [${cellMode}${specTag}${harnessTag}] (${shardNum}/${promptChunks.length}: ${chunk.length}p)`,
           promptCount: chunk.length,
           promptFlag: `--prompts=${chunk.join(',')}`,
+          sampleFlag: '',
         });
       });
+      for (let k = 2; k <= sampleCount; k++) {
+        generateShards.push({
+          model,
+          modelSlug,
+          harness: cellHarness,
+          mode: cellMode,
+          spec: cellSpec,
+          sample: k,
+          shardId: `${modelSlug}-${cellMode}${specSuffix}${harnessSuffix}-s${k}-gen-1`,
+          label: `${model} [${cellMode}${specTag}${harnessTag}] (repeat sample ${k}: ${samplePromptIds.length}p)`,
+          promptCount: samplePromptIds.length,
+          promptFlag: `--prompts=${samplePromptIds.join(',')}`,
+          sampleFlag: `--sample-index=${k}`,
+        });
+      }
+    }
+    if (generateShards.length > maxGenerateShards) {
+      warnings.push(`Repeat samples bring the run to ${generateShards.length} generate jobs, over the ${maxGenerateShards} planned for; reduce the matrix or the samples.`);
     }
   }
 
@@ -280,11 +310,30 @@ export function planWorkflowShards({
         label: `${model} [${cellMode}${specTag}${harnessTag}] (${shardNum}/${promptChunks.length}: ${chunk.length} cells)`,
         cellCount: chunk.length,
         promptFlag: `--prompts=${chunk.join(',')}`,
+        sampleFlag: '',
         artifactPattern: skipGenerate
           ? 'generated-cells-*'
           : `generated-cells-${modelSlug}-${cellMode}${specSuffix}${harnessSuffix}-gen-*`,
       });
     });
+    for (let k = 2; k <= sampleCount; k++) {
+      auditShards.push({
+        model,
+        modelSlug,
+        harness: cellHarness,
+        mode: cellMode,
+        spec: cellSpec,
+        sample: k,
+        shardId: `${modelSlug}-${cellMode}${specSuffix}${harnessSuffix}-s${k}-audit-1`,
+        label: `${model} [${cellMode}${specTag}${harnessTag}] (repeat sample ${k}: ${samplePromptIds.length} cells)`,
+        cellCount: samplePromptIds.length,
+        promptFlag: `--prompts=${samplePromptIds.join(',')}`,
+        sampleFlag: `--sample-index=${k}`,
+        artifactPattern: skipGenerate
+          ? 'generated-cells-*'
+          : `generated-cells-${modelSlug}-${cellMode}${specSuffix}${harnessSuffix}-s${k}-gen-*`,
+      });
+    }
   }
 
   return {
@@ -297,6 +346,9 @@ export function planWorkflowShards({
     promptCount: selectedPromptIds.length,
     totalCells,
     auditRuns: runsPerCell,
+    samples: sampleCount,
+    samplePromptIds,
+    repeatCells,
     unknownModels,
     warnings,
     skipGenerate,

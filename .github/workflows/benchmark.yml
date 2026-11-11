@@ -9,13 +9,14 @@ on:
         default: 'deepseek-flash,gemini-3.8-flash,grok-4.7,claude-sonnet-5-5,gpt-6-1-sol,kimi-k3,kimi-k3-1-pro,muse-spark'
         type: string
       prompt_scope:
-        description: 'Prompt corpus scope: "all" runs all 37 prompts across 10 categories; "pilot" runs 10 prompts (1 per category)'
+        description: 'Prompt corpus scope: "all" runs all 47 prompts across 10 categories; "pilot" runs 10 prompts (1 per category); "fullapp" runs the 10 prompts that need accounts, stored content or an admin area'
         required: true
         default: 'all'
         type: choice
         options:
           - all
           - pilot
+          - fullapp
           - custom
       prompts:
         description: 'Custom prompt IDs (only used when prompt_scope is "custom", e.g. plumbing-appointment,minecraft-clone)'
@@ -23,7 +24,7 @@ on:
         default: ''
         type: string
       harness:
-        description: 'Coding harness: pi (default clean-room), claude-acp, codex-acp, acp (both ACP adapters), or all (pi + ACP)'
+        description: 'Track: pi = model direct (thin clean-room loop); a vendor harness (Claude Code, Codex, Gemini CLI, Qwen Code, Kimi CLI, Muse CLI); acp = all ACP harnesses; vendor = every vendor harness; all = direct + every vendor harness'
         required: true
         default: 'pi'
         type: choice
@@ -31,7 +32,12 @@ on:
           - pi
           - claude-acp
           - codex-acp
+          - gemini-acp
+          - qwen-acp
+          - kimi-acp
+          - muse-msp
           - acp
+          - vendor
           - all
       mode:
         description: 'Harness mode'
@@ -66,6 +72,15 @@ on:
         required: false
         default: ''
         type: string
+      samples:
+        description: 'Repeat samples: 1 = generate each site once. 2 or 3 = also regenerate the first two selected prompts per model and track, to measure run-to-run variation at low cost'
+        required: true
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
       audit_runs:
         description: 'Browser audit passes per cell (median selected to eliminate VM jitter)'
         required: true
@@ -125,6 +140,7 @@ jobs:
           INPUT_MODE: ${{ inputs.mode }}
           INPUT_SPEC: ${{ inputs.spec }}
           INPUT_AUDIT_RUNS: ${{ inputs.audit_runs }}
+          INPUT_SAMPLES: ${{ inputs.samples }}
           INPUT_REUSE_RUN_ID: ${{ inputs.reuse_generation_run_id }}
           INPUT_REUSE_AUDIT_RUN_ID: ${{ inputs.reuse_audit_run_id }}
           INPUT_ALLOW_UNREGISTERED: ${{ inputs.allow_unregistered_models }}
@@ -144,6 +160,7 @@ jobs:
               mode: process.env.INPUT_MODE,
               spec: process.env.INPUT_SPEC || "freeform",
               auditRuns: Number(process.env.INPUT_AUDIT_RUNS || 1),
+              samples: Number(process.env.INPUT_SAMPLES || 1),
               reuseGenerationRunId: process.env.INPUT_REUSE_RUN_ID || reuseAuditRunId,
               strictModels: String(process.env.INPUT_ALLOW_UNREGISTERED || "false") !== "true",
             });
@@ -204,6 +221,15 @@ jobs:
             node scripts/setup-vm.mjs --harnesses="${{ matrix.shard.harness }}"
           fi
 
+      - name: Install Muse CLI for the muse-msp harness (optional, from the MUSE_CLI_INSTALL_CMD repository variable)
+        if: ${{ matrix.shard.harness == 'muse-msp' && vars.MUSE_CLI_INSTALL_CMD != '' }}
+        env:
+          MUSE_CLI_INSTALL_CMD: ${{ vars.MUSE_CLI_INSTALL_CMD }}
+          MUSE_API_KEY: ${{ secrets.MUSE_API_KEY }}
+        run: |
+          bash -c "$MUSE_CLI_INSTALL_CMD"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Run clean-room generation shard (${{ matrix.shard.label }})
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -230,7 +256,7 @@ jobs:
             --mode="${{ matrix.shard.mode }}" \
             --spec="${{ matrix.shard.spec }}" \
             --models="${{ matrix.shard.model }}" \
-            ${{ matrix.shard.promptFlag }}
+            ${{ matrix.shard.promptFlag }} ${{ matrix.shard.sampleFlag }}
 
       - name: Upload generated workspace & pi session artifacts (without node_modules)
         # Upload even when the shard fails or times out so finished cells and session transcripts survive;
@@ -347,7 +373,7 @@ jobs:
             --mode="${{ matrix.shard.mode }}" \
             --spec="${{ matrix.shard.spec }}" \
             --models="${{ matrix.shard.model }}" \
-            ${{ matrix.shard.promptFlag }}
+            ${{ matrix.shard.promptFlag }} ${{ matrix.shard.sampleFlag }}
 
       - name: Run Post-Server Multimodal On-Topic LLM Judge (${{ matrix.shard.label }})
         # Runs strictly AFTER all untrusted $PORT servers have exited, evaluating static screenshots & DOM evidence.
@@ -370,7 +396,7 @@ jobs:
             --mode="${{ matrix.shard.mode }}" \
             --spec="${{ matrix.shard.spec }}" \
             --models="${{ matrix.shard.model }}" \
-            ${{ matrix.shard.promptFlag }} \
+            ${{ matrix.shard.promptFlag }} ${{ matrix.shard.sampleFlag }} \
             --markdown-summary="$GITHUB_STEP_SUMMARY"
 
       - name: Stage only this shard's audited cells & VM canary telemetry
@@ -380,6 +406,7 @@ jobs:
           SHARD_MODE: ${{ matrix.shard.mode }}
           SHARD_SPEC: ${{ matrix.shard.spec }}
           SHARD_PROMPT_FLAG: ${{ matrix.shard.promptFlag }}
+          SHARD_SAMPLE: ${{ matrix.shard.sample || 1 }}
         run: |
           node --input-type=module -e '
             import { existsSync, readdirSync, readFileSync, rmSync, mkdirSync, cpSync, renameSync, writeFileSync, statSync } from "node:fs";
@@ -390,6 +417,7 @@ jobs:
             const shardHarness = process.env.SHARD_HARNESS || "pi";
             const shardMode = process.env.SHARD_MODE || "agent";
             const shardSpec = process.env.SHARD_SPEC || "freeform";
+            const shardSample = Number(process.env.SHARD_SAMPLE || 1);
             const promptIds = new Set(
               String(process.env.SHARD_PROMPT_FLAG || "")
                 .replace(/^--prompts=/, "")
@@ -419,6 +447,7 @@ jobs:
                   parsed.harness !== shardHarness ||
                   parsed.mode !== shardMode ||
                   parsed.spec !== shardSpec ||
+                (parsed.sample || 1) !== shardSample ||
                   (promptIds.size > 0 && !promptIds.has(promptId))
                 ) {
                   continue;
@@ -521,8 +550,16 @@ jobs:
             console.log(`Verified ${cells} scored cell(s) ready for Benchmark Studio export.`);
           '
 
+      - name: Restore earlier runs from the published report (run archive)
+        continue-on-error: true
+        run: node scripts/fetch-run-archive.mjs "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+
       - name: Export static Benchmark Studio report (dist-report/)
-        run: npm run export
+        env:
+          BENCH_RUN_ID: run-${{ github.run_number }}
+        run: |
+          export BENCH_RUN_LABEL="$(date -u +%Y-%m-%d) (run ${{ github.run_number }})"
+          npm run export
 
       - name: Upload static Studio report & raw scored artifacts
         uses: actions/upload-artifact@v4

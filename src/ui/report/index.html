@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'" />
+  <title>Web Outcomes Benchmark: report</title>
+  <meta name="description" content="How good is the website an AI model builds by default? Scores for performance, accessibility, security and more, for each model run directly and inside vendor coding agents." />
+  <link rel="stylesheet" href="./report.css" />
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="#/">Web Outcomes Benchmark</a>
+      <nav aria-label="Report sections" id="nav">
+        <a href="#/" data-nav="overview">Overview</a>
+        <a href="#/pillars" data-nav="pillars">Pillars</a>
+        <a href="#/harness" data-nav="harness">Harness effect</a>
+        <a href="#/tests" data-nav="tests">Tests</a>
+        <a href="#/cells" data-nav="cells">Sites</a>
+        <a href="#/method" data-nav="method">Method</a>
+      </nav>
+      <label class="run-pick"><span>Run</span> <select id="run-select" aria-label="Benchmark run"></select></label>
+    </div>
+  </header>
+  <div id="banner" class="banner" hidden></div>
+  <main id="main" tabindex="-1"><p class="loading">Loading results…</p></main>
+  <div id="tip" class="tip" role="status" hidden></div>
+  <footer class="foot">
+    <p>Each site is generated once from a short prompt with no steering, then measured. <a href="#/method">How this works</a> · <a href="../">Benchmark Studio</a></p>
+  </footer>
+  <script type="module" src="./report.js"></script>
+</body>
+</html>

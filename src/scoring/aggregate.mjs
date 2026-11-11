@@ -10,7 +10,7 @@ import { PROJECT_ROOT, loadBenchmarkConfig } from '../util/env.mjs';
 import { loadPromptRegistry } from '../registry/prompts.mjs';
 import { loadModelRegistryConfig } from '../harness/model-registry.mjs';
 import { getPiRuntimeInfo } from '../harness/pi-loader.mjs';
-import { getHarnessSpec, listAllHarnessStatuses } from '../harness/harness-registry.mjs';
+import { getHarnessSpec, listAllHarnessStatuses, getTrackForCell, describeTrack } from '../harness/harness-registry.mjs';
 import { parseCellDirIdentity } from '../harness/generate.mjs';
 import { hasResolvableStaticPreview } from '../materialize/static-mirror.mjs';
 import { listProviderBridges } from '../harness/provider-bridges.mjs';
@@ -19,6 +19,7 @@ import { MODERN_WEB_CATALOG_VERSION, MODERN_WEB_FEATURE_RULES } from '../benchma
 import { LIBRARY_DETECTOR_ENGINE_VERSION } from '../benchmarks/library-signatures.mjs';
 import { computeConsoleErrorScore } from '../benchmarks/console-errors.bench.mjs';
 import { loadLatestCanary } from '../benchmarks/canary.mjs';
+import { PILLARS, flattenCellTests, rollupTests, buildTestCatalog } from './test-catalog.mjs';
 
 export const CELLS_ROOT = join(PROJECT_ROOT, 'runs', 'cells');
 export const SUMMARY_OUT_PATH = join(PROJECT_ROOT, 'data', 'summary.json');
@@ -86,6 +87,7 @@ export function aggregateAllResults({
   const modelMap = new Map(modelReg.models.map((m) => [m.key, m]));
 
   const cells = [];
+  const testsByCell = [];
   if (existsSync(cellsRoot)) {
     const dirs = readdirSync(cellsRoot).sort();
     for (const dirName of dirs) {
@@ -182,6 +184,9 @@ export function aggregateAllResults({
       const deepPerfScore = pillarScores['deep-perf']?.overall ?? null;
       const memoryScore = pillarScores['memory']?.overall ?? null;
       const functionalFlowScore = compiledFlow?.flowCompletionPct ?? (buildSucceeded ? 50 : 0);
+      const sec = rawBenchmarks['security'] || null;
+      const securityScored = sec ? pillarScores['security'] : null;
+      const securityScore = securityScored?.overall ?? null;
 
       let compositeScore = 0;
       if (validBuild) {
@@ -193,6 +198,7 @@ export function aggregateAllResults({
           [upliftScore, weights.uplift],
           [deepPerfScore, weights.deepPerf],
           [consoleErrorsScore, weights.consoleErrors],
+          [securityScore, weights.security],
           [memoryScore, weights.memory],
           [functionalFlowScore, weights.functionalFlow],
         ];
@@ -218,8 +224,15 @@ export function aggregateAllResults({
         tech?.staticAnalysis?.modernWebAdoptionCount ??
         Object.values(detectedFeatureMap).filter(Boolean).length;
 
+      const cellTests = buildSucceeded ? flattenCellTests({ rawBenchmarks, pillarScores, compiledFlow }) : [];
+      testsByCell.push({ cellId: dirName, tests: cellTests });
+
       cells.push({
         cellId: dirName,
+        sample: parsedIdentity.sample || 1,
+        sampleGroup: parsedIdentity.sample ? dirName.replace(/__s[2-9]$/, '') : dirName,
+        pillarRollups: rollupTests(cellTests),
+        demo: generation.demo === true,
         modelKey: generation.modelKey,
         modelLabel: modelInfo?.label || generation.modelLabel || generation.modelKey,
         family: modelInfo?.family || generation.family || 'Other',
@@ -229,6 +242,15 @@ export function aggregateAllResults({
         categoryLabel: promptInfo?.categoryLabel || generation.category || 'Other',
         harness,
         harnessLabel,
+        track: generation.track || getTrackForCell(harness, mode),
+        trackLabel: describeTrack(generation.track || getTrackForCell(harness, mode)).label,
+        harnessVersion: generation.harnessVersion || null,
+        systemPromptSha256: generation.exactPrompt?.systemPromptSha256 || generation.systemPromptSha256 || null,
+        systemPromptSource:
+          generation.systemPromptSource ||
+          generation.exactPrompt?.systemPromptSource ||
+          generation.harnessEnvironment?.systemPromptSource ||
+          null,
         mode,
         spec,
         provider: generation.provider,
@@ -277,9 +299,34 @@ export function aggregateAllResults({
           deepPerf: deepPerfScore,
           memory: memoryScore,
           functionalFlow: functionalFlowScore,
+          security: securityScore,
         },
 
         consoleAudit,
+        securityAudit: sec
+          ? {
+              evaluated: true,
+              version: sec.version || null,
+              score: securityScore,
+              passed: securityScored.passed,
+              failed: securityScored.failed,
+              notApplicable: securityScored.notApplicable,
+              criticalFailures: securityScored.criticalFailures,
+              groups: securityScored.groups,
+              scope: sec.scope || null,
+              checks: (sec.checks || []).map((c) => ({
+                id: c.id,
+                group: c.group,
+                title: c.title,
+                severity: c.severity,
+                status: c.status,
+                detail: c.detail,
+                confidence: c.confidence,
+                evidence: (c.evidence || []).slice(0, 4),
+                ref: c.ref || null,
+              })),
+            }
+          : null,
 
         techStack: tech
           ? {
@@ -426,9 +473,13 @@ export function aggregateAllResults({
     }
   }
 
+  const { catalog: testCatalog, compact: compactTests } = buildTestCatalog(testsByCell);
+  for (const c of cells) c.testResults = compactTests.get(c.cellId) || [];
+
   // 1. Leaderboard Aggregation by (modelKey + mode + spec + harness) so Harnesses, Agent vs 1-Shot & Free-form vs Guided tracks are cleanly ranked & filterable
+  // Repeat samples only feed the noise estimate: counting them here would weight their prompts twice.
   const byModelMode = new Map();
-  for (const c of cells) {
+  for (const c of cells.filter((x) => (x.sample || 1) === 1)) {
     const baseKey = c.spec === 'guided' ? `${c.modelKey}__${c.mode}__guided` : `${c.modelKey}__${c.mode}`;
     const groupKey = c.harness && c.harness !== 'pi' ? `${baseKey}__${c.harness}` : baseKey;
     if (!byModelMode.has(groupKey)) byModelMode.set(groupKey, []);
@@ -478,6 +529,8 @@ export function aggregateAllResults({
       modelKey,
       harness,
       harnessLabel,
+      track: first.track,
+      trackLabel: first.trackLabel,
       mode,
       spec,
       label: modelMeta.label || first?.modelLabel || modelKey,
@@ -505,6 +558,7 @@ export function aggregateAllResults({
         deepPerf: avg(built.map((c) => c.scores.deepPerf)),
         memory: avg(built.map((c) => c.scores.memory)),
         functionalFlow: avg(mCells.map((c) => c.scores.functionalFlow)),
+        security: avg(built.map((c) => c.scores.security)),
       },
       averages: {
         mobileLcpMs: avg(built.map((c) => c.keyMetrics.mobileLcpMs)),
@@ -545,13 +599,23 @@ export function aggregateAllResults({
   const byBackend = new Map();
   const byDelivery = new Map();
   const byHarness = new Map();
+  const byTrack = new Map();
   const byMode = new Map();
   const bySpec = new Map();
+
+  // Every track that was run gets a row, including one where every cell failed: a harness that never produced a
+  // build is a result, not an absence.
+  for (const c of cells) {
+    if (c.track && !byTrack.has(c.track)) byTrack.set(c.track, []);
+  }
 
   for (const c of cells.filter((x) => x.buildSucceeded)) {
     const h = c.harness || 'pi';
     if (!byHarness.has(h)) byHarness.set(h, []);
     byHarness.get(h).push(c);
+
+    if (!byTrack.has(c.track)) byTrack.set(c.track, []);
+    byTrack.get(c.track).push(c);
 
     if (!byMode.has(c.mode)) byMode.set(c.mode, []);
     byMode.get(c.mode).push(c);
@@ -592,6 +656,7 @@ export function aggregateAllResults({
         avgUplift: avg(list.map((c) => c.scores.uplift)),
         avgDeepPerf: avg(list.map((c) => c.scores.deepPerf)),
         avgMemory: avg(list.map((c) => c.scores.memory)),
+        avgSecurity: avg(list.map((c) => c.scores.security)),
         avgFlowCompletion: avg(list.map((c) => c.scores.functionalFlow)),
         avgMobileLcpMs: avg(list.map((c) => c.keyMetrics.mobileLcpMs)),
         avgInpMs: avg(list.map((c) => c.keyMetrics.inpMs)),
@@ -1087,6 +1152,59 @@ export function aggregateAllResults({
     harnessLabel: getHarnessSpec(r.harness)?.label || r.harness,
   }));
 
+  // Tracks are the headline comparison: the same model run directly (one-shot, clean-room agent) and inside each
+  // vendor harness, which adds its own system prompt and tools.
+  const byTrackRows = summarizeCohort(byTrack, 'track').map((r) => {
+    const info = describeTrack(r.track);
+    const all = cells.filter((c) => c.track === r.track);
+    return {
+      ...r,
+      trackLabel: info.label,
+      kind: info.kind,
+      vendor: info.vendor || null,
+      cellsRun: all.length,
+      failedCells: all.filter((c) => !c.buildSucceeded).length,
+      harnessVersions: [...new Set(all.map((c) => c.harnessVersion).filter(Boolean))],
+      systemPromptHashes: [...new Set(all.map((c) => c.systemPromptSha256).filter(Boolean))],
+    };
+  });
+
+  // Repeat samples: the same model, prompt and track generated more than once. The spread between them is the
+  // benchmark's noise floor, so readers can tell a real difference between two models from run-to-run luck.
+  const bySampleGroup = new Map();
+  for (const c of cells) {
+    if (!bySampleGroup.has(c.sampleGroup)) bySampleGroup.set(c.sampleGroup, []);
+    bySampleGroup.get(c.sampleGroup).push(c);
+  }
+  const repeated = [...bySampleGroup.entries()].filter(([, list]) => list.length > 1).map(([group, list]) => {
+    const scores = list.map((c) => (c.buildSucceeded ? c.scores.composite ?? 0 : 0));
+    const mean = scores.reduce((x, y) => x + y, 0) / scores.length;
+    const sd = Math.sqrt(scores.reduce((x, y) => x + (y - mean) ** 2, 0) / (scores.length - 1));
+    const first = list[0];
+    return {
+      group,
+      modelKey: first.modelKey,
+      promptId: first.promptId,
+      track: first.track,
+      samples: list.length,
+      built: list.filter((c) => c.buildSucceeded).length,
+      scores,
+      mean: Math.round(mean * 10) / 10,
+      range: Math.round((Math.max(...scores) - Math.min(...scores)) * 10) / 10,
+      stdDev: Math.round(sd * 10) / 10,
+      techStacks: [...new Set(list.map((c) => c.techStack?.primaryFramework).filter(Boolean))],
+    };
+  });
+  const ranges = repeated.map((r) => r.range).sort((x, y) => x - y);
+  const sampleNoise = {
+    repeatedCells: repeated.length,
+    totalSamples: repeated.reduce((n, r) => n + r.samples, 0),
+    medianRange: ranges.length ? ranges[Math.floor((ranges.length - 1) / 2)] : null,
+    maxRange: ranges.length ? ranges[ranges.length - 1] : null,
+    typicalStdDev: repeated.length ? Math.round((repeated.reduce((n, r) => n + r.stdDev, 0) / repeated.length) * 10) / 10 : null,
+    groups: repeated.sort((x, y) => y.range - x.range),
+  };
+
   const summary = {
     generatedAt: new Date().toISOString(),
     weights,
@@ -1105,6 +1223,7 @@ export function aggregateAllResults({
     },
     totals: {
       cells: cells.length,
+      demoCells: cells.filter((c) => c.demo).length,
       validCells: validCellsCount,
       disqualifiedCells: disqualifiedCellsCount,
       agentCells: agentCellsCount,
@@ -1120,6 +1239,12 @@ export function aggregateAllResults({
     leaderboard,
     judgeSummary,
     consoleErrorSummary,
+    pillars: PILLARS.map((p) => ({ ...p, weight: weights[p.weightKey] ?? null })),
+    testCatalog,
+    trackComparison: {
+      byTrack: byTrackRows,
+    },
+    sampleNoise,
     harnessComparison: {
       byHarness: byHarnessRows,
       pairedHarnessHeadToHead,

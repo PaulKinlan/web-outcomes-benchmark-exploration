@@ -147,12 +147,12 @@ const SLOW_LEAKY_HTML = `<!doctype html>
     }
 
     document.getElementById('demo-btn').addEventListener('click', () => {
-      burnMainThread(95);
+      burnMainThread(380);
       document.getElementById('auth-status').textContent = 'Signed in as Demo Member';
     });
 
     document.getElementById('open-book-btn').addEventListener('click', () => {
-      burnMainThread(110);
+      burnMainThread(440);
       document.getElementById('overlay').classList.add('open');
 
       // Intentional memory & listener leak on every modal open/close cycle!
@@ -174,7 +174,7 @@ const SLOW_LEAKY_HTML = `<!doctype html>
     });
 
     document.getElementById('confirm-btn').addEventListener('click', () => {
-      burnMainThread(90);
+      burnMainThread(360);
       const item = document.createElement('p');
       item.textContent = 'Booked for ' + (document.getElementById('cust-name').value || 'Guest');
       document.getElementById('bookings-list').appendChild(item);
@@ -246,7 +246,9 @@ test('flow compiler, deep-perf (W3C INP), and memory leak detector distinguish c
     });
 
     assert.ok(cleanPerf.journey.interactionCount >= 3, 'Expected real W3C EventTiming interactions');
-    assert.ok(leakyPerf.journey.inpMs > cleanPerf.journey.inpMs + 80, `Expected leaky/slow INP (${leakyPerf.journey.inpMs}ms) >> clean INP (${cleanPerf.journey.inpMs}ms)`);
+    // The slow fixture blocks the main thread for 360-440ms per interaction. The gap has to stay well clear of the
+    // delay CPU contention adds to the clean page when the whole suite runs in parallel (tens of ms on CI).
+    assert.ok(leakyPerf.journey.inpMs > cleanPerf.journey.inpMs + 150, `Expected leaky/slow INP (${leakyPerf.journey.inpMs}ms) >> clean INP (${cleanPerf.journey.inpMs}ms)`);
 
     // 4. Memory benchmark detects detached DOM nodes + listener leak on leaky site & cleans up raw snapshots
     const cleanMem = await memoryBench.run({

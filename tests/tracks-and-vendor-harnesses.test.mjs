@@ -1,0 +1,226 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  expandHarnessSelection,
+  getHarnessSpec,
+  getTrackForCell,
+  describeTrack,
+  isModelCompatibleWithHarness,
+  normalizeHarnessId,
+  resolvePiExtensionHarness,
+} from '../src/harness/harness-registry.mjs';
+import { planWorkflowShards } from '../src/runner/shard-planner.mjs';
+import { loadModelRegistryConfig } from '../src/harness/model-registry.mjs';
+import { capturePiSystemPrompt, piSystemPromptModuleCandidates } from '../src/harness/generate.mjs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { anthropicCompatForModel, buildCleanRoomPiModelsConfig } from '../src/harness/pi-auth-bridge.mjs';
+import { pickLiveModelId, resolveLiveRoute, resetLiveModelIdCache } from '../src/harness/model-id-resolver.mjs';
+
+const models = loadModelRegistryConfig().models;
+const byKey = (k) => models.find((m) => m.key === k);
+
+describe('Tracks', () => {
+  it('names the three ways a model is run', () => {
+    assert.equal(getTrackForCell('pi', 'oneshot'), 'direct-oneshot');
+    assert.equal(getTrackForCell('pi', 'agent'), 'direct-agent');
+    assert.equal(getTrackForCell('claude-acp', 'agent'), 'harness:claude-acp');
+    assert.equal(describeTrack('direct-oneshot').kind, 'direct');
+    const cc = describeTrack('harness:claude-acp');
+    assert.equal(cc.kind, 'vendor-harness');
+    assert.ok(cc.label);
+  });
+});
+
+describe('Vendor harnesses', () => {
+  it('registers Gemini CLI, Qwen Code, Kimi CLI and Muse with a launch recipe', () => {
+    for (const id of ['gemini-acp', 'qwen-acp', 'kimi-acp']) {
+      const spec = getHarnessSpec(id);
+      assert.ok(spec, id);
+      assert.equal(spec.protocol, 'acp');
+      assert.ok(Array.isArray(spec.args) && spec.args.length > 0, `${id} needs ACP launch args`);
+      assert.deepEqual(spec.supportsModes, ['agent']);
+    }
+    assert.equal(getHarnessSpec('kimi-acp').installer, 'pip');
+    assert.equal(getHarnessSpec('qwen-acp').modelEnvVar, 'OPENAI_MODEL');
+    const muse = getHarnessSpec('muse-msp');
+    assert.equal(muse.protocol, 'pi-extension');
+    assert.equal(muse.extensionPackage, 'pi-muse-msp');
+  });
+
+  it('expands harness groups', () => {
+    const all = expandHarnessSelection('all');
+    for (const id of ['pi', 'claude-acp', 'codex-acp', 'gemini-acp', 'qwen-acp', 'kimi-acp', 'muse-msp']) {
+      assert.ok(all.includes(id), `all should include ${id}`);
+    }
+    assert.ok(!expandHarnessSelection('vendor').includes('pi'));
+    assert.ok(!expandHarnessSelection('acp').includes('muse-msp'));
+    assert.equal(normalizeHarnessId('gemini-cli'), 'gemini-acp');
+  });
+
+  it('only pairs a vendor harness with its own vendor models', () => {
+    assert.equal(isModelCompatibleWithHarness(byKey('gemini-3-8-flash'), 'gemini-acp'), true);
+    assert.equal(isModelCompatibleWithHarness(byKey('gemini-3-8-flash'), 'claude-acp'), false);
+    assert.equal(isModelCompatibleWithHarness(byKey('kimi-k3'), 'kimi-acp'), true);
+    assert.equal(isModelCompatibleWithHarness(byKey('kimi-k3'), 'qwen-acp'), false);
+    assert.equal(isModelCompatibleWithHarness(byKey('qwen3-8-flash'), 'qwen-acp'), true);
+    assert.equal(isModelCompatibleWithHarness(byKey('muse-wonder'), 'muse-msp'), true);
+    assert.equal(isModelCompatibleWithHarness(byKey('claude-sonnet-5-5'), 'muse-msp'), false);
+  });
+
+  it('plans one harness lane per model plus the direct lanes', () => {
+    const plan = planWorkflowShards({
+      modelsRaw: 'gemini-3-8-flash,kimi-k3,qwen3-8-flash,muse-wonder,claude-sonnet-5-5',
+      harness: 'all',
+      mode: 'both',
+      spec: 'freeform',
+      promptScope: 'pilot',
+      strictModels: true,
+    });
+    const lanes = new Set(plan.generateShards.map((s) => `${s.model}|${s.harness}|${s.mode}`));
+    for (const lane of [
+      'gemini-3-8-flash|gemini-acp|agent',
+      'kimi-k3|kimi-acp|agent',
+      'qwen3-8-flash|qwen-acp|agent',
+      'muse-wonder|muse-msp|agent',
+      'claude-sonnet-5-5|claude-acp|agent',
+      'gemini-3-8-flash|pi|agent',
+      'gemini-3-8-flash|pi|oneshot',
+    ]) {
+      assert.ok(lanes.has(lane), `missing lane ${lane} in ${[...lanes].join(', ')}`);
+    }
+    assert.ok(!lanes.has('gemini-3-8-flash|claude-acp|agent'));
+    assert.ok(![...lanes].some((l) => /-(acp|msp)\|oneshot$/.test(l)), 'vendor harnesses are agent-only');
+  });
+
+  it('reports what is missing when the Muse host is not installed', () => {
+    const prev = process.env.PI_MUSE_BINARY;
+    process.env.PI_MUSE_BINARY = 'definitely-not-a-real-muse-binary';
+    try {
+      const res = resolvePiExtensionHarness('muse-msp');
+      assert.equal(res.available, false);
+      assert.ok(res.missing.some((m) => /muse/.test(m)));
+    } finally {
+      if (prev === undefined) delete process.env.PI_MUSE_BINARY;
+      else process.env.PI_MUSE_BINARY = prev;
+    }
+  });
+});
+
+describe('System prompt capture', () => {
+  it('records the clean-room pi system prompt and a stable hash', async () => {
+    const a = await capturePiSystemPrompt(process.cwd());
+    const b = await capturePiSystemPrompt(process.cwd());
+    assert.ok(a && a.text.length > 100);
+    assert.match(a.sha256, /^[0-9a-f]{64}$/);
+    assert.equal(a.sha256, b.sha256);
+  });
+});
+
+describe('System prompt module lookup', () => {
+  it('finds the prompt module from the selected pi install in bundled and unbundled layouts', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-layout-'));
+    try {
+      for (const binRel of ['dist/bundle/cli.js', 'dist/cli.js']) {
+        const pkg = join(root, binRel.replace(/\W/g, '_'));
+        mkdirSync(join(pkg, 'dist', 'bundle'), { recursive: true });
+        writeFileSync(join(pkg, 'package.json'), '{}');
+        writeFileSync(join(pkg, binRel), '');
+        assert.equal(piSystemPromptModuleCandidates(join(pkg, binRel))[0], join(pkg, 'dist', 'core', 'system-prompt.js'));
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('Pilot regressions (run 11)', () => {
+  it('sends adaptive thinking to Claude 4.6+ and 5.x models that pi does not know yet', () => {
+    assert.equal(anthropicCompatForModel('claude-sonnet-5-5').forceAdaptiveThinking, true);
+    assert.equal(anthropicCompatForModel('claude-opus-4-7').forceAdaptiveThinking, true);
+    assert.equal(anthropicCompatForModel('claude-haiku-4-5-20251001'), null);
+    assert.equal(anthropicCompatForModel('claude-sonnet-4-20250514'), null);
+    assert.equal(anthropicCompatForModel('claude-3-5-sonnet-latest'), null);
+    const cfg = buildCleanRoomPiModelsConfig();
+    const sonnet = cfg.providers.anthropic.models.find((m) => m.id === 'claude-sonnet-5-5');
+    assert.equal(sonnet.compat.forceAdaptiveThinking, true);
+  });
+
+  it('switches a short model name to the versioned id the provider actually lists', async () => {
+    assert.deepEqual(pickLiveModelId('muse-wonder', [], ['muse-spark-1.3', 'muse-wonder-1.0', 'muse-wonder-1.1']), {
+      modelId: 'muse-wonder-1.1',
+      method: 'versioned-id',
+    });
+    assert.equal(pickLiveModelId('muse-wonder', ['muse-wonder-1.0'], ['muse-wonder-1.0', 'muse-wonder-1.1']).method, 'alias');
+    assert.equal(pickLiveModelId('muse-wonder', [], ['muse-spark-1.3']), null);
+
+    const env = { MUSE_API_KEY: 'test-key' };
+    const fetchImpl = async (url, init) => {
+      assert.match(url, /\/models$/);
+      assert.equal(init.headers.Authorization, 'Bearer test-key');
+      return { ok: true, json: async () => ({ data: [{ id: 'muse-spark-1.3' }, { id: 'muse-wonder-1.0' }] }) };
+    };
+    resetLiveModelIdCache();
+    const entry = byKey('muse-wonder');
+    const route = { provider: 'muse', modelId: 'muse-wonder', api: 'openai-completions' };
+    const live = await resolveLiveRoute(entry, route, { fetchImpl, env });
+    assert.equal(live.modelId, 'muse-wonder-1.0');
+    assert.equal(live.modelIdResolution.requested, 'muse-wonder');
+    assert.ok(buildCleanRoomPiModelsConfig().providers.muse.models.some((m) => m.id === 'muse-wonder-1.0'));
+
+    resetLiveModelIdCache();
+    const missing = await resolveLiveRoute(entry, route, {
+      env,
+      fetchImpl: async () => ({ ok: true, json: async () => ({ data: [{ id: 'muse-spark-1.3' }] }) }),
+    });
+    assert.equal(missing.modelIdResolution.method, 'not-listed');
+    assert.deepEqual(missing.modelIdResolution.availableModelIds, ['muse-spark-1.3']);
+
+    resetLiveModelIdCache();
+    const offline = await resolveLiveRoute(entry, route, { env, fetchImpl: async () => { throw new Error('offline'); } });
+    assert.equal(offline.modelId, 'muse-wonder');
+    resetLiveModelIdCache();
+    const other = await resolveLiveRoute(byKey('claude-sonnet-5-5'), { provider: 'anthropic', modelId: 'claude-sonnet-5-5' });
+    assert.equal(other.modelIdResolution, undefined);
+  });
+});
+
+describe('Full-app prompt scope', () => {
+  it('selects the prompts that need accounts, stored content or an admin area', () => {
+    const plan = planWorkflowShards({ modelsRaw: 'deepseek-flash', promptScope: 'fullapp' });
+    assert.equal(plan.promptCount, 10);
+    assert.equal(planWorkflowShards({ modelsRaw: 'deepseek-flash', promptScope: 'pilot' }).promptCount, 10);
+  });
+});
+
+describe('Repeat samples', () => {
+  it('gives repeat samples their own cell ids that parse back to the same identity', async () => {
+    const { buildCellId, parseCellDirIdentity } = await import('../src/harness/generate.mjs');
+    assert.equal(buildCellId('grok-4-7', 'photo-portfolio', 'agent', 'freeform', 'pi', 1), 'grok-4-7__photo-portfolio__agent');
+    assert.equal(buildCellId('grok-4-7', 'photo-portfolio', 'agent', 'guided', 'claude-acp', 3), 'grok-4-7__photo-portfolio__agent__guided__claude-acp__s3');
+    const parsed = parseCellDirIdentity('grok-4-7__photo-portfolio__agent__guided__claude-acp__s3');
+    assert.deepEqual(parsed, { modelKey: 'grok-4-7', promptId: 'photo-portfolio', mode: 'agent', spec: 'guided', harness: 'claude-acp', sample: 3 });
+    assert.equal(parseCellDirIdentity('grok-4-7__photo-portfolio__agent').sample, undefined);
+  });
+
+  it('repeats only two anchor prompts per combo, in their own shards', () => {
+    const base = planWorkflowShards({ modelsRaw: 'deepseek-flash,grok-4.7', promptScope: 'pilot' });
+    const plan = planWorkflowShards({ modelsRaw: 'deepseek-flash,grok-4.7', promptScope: 'pilot', samples: 3 });
+    assert.equal(base.repeatCells, 0);
+    assert.ok(base.generateShards.every((s) => s.sampleFlag === ''));
+    assert.equal(plan.samplePromptIds.length, 2);
+    assert.equal(plan.repeatCells, 2 * 2 * 2);
+    assert.equal(plan.totalCells, base.totalCells + 8);
+    const repeats = plan.generateShards.filter((s) => s.sample);
+    assert.equal(repeats.length, 4);
+    assert.deepEqual([...new Set(repeats.map((s) => s.sampleFlag))], ['--sample-index=2', '--sample-index=3']);
+    const audit = plan.auditShards.find((s) => s.sample === 2 && s.modelSlug === repeats[0].modelSlug);
+    assert.match(audit.artifactPattern, /-s2-gen-\*$/);
+    assert.equal(new Set(plan.generateShards.map((s) => s.shardId)).size, plan.generateShards.length);
+    // A sample-1 audit shard must not pick up a repeat sample's artifact.
+    const first = plan.auditShards.find((s) => !s.sample && s.modelSlug === repeats[0].modelSlug);
+    const re = new RegExp(`^${first.artifactPattern.replace('*', '.*')}$`);
+    assert.equal(re.test(`generated-cells-${repeats[0].shardId}`), false);
+  });
+});

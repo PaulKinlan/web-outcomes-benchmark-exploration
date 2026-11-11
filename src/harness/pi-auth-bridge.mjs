@@ -64,6 +64,45 @@ const CUSTOM_PROVIDER_DEFAULTS = {
   },
 };
 
+/**
+ * Claude 4.6+ and every Claude 5 model reject `thinking.type: "enabled"` and need adaptive thinking instead.
+ * pi only knows that for models in its built-in catalogue, so models added here must carry the flag themselves.
+ */
+export function anthropicCompatForModel(modelId) {
+  const id = String(modelId || '').toLowerCase();
+  const m = id.match(/claude-(?:[a-z]+-)?(\d+)(?:[-.](\d+))?/);
+  if (!m) return null;
+  const major = Number(m[1]);
+  const minor = m[2] && m[2].length <= 2 ? Number(m[2]) : 0;
+  const adaptive = major >= 5 || (major === 4 && minor >= 6);
+  return adaptive ? { forceAdaptiveThinking: true, supportsTemperature: false } : null;
+}
+
+export function getCustomProviderEndpoint(providerId) {
+  const meta = CUSTOM_PROVIDER_DEFAULTS[providerId];
+  if (!meta) return null;
+  return {
+    baseUrl: providerId === 'muse' ? process.env.MUSE_BASE_URL || meta.baseUrl : meta.baseUrl,
+    api: meta.api,
+    apiKeyEnvVars: ENV_KEY_MAP[providerId] || [],
+  };
+}
+
+// Model ids discovered at run time (see model-id-resolver.mjs) that pi must also accept.
+const extraPiModelIds = new Map();
+
+export function registerExtraPiModelId(providerId, modelId, template = {}) {
+  if (!providerId || !modelId) return;
+  if (!extraPiModelIds.has(providerId)) extraPiModelIds.set(providerId, new Map());
+  extraPiModelIds.get(providerId).set(modelId, template);
+  if (ephemeralAgentDir && existsSync(ephemeralAgentDir)) {
+    writeFileSync(join(ephemeralAgentDir, 'models.json'), JSON.stringify(buildCleanRoomPiModelsConfig(), null, 2) + '\n', {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+  }
+}
+
 const SENSITIVE_ENV_RE = /(?:_API_KEY|_SECRET|_TOKEN|_PASSWORD|^PI_AUTH_JSON_B64$|^GITHUB_TOKEN$|^GH_TOKEN$)$/i;
 
 let ephemeralAgentDir = null;
@@ -143,6 +182,7 @@ export function buildCleanRoomPiModelsConfig() {
       const seen = seenPerProvider.get(r.provider);
       if (seen.has(r.modelId)) continue;
       seen.add(r.modelId);
+      const anthropicCompat = r.provider === 'anthropic' ? anthropicCompatForModel(r.modelId) : null;
       provObj.models.push({
         id: r.modelId,
         name: m.label || r.modelId,
@@ -152,6 +192,7 @@ export function buildCleanRoomPiModelsConfig() {
         contextWindow: m.contextWindow || 200000,
         maxTokens: m.maxTokens || 32768,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        ...(anthropicCompat ? { compat: anthropicCompat } : {}),
       });
     }
   }
@@ -188,6 +229,25 @@ export function buildCleanRoomPiModelsConfig() {
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         });
       }
+    }
+  }
+
+  for (const [provId, ids] of extraPiModelIds.entries()) {
+    const provObj = ensureProvider(provId);
+    if (!provObj) continue;
+    const seen = seenPerProvider.get(provId);
+    for (const [id, template] of ids.entries()) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      provObj.models.push({
+        id,
+        name: template.name || id,
+        reasoning: template.reasoning ?? true,
+        input: ['text', 'image'],
+        contextWindow: template.contextWindow || 200000,
+        maxTokens: template.maxTokens || 32768,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      });
     }
   }
 

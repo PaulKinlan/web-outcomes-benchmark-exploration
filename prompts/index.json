@@ -808,6 +808,231 @@
         "doPatterns": ["fill", "pencil", "export", "layer"],
         "undoPatterns": ["undo", "close", "cancel", "×"]
       }
+    },
+    {
+      "id": "neighborhood-forum",
+      "category": "membership-community",
+      "title": "Neighborhood Association Discussion Forum",
+      "pilot": false,
+      "requiresAuth": true,
+      "tags": ["full-app"],
+      "prompt": "Create a discussion forum website for a neighborhood association. Residents should be able to sign up and log in (provide a working demo resident login), browse boards by topic, start a new thread, reply to threads, edit their profile with a display name and short bio, and search posts by keyword. Moderators should have a separate login and a page where they can remove posts and suspend accounts.",
+      "expectedFlows": ["resident-login", "browse-board", "start-thread", "reply-thread", "edit-profile"],
+      "canonicalJourney": [
+        { "id": "resident-login", "label": "Log in with demo resident account", "action": "auth", "triggerPatterns": ["log in", "login", "sign in", "demo", "account", "resident", "join"], "demoPatterns": ["demo", "sample", "test", "one-click", "resident"], "credentials": { "email": "resident@maplecourt.example", "password": "Password123!" } },
+        { "id": "open-board", "label": "Open a topic board", "action": "click", "patterns": ["board", "events", "safety", "lost", "garden", "general", "topic"] },
+        { "id": "start-thread", "label": "Start a new thread", "action": "form-submit", "fields": { "title": "Street tree planting day", "message": "Who can bring spades on Saturday morning?", "body": "Who can bring spades on Saturday morning?" }, "submitPatterns": ["post", "create", "start", "publish", "submit"] },
+        { "id": "reply-thread", "label": "Reply to a thread", "action": "form-submit", "fields": { "reply": "I can bring two spades and a wheelbarrow.", "message": "I can bring two spades and a wheelbarrow." }, "submitPatterns": ["reply", "post", "send", "submit"] },
+        { "id": "search-posts", "label": "Search posts by keyword", "action": "type", "inputPatterns": ["search", "find"], "value": "parking" },
+        { "id": "open-profile", "label": "Open profile settings", "action": "click", "patterns": ["profile", "account", "settings", "bio"] }
+      ],
+      "leakLoop": {
+        "description": "Open threads and return to the board list",
+        "doPatterns": ["thread", "board", "topic", "profile"],
+        "undoPatterns": ["back", "boards", "forum", "home", "close"]
+      }
+    },
+    {
+      "id": "support-ticket-desk",
+      "category": "saas-business",
+      "title": "Customer Support Help Desk",
+      "pilot": false,
+      "requiresAuth": true,
+      "tags": ["full-app"],
+      "prompt": "Create a customer support help desk for a small software company. Customers should be able to submit a ticket through a public form with their name, email, subject and message, then check its status later using the ticket number and their email. Support staff should log in (provide a working demo staff login) to a dashboard listing all tickets, filter by status, open a ticket, post a reply, and mark it resolved.",
+      "expectedFlows": ["submit-ticket", "check-status", "staff-login", "reply-ticket", "resolve-ticket"],
+      "canonicalJourney": [
+        { "id": "submit-ticket", "label": "Submit a support ticket", "action": "form-submit", "fields": { "name": "Jordan Ellis", "email": "jordan@example.com", "subject": "Export to CSV stops at 500 rows", "message": "The export button only gives me the first 500 rows of my report." }, "submitPatterns": ["submit", "send", "create", "open ticket"] },
+        { "id": "open-status", "label": "Open the ticket status lookup", "action": "click", "patterns": ["status", "track", "check", "my ticket", "lookup"] },
+        { "id": "staff-login", "label": "Log in with demo staff account", "action": "auth", "triggerPatterns": ["log in", "login", "sign in", "demo", "account", "staff", "agent"], "demoPatterns": ["demo", "sample", "test", "one-click", "staff", "agent"], "credentials": { "email": "agent@brightdesk.example", "password": "Password123!" } },
+        { "id": "filter-open", "label": "Filter tickets by status", "action": "click", "patterns": ["open", "pending", "resolved", "all", "status"] },
+        { "id": "open-ticket", "label": "Open a ticket", "action": "click", "patterns": ["ticket", "view", "#", "export", "subject"] },
+        { "id": "reply-ticket", "label": "Reply to the customer", "action": "form-submit", "fields": { "reply": "Thanks Jordan, we have raised the export limit on your account.", "message": "Thanks Jordan, we have raised the export limit on your account." }, "submitPatterns": ["reply", "send", "post", "submit"] },
+        { "id": "resolve-ticket", "label": "Mark the ticket resolved", "action": "click", "patterns": ["resolve", "resolved", "close", "done"] }
+      ],
+      "leakLoop": {
+        "description": "Open tickets and return to the dashboard list",
+        "doPatterns": ["ticket", "view", "open"],
+        "undoPatterns": ["back", "dashboard", "tickets", "all", "close"]
+      }
+    },
+    {
+      "id": "shared-notes-workspace",
+      "category": "productivity-apps",
+      "title": "Notes App with Public Share Links",
+      "pilot": false,
+      "requiresAuth": true,
+      "tags": ["full-app"],
+      "prompt": "Create a note-taking web app. Users should be able to sign up and log in (provide a working demo login), create notes with headings, bold text, lists and links, organise them into notebooks, search across their notes, and share an individual note with anyone through a public link that can be switched off again.",
+      "expectedFlows": ["login", "create-note", "format-note", "search-notes", "share-note"],
+      "canonicalJourney": [
+        { "id": "notes-login", "label": "Log in with demo account", "action": "auth", "triggerPatterns": ["log in", "login", "sign in", "demo", "account"], "demoPatterns": ["demo", "sample", "test", "one-click"], "credentials": { "email": "demo@inkwell.example", "password": "Password123!" } },
+        { "id": "new-note", "label": "Start a new note", "action": "click", "patterns": ["new note", "new", "create", "add", "+"] },
+        { "id": "write-note", "label": "Write and save a note", "action": "form-submit", "fields": { "title": "Allotment plan", "content": "Sow broad beans in row two. Order netting.", "body": "Sow broad beans in row two. Order netting." }, "submitPatterns": ["save", "create", "done", "add"] },
+        { "id": "search-notes", "label": "Search notes", "action": "type", "inputPatterns": ["search", "find"], "value": "beans" },
+        { "id": "share-note", "label": "Create a public share link", "action": "click", "patterns": ["share", "public", "link", "publish"] },
+        { "id": "open-notebook", "label": "Switch notebook", "action": "click", "patterns": ["notebook", "work", "personal", "all notes", "folder"] }
+      ],
+      "leakLoop": {
+        "description": "Open notes and switch notebooks",
+        "doPatterns": ["note", "notebook", "share"],
+        "undoPatterns": ["all notes", "back", "close", "notebooks"]
+      }
+    },
+    {
+      "id": "event-ticket-shop",
+      "category": "ecommerce-retail",
+      "title": "Music Venue Ticket Shop",
+      "pilot": false,
+      "requiresAuth": false,
+      "tags": ["full-app"],
+      "prompt": "Create an online ticket shop for a small music venue. Visitors should be able to browse upcoming events, pick a ticket type and quantity, apply a discount code, enter their details and payment card to check out, and afterwards look up their order with the order number and email. The venue manager should be able to log in (provide a working demo manager login) and add or edit events, set prices and see sales.",
+      "expectedFlows": ["browse-events", "choose-tickets", "apply-discount", "checkout", "lookup-order"],
+      "canonicalJourney": [
+        { "id": "open-event", "label": "Open an event", "action": "click", "patterns": ["tickets", "event", "view", "details", "book", "buy"] },
+        { "id": "add-tickets", "label": "Choose ticket type and add to basket", "action": "click", "patterns": ["add", "general", "standing", "seated", "+", "basket", "cart"] },
+        { "id": "discount-code", "label": "Enter a discount code", "action": "type", "inputPatterns": ["discount", "promo", "code", "coupon"], "value": "LATESHOW10" },
+        { "id": "checkout", "label": "Enter details and pay", "action": "form-submit", "fields": { "name": "Robin Vance", "email": "robin@example.com", "card": "4242424242424242", "expiry": "12/30", "cvc": "123" }, "submitPatterns": ["pay", "checkout", "complete", "buy", "place order", "confirm"] },
+        { "id": "lookup-order", "label": "Open order lookup", "action": "click", "patterns": ["my order", "find order", "lookup", "look up", "orders", "tickets"] }
+      ],
+      "leakLoop": {
+        "description": "Open event detail and return to listings",
+        "doPatterns": ["event", "tickets", "details", "basket"],
+        "undoPatterns": ["back", "events", "all", "close", "×"]
+      }
+    },
+    {
+      "id": "job-board-listings",
+      "category": "directory-listing",
+      "title": "Hospitality Job Board",
+      "pilot": false,
+      "requiresAuth": false,
+      "tags": ["full-app"],
+      "prompt": "Create a job board for the hospitality industry in one region. Job seekers should be able to search listings by keyword and location, filter by job type and salary range, open a listing, and apply by submitting their name, email, a cover note and a CV upload. Employers should be able to post a new listing through a form and view the applications they have received.",
+      "expectedFlows": ["search-jobs", "filter-jobs", "open-listing", "apply-job", "post-listing"],
+      "canonicalJourney": [
+        { "id": "search-jobs", "label": "Search jobs by keyword", "action": "type", "inputPatterns": ["search", "keyword", "job title", "find"], "value": "chef" },
+        { "id": "filter-type", "label": "Filter by job type", "action": "click", "patterns": ["full-time", "part-time", "seasonal", "type", "filter", "all"] },
+        { "id": "open-listing", "label": "Open a job listing", "action": "click", "patterns": ["view", "details", "apply", "chef", "manager", "listing"] },
+        { "id": "apply-job", "label": "Apply for the job", "action": "form-submit", "fields": { "name": "Sam Okafor", "email": "sam@example.com", "cover": "Five years as a sous chef in a 60-cover kitchen.", "message": "Five years as a sous chef in a 60-cover kitchen." }, "submitPatterns": ["apply", "submit", "send"] },
+        { "id": "post-job", "label": "Open the employer post-a-job form", "action": "click", "patterns": ["post a job", "post job", "employers", "advertise", "new listing"] }
+      ],
+      "leakLoop": {
+        "description": "Open listing detail and return to results",
+        "doPatterns": ["view", "details", "listing", "apply"],
+        "undoPatterns": ["back", "jobs", "results", "all", "close"]
+      }
+    },
+    {
+      "id": "reader-comments-magazine",
+      "category": "blog",
+      "title": "Urban Gardening Magazine with Reader Comments",
+      "pilot": false,
+      "requiresAuth": false,
+      "tags": ["full-app"],
+      "prompt": "Create an online magazine about urban gardening. Readers should be able to browse articles by section, search articles, read an article, leave a comment with their name and a message, reply to other comments, and sign up for the newsletter with their email. The editor should be able to log in (provide a working demo editor login), write and publish a new article, and delete comments.",
+      "expectedFlows": ["browse-section", "search-articles", "read-article", "post-comment", "newsletter-signup"],
+      "canonicalJourney": [
+        { "id": "open-section", "label": "Open a magazine section", "action": "click", "patterns": ["balcony", "allotment", "indoor", "compost", "section", "guides"] },
+        { "id": "search-articles", "label": "Search articles", "action": "type", "inputPatterns": ["search", "find"], "value": "tomatoes" },
+        { "id": "open-article", "label": "Open an article", "action": "click", "patterns": ["read", "article", "guide", "how to", "min read"], "roles": ["link", "button", "heading", "article"] },
+        { "id": "post-comment", "label": "Leave a comment", "action": "form-submit", "fields": { "name": "Morgan Reid", "comment": "The trick with the bottle cloche saved my seedlings.", "message": "The trick with the bottle cloche saved my seedlings." }, "submitPatterns": ["post", "comment", "submit", "send"] },
+        { "id": "newsletter", "label": "Sign up for the newsletter", "action": "form-submit", "fields": { "email": "morgan@example.com" }, "submitPatterns": ["subscribe", "sign up", "join"] }
+      ],
+      "leakLoop": {
+        "description": "Open articles and return to the section list",
+        "doPatterns": ["read", "article", "guide"],
+        "undoPatterns": ["back", "home", "all articles", "sections", "close"]
+      }
+    },
+    {
+      "id": "quiz-league-leaderboard",
+      "category": "educational-course",
+      "title": "Pub Quiz League with Leaderboard",
+      "pilot": false,
+      "requiresAuth": false,
+      "tags": ["full-app"],
+      "prompt": "Create a trivia quiz website for a pub quiz league. Players should be able to choose a nickname, pick a quiz category, answer timed multiple-choice questions, see their score with the correct answers explained, and appear on a leaderboard that keeps the top scores of all players. Quiz hosts should be able to log in (provide a working demo host login) and add new questions.",
+      "expectedFlows": ["choose-nickname", "pick-category", "answer-questions", "see-score", "view-leaderboard"],
+      "canonicalJourney": [
+        { "id": "set-nickname", "label": "Choose a nickname", "action": "form-submit", "fields": { "nickname": "QuizzyRascal", "name": "QuizzyRascal" }, "submitPatterns": ["start", "play", "join", "continue", "save"] },
+        { "id": "pick-category", "label": "Pick a quiz category", "action": "click", "patterns": ["history", "science", "music", "geography", "sport", "category", "film"] },
+        { "id": "answer-quiz", "label": "Answer questions and submit", "action": "quiz", "openPatterns": ["start", "play", "begin", "quiz"], "submitPatterns": ["next", "submit", "finish", "answer", "see score"] },
+        { "id": "open-leaderboard", "label": "Open the leaderboard", "action": "click", "patterns": ["leaderboard", "top scores", "rankings", "league", "scores"] },
+        { "id": "play-again", "label": "Play another category", "action": "click", "patterns": ["play again", "another", "categories", "new quiz", "home"] }
+      ],
+      "leakLoop": {
+        "description": "Start a quiz and return to categories",
+        "doPatterns": ["quiz", "category", "leaderboard", "play"],
+        "undoPatterns": ["back", "categories", "home", "quit", "close"]
+      }
+    },
+    {
+      "id": "link-shortener-dashboard",
+      "category": "saas-business",
+      "title": "Link Shortener with Click Dashboard",
+      "pilot": false,
+      "requiresAuth": true,
+      "tags": ["full-app"],
+      "prompt": "Create a link shortening service. Anyone should be able to paste a long web address and get a short link that forwards to it. Signed-up users (provide a working demo login) should get a dashboard listing their links with click counts over time, be able to rename or delete a link, and set a link to expire on a chosen date.",
+      "expectedFlows": ["shorten-link", "login", "view-dashboard", "rename-link", "set-expiry"],
+      "canonicalJourney": [
+        { "id": "shorten-link", "label": "Shorten a long address", "action": "form-submit", "fields": { "url": "https://example.com/reports/2030/annual-summary?ref=newsletter", "link": "https://example.com/reports/2030/annual-summary?ref=newsletter" }, "submitPatterns": ["shorten", "create", "generate", "go"] },
+        { "id": "shortener-login", "label": "Log in with demo account", "action": "auth", "triggerPatterns": ["log in", "login", "sign in", "demo", "account", "dashboard"], "demoPatterns": ["demo", "sample", "test", "one-click"], "credentials": { "email": "demo@snipl.example", "password": "Password123!" } },
+        { "id": "open-dashboard", "label": "Open the links dashboard", "action": "click", "patterns": ["dashboard", "my links", "links", "analytics"] },
+        { "id": "open-link-stats", "label": "Open one link's click statistics", "action": "click", "patterns": ["stats", "clicks", "details", "analytics", "view"] },
+        { "id": "edit-link", "label": "Rename or set an expiry on a link", "action": "click", "patterns": ["edit", "rename", "expire", "expiry", "settings"] }
+      ],
+      "leakLoop": {
+        "description": "Open link statistics and return to the dashboard",
+        "doPatterns": ["stats", "details", "clicks", "edit"],
+        "undoPatterns": ["back", "dashboard", "links", "close", "×"]
+      }
+    },
+    {
+      "id": "videographer-inquiry-portfolio",
+      "category": "portfolio",
+      "title": "Wedding Videographer Portfolio with Inquiry Inbox",
+      "pilot": false,
+      "requiresAuth": false,
+      "tags": ["full-app"],
+      "prompt": "Create a portfolio website for a freelance wedding videographer. Show featured films with descriptions, packages and prices, client testimonials, and a contact form where couples send their names, wedding date, venue and a message. The videographer should be able to log in (provide a working demo owner login) to a private inbox that lists the inquiries received and lets them mark each as answered.",
+      "expectedFlows": ["browse-films", "view-packages", "send-inquiry", "owner-login", "manage-inbox"],
+      "canonicalJourney": [
+        { "id": "open-film", "label": "Open a featured film", "action": "click", "patterns": ["film", "watch", "view", "play", "story"] },
+        { "id": "view-packages", "label": "View packages and prices", "action": "click", "patterns": ["packages", "pricing", "prices", "investment"] },
+        { "id": "send-inquiry", "label": "Send a wedding inquiry", "action": "form-submit", "fields": { "name": "Elena and Marcus", "email": "elena@example.com", "date": "2030-09-14", "venue": "Hawthorn Barn", "message": "We would love a short highlights film of our day." }, "submitPatterns": ["send", "submit", "enquire", "inquire", "contact"] },
+        { "id": "owner-login", "label": "Log in with demo owner account", "action": "auth", "triggerPatterns": ["log in", "login", "sign in", "demo", "account", "owner", "admin", "inbox"], "demoPatterns": ["demo", "sample", "test", "one-click", "owner"], "credentials": { "email": "owner@northlightfilms.example", "password": "Password123!" } },
+        { "id": "mark-answered", "label": "Mark an inquiry as answered", "action": "click", "patterns": ["answered", "mark", "done", "replied", "inbox"] }
+      ],
+      "leakLoop": {
+        "description": "Open film detail and return to the gallery",
+        "doPatterns": ["film", "watch", "view"],
+        "undoPatterns": ["back", "films", "close", "home", "×"]
+      }
+    },
+    {
+      "id": "clinic-patient-portal",
+      "category": "booking-scheduling",
+      "title": "Physiotherapy Clinic Patient Portal",
+      "pilot": false,
+      "requiresAuth": true,
+      "tags": ["full-app"],
+      "prompt": "Create a patient portal for a physiotherapy clinic. Patients should be able to register and log in (provide a working demo patient login), book an appointment with a chosen therapist on a calendar, see their upcoming and past appointments, cancel one, and update their contact details. Reception staff should have their own login showing the day's appointments for all patients.",
+      "expectedFlows": ["patient-login", "book-appointment", "view-appointments", "cancel-appointment", "update-details"],
+      "canonicalJourney": [
+        { "id": "patient-login", "label": "Log in with demo patient account", "action": "auth", "triggerPatterns": ["log in", "login", "sign in", "demo", "account", "patient", "portal"], "demoPatterns": ["demo", "sample", "test", "one-click", "patient"], "credentials": { "email": "patient@riversidephysio.example", "password": "Password123!" } },
+        { "id": "choose-therapist", "label": "Choose a therapist", "action": "click", "patterns": ["therapist", "book", "physio", "dr", "choose", "select"] },
+        { "id": "pick-slot", "label": "Pick a date and time", "action": "click", "patterns": ["am", "pm", ":00", ":30", "available", "slot", "09:", "10:", "14:"] },
+        { "id": "confirm-booking", "label": "Confirm the appointment", "action": "click", "patterns": ["confirm", "book", "reserve", "schedule"] },
+        { "id": "my-appointments", "label": "Open my appointments", "action": "click", "patterns": ["my appointments", "appointments", "upcoming", "history"] },
+        { "id": "update-details", "label": "Update contact details", "action": "form-submit", "fields": { "phone": "07700 900123", "address": "8 Mill Lane" }, "submitPatterns": ["save", "update", "confirm"] }
+      ],
+      "leakLoop": {
+        "description": "Switch between booking calendar and appointment list",
+        "doPatterns": ["book", "calendar", "appointments", "details"],
+        "undoPatterns": ["back", "home", "dashboard", "close", "cancel"]
+      }
     }
   ]
 }
