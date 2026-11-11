@@ -10,10 +10,11 @@ export const BENCHMARK_PLUGINS = [
   techStackBench,
   promptJudgeBench,
   consoleErrorsBench,
-  securityBench,
   lighthouseUpliftBench,
   deepPerfBench,
   memoryBench,
+  // Last on purpose: its active probes write junk into the app, which must not colour the other measurements.
+  securityBench,
 ];
 
 export function getBenchmarkById(id) {

@@ -1,16 +1,19 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, extname } from 'node:path';
+import { runActiveProbes, PROBE_GROUP } from './security-probes.mjs';
 
 /**
- * Security pillar, part 1: passive checks.
+ * Security pillar.
  *
- * Everything here observes what the generated site ships by default: response headers, cookies, the code it
- * serves, the source the model wrote, and the dependencies it chose. Nothing attacks the site (active probes
- * such as XSS payloads and unauthenticated access are part 2). Every check is one named test with a status,
+ * The passive checks in this file observe what the generated site ships by default: response headers, cookies,
+ * the code it serves, the source the model wrote, and the dependencies it chose. The active probes in
+ * `security-probes.mjs` then send the running server hostile input. Every check is one named test with a status,
  * a severity and the evidence behind it, so the report can show each test on its own and roll them up by group.
+ *
+ * The probes leave junk in the app's data, so this benchmark is registered last.
  */
 
-export const SECURITY_BENCH_VERSION = '1.0.0';
+export const SECURITY_BENCH_VERSION = '2.0.0';
 
 export const SEVERITY_WEIGHT = { critical: 10, high: 6, medium: 3, low: 1 };
 
@@ -21,6 +24,7 @@ export const SECURITY_GROUPS = [
   { id: 'secrets', label: 'Secrets & exposed files' },
   { id: 'dependencies', label: 'Dependencies' },
   { id: 'server', label: 'Server-side code' },
+  PROBE_GROUP,
 ];
 
 function check(id, group, title, severity, status, detail, extra = {}) {
@@ -613,7 +617,7 @@ export function resolveSourceDir(cellDir, materialization) {
 
 export default {
   id: 'security',
-  label: 'Security (passive checks)',
+  label: 'Security (passive checks and active probes)',
   version: SECURITY_BENCH_VERSION,
   requiresBrowser: false,
 
@@ -668,6 +672,14 @@ export default {
     checks.push(...evaluateDependencies(depInfo, osv));
     checks.push(...scanServerCode(files));
 
+    let probeSummary = { ran: false, reason: 'disabled in config' };
+    if (config?.security?.activeProbes !== false) {
+      onProgress?.({ stage: 'security', detail: 'Probing the running server with hostile input' });
+      const probed = await runActiveProbes({ base, html, files, ownsServer, makeCheck: check, allowRemote: config?.security?.activeProbes === 'allow-remote', budgetMs: config?.security?.probeBudgetMs || 60_000 });
+      checks.push(...probed.checks);
+      probeSummary = probed.summary;
+    }
+
     const scored = scoreSecurityChecks(checks);
     const out = {
       benchmarkId: 'security',
@@ -675,7 +687,7 @@ export default {
       measuredAt: new Date().toISOString(),
       score: scored.overall,
       ...scored,
-      scope: { ownsServer, filesScanned: files.length, apiPathsChecked: apiResponses.map((r) => r.path), dependenciesChecked: depInfo.deps.length, advisoryLookup: osv.ok ? 'osv.dev' : `unavailable: ${osv.error}` },
+      scope: { ownsServer, filesScanned: files.length, apiPathsChecked: apiResponses.map((r) => r.path), dependenciesChecked: depInfo.deps.length, advisoryLookup: osv.ok ? 'osv.dev' : `unavailable: ${osv.error}`, activeProbes: probeSummary },
       checks,
     };
     const resultsDir = join(cellDir, 'results');

@@ -229,7 +229,12 @@ describe('Security pillar: end to end against a generated server', () => {
     assert.equal(c('third-party-sri').status, 'pass');
     assert.ok(out.score <= 50, `critical failure should cap the score, got ${out.score}`);
     assert.ok(out.criticalFailures.includes('no-sensitive-files-served'));
-    assert.equal(out.groups.length, 6);
+    assert.equal(out.groups.length, 7);
+    assert.equal(out.scope.activeProbes.ran, true);
+    const probes = out.checks.filter((x) => x.group === 'probes');
+    assert.equal(probes.length, 11);
+    assert.deepEqual(probes.filter((x) => x.status === 'fail').map((x) => x.id), [], 'an SPA fallback shell is not a probe finding');
+    assert.equal(c('probe-stays-up').status, 'pass');
     assert.ok(out.checks.every((x) => x.id && x.group && x.title && x.severity && x.detail && ['pass', 'fail', 'na'].includes(x.status)));
     assert.ok(!JSON.stringify(out).includes('keyboard-cat-keyboard-cat'), 'results must not contain the secret value');
 
@@ -241,6 +246,8 @@ describe('Security pillar: end to end against a generated server', () => {
     const out = await securityBench.run({ url, cellDir, materialization: { serverArchitecture: 'static-harness' }, serverHandle: { serverArchitecture: 'static-harness' }, config: {} });
     assert.equal(byId(out.checks, 'nosniff').status, 'na');
     assert.equal(byId(out.checks, 'cookie-httponly').status, 'na');
+    assert.ok(out.checks.filter((x) => x.group === 'probes').every((x) => x.status === 'na'), 'static builds are not probed');
+    assert.equal(BENCHMARK_PLUGINS.at(-1).id, 'security', 'probes dirty the app, so security runs last');
     assert.equal(byId(out.checks, 'csp-present').status, 'fail', 'a static site can still ship a <meta> policy');
   });
 });

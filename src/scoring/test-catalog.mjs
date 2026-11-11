@@ -11,7 +11,7 @@ export const PILLARS = [
   { id: 'lighthouse', label: 'Lighthouse', weightKey: 'lighthouse', blurb: 'Every Lighthouse audit on a throttled mobile profile: performance, accessibility, best practices and SEO.' },
   { id: 'uplift', label: 'Modern Web Guidance', weightKey: 'uplift', blurb: 'web-uplift outcomes measured from browser evidence against Modern Web Guidance.' },
   { id: 'deepPerf', label: 'Deep performance', weightKey: 'deepPerf', blurb: 'Core Web Vitals measured during a real user journey: LCP, INP, blocking time, layout shift and server response.' },
-  { id: 'security', label: 'Security', weightKey: 'security', blurb: 'What the site ships by default: headers and CSP, cookies, client and server code, secrets, exposed files and dependency advisories.' },
+  { id: 'security', label: 'Security', weightKey: 'security', blurb: 'What the site ships by default: headers and CSP, cookies, client and server code, secrets, exposed files and dependency advisories. Then how the running server copes with hostile input: script payloads, broken SQL, path traversal, forged cross-site posts and malformed requests.' },
   { id: 'functionalFlow', label: 'User journey', weightKey: 'functionalFlow', blurb: 'Each step of the prompt\'s canonical user journey, replayed in a browser.' },
   { id: 'consoleErrors', label: 'Runtime errors', weightKey: 'consoleErrors', blurb: 'JavaScript exceptions, console errors and failed requests during load and the journey.' },
   { id: 'memory', label: 'Memory', weightKey: 'memory', blurb: 'Heap size, leaks and detached DOM after repeating the journey.' },

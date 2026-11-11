@@ -304,6 +304,7 @@ function viewMethod() {
       <li><b>Zero means unusable.</b> A site that does not build, or that the judge finds off brief, scores zero overall.</li>
       <li><b>“Not applicable” is not a pass.</b> A static site is not marked down for response headers only a server can send, and those tests are left out of its score.</li>
       <li><b>Heuristic tests are labelled.</b> Some security tests read the source code for known patterns. They can be wrong and say so.</li>
+      <li><b>Sites with a server are probed.</b> After every other measurement, the running server is sent hostile input: script payloads, stray quotes, path traversal, forged cross-site posts, malformed and oversized bodies, repeated bad logins. Probes only ever target the local copy the benchmark started. Static sites have no server, so those tests are marked not applicable.</li>
       <li><b>Everything runs locally.</b> Sites are served on a local machine, so measurements exclude real network distance.</li></ul>
       <p class="sub">Tooling in this run: ${[d.environment.mwgVersion && `Modern Web Guidance ${esc(d.environment.mwgVersion)}`, ...d.environment.harnesses.filter((h) => h.version).map((h) => `${esc(h.label)} ${esc(h.version)}`)].filter(Boolean).join(' · ') || 'not recorded'}. Results generated ${esc(new Date(d.generatedAt).toUTCString())}.</p></section>`;
 }
