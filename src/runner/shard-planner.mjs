@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PROJECT_ROOT } from '../util/env.mjs';
 import { loadModelRegistryConfig, matchesModelSelector } from '../harness/model-registry.mjs';
-import { expandHarnessSelection, isModelCompatibleWithHarness } from '../harness/harness-registry.mjs';
+import { expandHarnessSelection, isModelCompatibleWithHarness, getHarnessSpec } from '../harness/harness-registry.mjs';
 
 function sanitizeSlug(str) {
   return String(str || '')
@@ -27,8 +27,8 @@ function isShardModelHarnessCompatible(modelSlug, cellHarness, modelMap, explici
     return isModelCompatibleWithHarness(known, cellHarness);
   }
   const low = String(modelSlug || '').toLowerCase();
-  if (cellHarness === 'claude-acp') return low.includes('claude') || low.includes('anthropic');
-  if (cellHarness === 'codex-acp') return low.includes('gpt') || low.includes('codex') || low.includes('o3') || low.includes('o4');
+  const hints = getHarnessSpec(cellHarness)?.modelHints;
+  if (Array.isArray(hints) && hints.length > 0) return hints.some((h) => low.includes(h));
   return true;
 }
 

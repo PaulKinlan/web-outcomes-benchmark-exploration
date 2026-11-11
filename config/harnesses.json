@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "defaultHarness": "pi",
   "harnesses": [
     {
@@ -8,8 +8,15 @@
       "shortLabel": "pi",
       "protocol": "pi",
       "description": "Zero-skill, zero-extension clean-room coding loop (`pi` CLI for agent mode, `@earendil-works/pi-ai` for 1-shot mode) across all model families.",
-      "supportsModes": ["agent", "oneshot"],
-      "compatibleFamilies": ["*"]
+      "supportsModes": [
+        "agent",
+        "oneshot"
+      ],
+      "compatibleFamilies": [
+        "*"
+      ],
+      "track": "direct",
+      "vendor": null
     },
     {
       "id": "claude-acp",
@@ -21,11 +28,19 @@
       "binName": "claude-code-acp",
       "envOverrideVar": "CLAUDE_ACP_BIN",
       "provider": "anthropic",
-      "compatibleFamilies": ["Claude (Anthropic)"],
+      "compatibleFamilies": [
+        "Claude (Anthropic)"
+      ],
       "defaultModelKey": "claude-sonnet-5-5",
       "modelEnvVar": "ANTHROPIC_MODEL",
-      "supportsModes": ["agent"],
-      "preferredModeIds": ["bypassPermissions", "acceptEdits", "default"],
+      "supportsModes": [
+        "agent"
+      ],
+      "preferredModeIds": [
+        "bypassPermissions",
+        "acceptEdits",
+        "default"
+      ],
       "sessionMeta": {
         "claudeCode": {
           "options": {
@@ -33,7 +48,14 @@
           }
         }
       },
-      "description": "Drives Anthropic Claude Code over the Agent Client Protocol (ACP v1 JSON-RPC 2.0 stdio) via `@zed-industries/claude-code-acp` with zero ambient MCP servers or CLAUDE.md files."
+      "description": "Drives Anthropic Claude Code over the Agent Client Protocol (ACP v1 JSON-RPC 2.0 stdio) via `@zed-industries/claude-code-acp` with zero ambient MCP servers or CLAUDE.md files.",
+      "track": "vendor-harness",
+      "vendor": "Anthropic",
+      "agentProduct": "Claude Code",
+      "modelHints": [
+        "claude",
+        "anthropic"
+      ]
     },
     {
       "id": "codex-acp",
@@ -45,12 +67,174 @@
       "binName": "codex-acp",
       "envOverrideVar": "CODEX_ACP_BIN",
       "provider": "openai",
-      "compatibleFamilies": ["OpenAI"],
+      "compatibleFamilies": [
+        "OpenAI"
+      ],
       "defaultModelKey": "gpt-6-1-terra",
-      "supportsModes": ["agent"],
-      "preferredModeIds": ["full-auto", "auto-edit", "bypassPermissions", "acceptEdits", "default"],
+      "supportsModes": [
+        "agent"
+      ],
+      "preferredModeIds": [
+        "full-auto",
+        "auto-edit",
+        "bypassPermissions",
+        "acceptEdits",
+        "default"
+      ],
       "sessionMeta": {},
-      "description": "Drives OpenAI Codex over the Agent Client Protocol (ACP v1 JSON-RPC 2.0 stdio) via `@zed-industries/codex-acp` inside an isolated workspace with zero ambient MCP servers."
+      "description": "Drives OpenAI Codex over the Agent Client Protocol (ACP v1 JSON-RPC 2.0 stdio) via `@zed-industries/codex-acp` inside an isolated workspace with zero ambient MCP servers.",
+      "track": "vendor-harness",
+      "vendor": "OpenAI",
+      "agentProduct": "Codex CLI",
+      "modelHints": [
+        "gpt",
+        "codex",
+        "o3",
+        "o4"
+      ]
+    },
+    {
+      "id": "gemini-acp",
+      "label": "Gemini CLI (ACP)",
+      "shortLabel": "gemini-acp",
+      "protocol": "acp",
+      "track": "vendor-harness",
+      "vendor": "Google",
+      "agentProduct": "Gemini CLI",
+      "packageName": "@google/gemini-cli",
+      "version": "0.68.0",
+      "binName": "gemini",
+      "args": [
+        "--acp"
+      ],
+      "envOverrideVar": "GEMINI_ACP_BIN",
+      "provider": "google",
+      "compatibleFamilies": [
+        "Gemini (Google)"
+      ],
+      "modelHints": [
+        "gemini"
+      ],
+      "defaultModelKey": "gemini-3-8-flash",
+      "modelEnvVar": "GEMINI_MODEL",
+      "supportsModes": [
+        "agent"
+      ],
+      "preferredModeIds": [
+        "yolo",
+        "autoEdit",
+        "default"
+      ],
+      "sessionMeta": {},
+      "description": "Drives Google's Gemini CLI over the Agent Client Protocol (`gemini --acp`) in an empty workspace with zero MCP servers or GEMINI.md context files."
+    },
+    {
+      "id": "qwen-acp",
+      "label": "Qwen Code (ACP)",
+      "shortLabel": "qwen-acp",
+      "protocol": "acp",
+      "track": "vendor-harness",
+      "vendor": "Alibaba",
+      "agentProduct": "Qwen Code",
+      "packageName": "@qwen-code/qwen-code",
+      "version": "0.27.2",
+      "binName": "qwen",
+      "args": [
+        "--acp"
+      ],
+      "envOverrideVar": "QWEN_ACP_BIN",
+      "provider": "qwen-token-plan",
+      "compatibleFamilies": [
+        "Qwen (Alibaba)"
+      ],
+      "modelHints": [
+        "qwen"
+      ],
+      "defaultModelKey": "qwen3-8-max-prime",
+      "modelEnvVar": "OPENAI_MODEL",
+      "envFrom": {
+        "OPENAI_API_KEY": [
+          "QWEN_TOKEN_PLAN_API_KEY",
+          "DASHSCOPE_API_KEY",
+          "QWEN_API_KEY"
+        ]
+      },
+      "env": {
+        "OPENAI_BASE_URL": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+      },
+      "supportsModes": [
+        "agent"
+      ],
+      "preferredModeIds": [
+        "yolo",
+        "auto-edit",
+        "default"
+      ],
+      "sessionMeta": {},
+      "description": "Drives Alibaba's Qwen Code CLI over the Agent Client Protocol (`qwen --acp`) against the DashScope OpenAI-compatible endpoint."
+    },
+    {
+      "id": "kimi-acp",
+      "label": "Kimi CLI (ACP)",
+      "shortLabel": "kimi-acp",
+      "protocol": "acp",
+      "track": "vendor-harness",
+      "vendor": "Moonshot",
+      "agentProduct": "Kimi CLI",
+      "installer": "pip",
+      "packageName": "kimi-cli",
+      "version": "1.52.0",
+      "minPython": "3.12",
+      "binName": "kimi",
+      "args": [
+        "acp"
+      ],
+      "envOverrideVar": "KIMI_ACP_BIN",
+      "provider": "kimi-coding",
+      "compatibleFamilies": [
+        "Kimi (Moonshot)"
+      ],
+      "modelHints": [
+        "kimi"
+      ],
+      "defaultModelKey": "kimi-k3-1-pro",
+      "modelEnvVar": "KIMI_MODEL_NAME",
+      "supportsModes": [
+        "agent"
+      ],
+      "preferredModeIds": [
+        "yolo",
+        "auto",
+        "default"
+      ],
+      "sessionMeta": {},
+      "description": "Drives Moonshot's Kimi CLI over the Agent Client Protocol (`kimi acp`, PyPI `kimi-cli`) in an empty workspace."
+    },
+    {
+      "id": "muse-msp",
+      "label": "Muse CLI (MSP via pi)",
+      "shortLabel": "muse-msp",
+      "protocol": "pi-extension",
+      "track": "vendor-harness",
+      "vendor": "Meta",
+      "agentProduct": "Muse CLI",
+      "extensionPackage": "pi-muse-msp",
+      "version": "0.2.7",
+      "piProvider": "muse-msp",
+      "requiresBinary": "muse",
+      "binaryEnvVar": "PI_MUSE_BINARY",
+      "provider": "muse",
+      "compatibleFamilies": [
+        "Muse (Meta)"
+      ],
+      "modelHints": [
+        "muse"
+      ],
+      "defaultModelKey": "muse-spark",
+      "supportsModes": [
+        "agent"
+      ],
+      "description": "Runs Meta's Muse coding agent (`muse serve`, MSP stdio JSON-RPC) through the `pi-muse-msp` provider extension. The Muse host owns the system prompt, tools and approvals; pi is only the headless front end. Needs the `muse` CLI on PATH (or PI_MUSE_BINARY)."
     }
   ]
 }

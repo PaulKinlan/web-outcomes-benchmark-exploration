@@ -203,7 +203,7 @@ Options:
                                      audit              Stage 2 Canary + serialized Chrome/MemLab audits on cached cells
                                      judge              Post-audit multimodal LLM on-topic judge pass (zero untrusted servers)
   --judge-only                     Alias for --stage=judge (upgrade cached prompt-judge.json with multimodal LLM judge)
-  --harness=pi|claude-acp|codex-acp|acp|all
+  --harness=pi|claude-acp|codex-acp|gemini-acp|qwen-acp|kimi-acp|muse-msp|acp|vendor|all
                                    Coding harness driver:
                                      pi         (default) Clean-room pi coding loop
                                      claude-acp           Claude Code via Agent Client Protocol (stdio JSON-RPC 2.0)

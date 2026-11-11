@@ -23,7 +23,7 @@ on:
         default: ''
         type: string
       harness:
-        description: 'Coding harness: pi (default clean-room), claude-acp, codex-acp, acp (both ACP adapters), or all (pi + ACP)'
+        description: 'Track: pi = model direct (thin clean-room loop); a vendor harness (Claude Code, Codex, Gemini CLI, Qwen Code, Kimi CLI, Muse CLI); acp = all ACP harnesses; vendor = every vendor harness; all = direct + every vendor harness'
         required: true
         default: 'pi'
         type: choice
@@ -31,7 +31,12 @@ on:
           - pi
           - claude-acp
           - codex-acp
+          - gemini-acp
+          - qwen-acp
+          - kimi-acp
+          - muse-msp
           - acp
+          - vendor
           - all
       mode:
         description: 'Harness mode'
@@ -203,6 +208,15 @@ jobs:
           else
             node scripts/setup-vm.mjs --harnesses="${{ matrix.shard.harness }}"
           fi
+
+      - name: Install Muse CLI for the muse-msp harness (optional, from the MUSE_CLI_INSTALL_CMD repository variable)
+        if: ${{ matrix.shard.harness == 'muse-msp' && vars.MUSE_CLI_INSTALL_CMD != '' }}
+        env:
+          MUSE_CLI_INSTALL_CMD: ${{ vars.MUSE_CLI_INSTALL_CMD }}
+          MUSE_API_KEY: ${{ secrets.MUSE_API_KEY }}
+        run: |
+          bash -c "$MUSE_CLI_INSTALL_CMD"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run clean-room generation shard (${{ matrix.shard.label }})
         env:

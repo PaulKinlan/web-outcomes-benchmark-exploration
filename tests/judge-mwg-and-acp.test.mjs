@@ -331,8 +331,9 @@ describe('ACP v1 Coding Harness, Cell Identity, Sharding & Judge Hard-Gate Aggre
       }
     );
 
-    assert.deepEqual(expandHarnessSelection('acp'), ['claude-acp', 'codex-acp']);
-    assert.deepEqual(expandHarnessSelection('all'), ['pi', 'claude-acp', 'codex-acp']);
+    assert.deepEqual(expandHarnessSelection('acp'), ['claude-acp', 'codex-acp', 'gemini-acp', 'qwen-acp', 'kimi-acp']);
+    assert.deepEqual(expandHarnessSelection('all'), ['pi', 'claude-acp', 'codex-acp', 'gemini-acp', 'qwen-acp', 'kimi-acp', 'muse-msp']);
+    assert.deepEqual(expandHarnessSelection('claude-acp,codex-acp'), ['claude-acp', 'codex-acp']);
 
     const harnesses = listAllHarnessStatuses();
     assert.ok(harnesses.some((h) => h.id === 'pi' && h.available === true));

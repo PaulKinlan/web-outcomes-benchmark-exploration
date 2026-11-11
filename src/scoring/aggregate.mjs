@@ -10,7 +10,7 @@ import { PROJECT_ROOT, loadBenchmarkConfig } from '../util/env.mjs';
 import { loadPromptRegistry } from '../registry/prompts.mjs';
 import { loadModelRegistryConfig } from '../harness/model-registry.mjs';
 import { getPiRuntimeInfo } from '../harness/pi-loader.mjs';
-import { getHarnessSpec, listAllHarnessStatuses } from '../harness/harness-registry.mjs';
+import { getHarnessSpec, listAllHarnessStatuses, getTrackForCell, describeTrack } from '../harness/harness-registry.mjs';
 import { parseCellDirIdentity } from '../harness/generate.mjs';
 import { hasResolvableStaticPreview } from '../materialize/static-mirror.mjs';
 import { listProviderBridges } from '../harness/provider-bridges.mjs';
@@ -229,6 +229,11 @@ export function aggregateAllResults({
         categoryLabel: promptInfo?.categoryLabel || generation.category || 'Other',
         harness,
         harnessLabel,
+        track: generation.track || getTrackForCell(harness, mode),
+        trackLabel: describeTrack(generation.track || getTrackForCell(harness, mode)).label,
+        harnessVersion: generation.harnessVersion || null,
+        systemPromptSha256: generation.exactPrompt?.systemPromptSha256 || generation.systemPromptSha256 || null,
+        systemPromptSource: generation.systemPromptSource || generation.exactPrompt?.systemPromptSource || null,
         mode,
         spec,
         provider: generation.provider,
@@ -478,6 +483,8 @@ export function aggregateAllResults({
       modelKey,
       harness,
       harnessLabel,
+      track: first.track,
+      trackLabel: first.trackLabel,
       mode,
       spec,
       label: modelMeta.label || first?.modelLabel || modelKey,
@@ -545,6 +552,7 @@ export function aggregateAllResults({
   const byBackend = new Map();
   const byDelivery = new Map();
   const byHarness = new Map();
+  const byTrack = new Map();
   const byMode = new Map();
   const bySpec = new Map();
 
@@ -552,6 +560,9 @@ export function aggregateAllResults({
     const h = c.harness || 'pi';
     if (!byHarness.has(h)) byHarness.set(h, []);
     byHarness.get(h).push(c);
+
+    if (!byTrack.has(c.track)) byTrack.set(c.track, []);
+    byTrack.get(c.track).push(c);
 
     if (!byMode.has(c.mode)) byMode.set(c.mode, []);
     byMode.get(c.mode).push(c);
@@ -1087,6 +1098,23 @@ export function aggregateAllResults({
     harnessLabel: getHarnessSpec(r.harness)?.label || r.harness,
   }));
 
+  // Tracks are the headline comparison: the same model run directly (one-shot, clean-room agent) and inside each
+  // vendor harness, which adds its own system prompt and tools.
+  const byTrackRows = summarizeCohort(byTrack, 'track').map((r) => {
+    const info = describeTrack(r.track);
+    const all = cells.filter((c) => c.track === r.track);
+    return {
+      ...r,
+      trackLabel: info.label,
+      kind: info.kind,
+      vendor: info.vendor || null,
+      cellsRun: all.length,
+      failedCells: all.filter((c) => !c.buildSucceeded).length,
+      harnessVersions: [...new Set(all.map((c) => c.harnessVersion).filter(Boolean))],
+      systemPromptHashes: [...new Set(all.map((c) => c.systemPromptSha256).filter(Boolean))],
+    };
+  });
+
   const summary = {
     generatedAt: new Date().toISOString(),
     weights,
@@ -1120,6 +1148,9 @@ export function aggregateAllResults({
     leaderboard,
     judgeSummary,
     consoleErrorSummary,
+    trackComparison: {
+      byTrack: byTrackRows,
+    },
     harnessComparison: {
       byHarness: byHarnessRows,
       pairedHarnessHeadToHead,
