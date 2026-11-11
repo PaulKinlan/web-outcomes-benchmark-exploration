@@ -139,7 +139,9 @@ function matchDesiredModel(availableModels = [], desiredModelId = '', desiredKey
 
     const prefixHit = availableModels.find((m) => {
       const id = String(m.modelId || m.id || m.value || '').toLowerCase();
-      return id.startsWith(t) || t.startsWith(id);
+      // Only accept longer ids that extend the target (dated snapshots such as `<id>-20261001`). The reverse
+      // (`claude-sonnet-5-5`.startsWith(`claude-sonnet-5`)) would silently pick an older model.
+      return id.startsWith(`${t}-`) || id.startsWith(`${t}@`);
     });
     if (prefixHit) return prefixHit.modelId || prefixHit.id || prefixHit.value;
   }
@@ -270,7 +272,7 @@ export async function runAcpCodingSession({
   let agentInfo = null;
   let negotiatedProtocolVersion = ACP_PROTOCOL_VERSION;
   let activeSessionId = null;
-  let selectedModelId = desiredModelId || null;
+  let selectedModelId = null;
   let selectedModeId = null;
   let stopReason = null;
 
@@ -737,6 +739,7 @@ export async function runAcpCodingSession({
   }, timeoutMs);
 
   let sessionError = null;
+  let modelSelection = null;
   try {
     // 1. ACP initialize handshake
     const initRes = await sendRequest(
@@ -796,13 +799,22 @@ export async function runAcpCodingSession({
       }
     }
 
-    // 4. Select requested model via ACP configOptions or models list when supported
+    // 4. Select requested model via ACP configOptions or models list when supported.
+    // Adapters such as claude-code-acp advertise CLI aliases (`default`, `sonnet`, `opus`) rather than full
+    // model ids, so a requested id that is not listed is still sent via session/set_model (which those
+    // adapters pass straight through). If the adapter then still reports a different model, the cell fails
+    // instead of silently benchmarking the adapter's default model under the requested model's name.
+    const requestedModelId = desiredModelId || desiredModelKey || null;
+    let modelSelectionMethod = null;
+    let reportedModelId = null;
     const configOptions = Array.isArray(sessionRes?.configOptions) ? sessionRes.configOptions : [];
     const modelConfigOpt = configOptions.find((o) => o.category === 'model' || o.id === 'model');
-    if (modelConfigOpt && (desiredModelId || desiredModelKey)) {
+    if (modelConfigOpt && requestedModelId) {
       const flatOpts = (modelConfigOpt.options || []).flatMap((item) =>
         Array.isArray(item.options) ? item.options : [item]
       );
+      reportedModelId = modelConfigOpt.currentValue ?? modelConfigOpt.value ?? null;
+      selectedModelId = reportedModelId;
       const matchedVal = matchDesiredModel(
         flatOpts.map((o) => ({ modelId: o.value, name: o.name })),
         desiredModelId,
@@ -816,29 +828,57 @@ export async function runAcpCodingSession({
             15000
           );
           selectedModelId = matchedVal;
+          modelSelectionMethod = 'config-option';
         } catch {
           // ignore if adapter locks model via env/CLI
         }
       }
-    } else if (sessionRes?.models?.availableModels && (desiredModelId || desiredModelKey)) {
+    } else if (sessionRes?.models?.availableModels && requestedModelId) {
+      reportedModelId = sessionRes.models.currentModelId || null;
+      selectedModelId = reportedModelId;
       const matchedModelId = matchDesiredModel(
         sessionRes.models.availableModels,
         desiredModelId,
         desiredModelKey
       );
-      selectedModelId = sessionRes.models.currentModelId || selectedModelId;
-      if (matchedModelId && matchedModelId !== sessionRes.models.currentModelId) {
+      const candidates = [];
+      if (matchedModelId) candidates.push({ id: matchedModelId, method: 'listed-model' });
+      if (desiredModelId && desiredModelId !== matchedModelId) candidates.push({ id: desiredModelId, method: 'passthrough-model-id' });
+      for (const cand of candidates) {
+        if (cand.id === reportedModelId) {
+          modelSelectionMethod = 'already-current';
+          break;
+        }
         try {
-          await sendRequest(
-            'session/set_model',
-            { sessionId: activeSessionId, modelId: matchedModelId },
-            15000
-          );
-          selectedModelId = matchedModelId;
+          await sendRequest('session/set_model', { sessionId: activeSessionId, modelId: cand.id }, 15000);
+          selectedModelId = cand.id;
+          modelSelectionMethod = cand.method;
+          break;
         } catch {
-          // Non-fatal if session/set_model is unsupported on this adapter version
+          // try the next candidate; unsupported adapters fall through to the verification below
         }
       }
+    } else {
+      selectedModelId = desiredModelId || null;
+      modelSelectionMethod = requestedModelId ? 'unverifiable' : null;
+    }
+
+    const adapterExposesModels = Boolean(modelConfigOpt || sessionRes?.models?.availableModels);
+    const modelVerified = adapterExposesModels
+      ? Boolean(modelSelectionMethod && modelSelectionMethod !== 'unverifiable')
+      : null;
+    modelSelection = {
+      requested: requestedModelId,
+      reportedAtSessionStart: reportedModelId,
+      selected: selectedModelId,
+      method: modelSelectionMethod,
+      verified: modelVerified,
+    };
+    if (requestedModelId && modelVerified === false && harnessSpec?.strictModelSelection !== false) {
+      throw new Error(
+        `ACP adapter did not accept requested model "${requestedModelId}" (adapter reports "${selectedModelId || 'unknown'}"). ` +
+          'Refusing to run so results are not attributed to the wrong model.'
+      );
     }
 
     onProgress({
@@ -947,6 +987,7 @@ export async function runAcpCodingSession({
       agentInfo,
       selectedModelId,
       selectedModeId,
+      modelSelection,
       permissionGrants,
       planEntryCount: planEntries.length,
       planEntries: planEntries.slice(0, 20),
@@ -999,6 +1040,7 @@ export async function runAcpCodingSession({
     agentInfo,
     selectedModelId,
     selectedModeId,
+    modelSelection,
     trajectory,
     hasTranscriptHtml,
   };

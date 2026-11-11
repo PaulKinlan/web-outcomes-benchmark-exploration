@@ -410,6 +410,19 @@ async function main() {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  // Agent harnesses run with full shell access in the same VM and are told to stop their test servers.
+  // A blunt `pkill node` / `killall node` from an agent would otherwise take down the orchestrator itself,
+  // so give this process a distinct name that such commands do not match.
+  process.title = 'web-gen-bench';
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
+    process.once(signal, async () => {
+      console.error(
+        `[bench] Received ${signal} (pid ${process.pid}); stopping. Cells already written to runs/cells/ are kept.`
+      );
+      await killAllActiveChromes().catch(() => {});
+      process.exit(128 + ({ SIGHUP: 1, SIGINT: 2, SIGTERM: 15 }[signal] || 0));
+    });
+  }
   main()
     .then(async () => {
       await killAllActiveChromes().catch(() => {});

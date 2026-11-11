@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PROJECT_ROOT } from '../util/env.mjs';
-import { loadModelRegistryConfig } from '../harness/model-registry.mjs';
+import { loadModelRegistryConfig, matchesModelSelector } from '../harness/model-registry.mjs';
 import { expandHarnessSelection, isModelCompatibleWithHarness } from '../harness/harness-registry.mjs';
 
 function sanitizeSlug(str) {
@@ -32,6 +32,56 @@ function isShardModelHarnessCompatible(modelSlug, cellHarness, modelMap, explici
   return true;
 }
 
+function loadGenerationConfig() {
+  try {
+    return JSON.parse(readFileSync(join(PROJECT_ROOT, 'config', 'benchmark.json'), 'utf8')).generation || {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Suggests registry keys that look like a mistyped selector (shared leading token or substring overlap).
+ */
+function suggestModelKeys(rawSelector, registryModels) {
+  const low = String(rawSelector || '').trim().toLowerCase().replace(/[./\s]+/g, '-');
+  const head = low.split('-')[0];
+  return registryModels
+    .map((m) => m.key)
+    .filter((key) => key.startsWith(`${head}-`) || key === head || low.startsWith(key) || key.startsWith(low))
+    .slice(0, 5);
+}
+
+/**
+ * Resolves raw model selectors against config/models.json (+ synced catalog cache) so typos fail in the
+ * planning job instead of after every generate shard has booted. Provider-qualified ids (`anthropic/foo`)
+ * are allowed through because `bench` can resolve them from the built-in pi-ai catalog at runtime.
+ */
+export function validateModelSelectors(models, registryModels = []) {
+  const unknown = [];
+  for (const raw of models) {
+    if (String(raw).includes('/')) continue;
+    if (registryModels.some((m) => matchesModelSelector(m, raw))) continue;
+    unknown.push({ selector: raw, suggestions: suggestModelKeys(raw, registryModels) });
+  }
+  return unknown;
+}
+
+/**
+ * Largest number of agent-mode prompts one generate job can hold while still finishing inside the job
+ * timeout if every cell runs to the per-cell agent timeout. Waves = ceil(prompts / agentConcurrency).
+ */
+export function maxAgentPromptsPerShard({
+  jobTimeoutMinutes = 90,
+  setupOverheadMinutes = 8,
+  agentTimeoutMs = 900000,
+  agentConcurrency = 2,
+} = {}) {
+  const cellMinutes = Math.max(1, agentTimeoutMs / 60000);
+  const waves = Math.max(1, Math.floor((jobTimeoutMinutes - setupOverheadMinutes) / cellMinutes));
+  return waves * Math.max(1, agentConcurrency);
+}
+
 /**
  * Dynamically plans parallel Generate and Audit task shards for CI / multi-VM execution.
  * Scales shard counts automatically with (harnesses × models × modes × specs × prompts × auditRuns) while
@@ -46,10 +96,13 @@ export function planWorkflowShards({
   spec = 'freeform',
   auditRuns = 1,
   reuseGenerationRunId = '',
-  maxGenerateShards = 120,
+  maxGenerateShards = 240,
   maxAuditShards = 160,
+  generateJobTimeoutMinutes = 90,
+  strictModels = false,
   promptRegistry = null,
   modelRegistry = null,
+  generationConfig = null,
 } = {}) {
   const models = (Array.isArray(modelsRaw) ? modelsRaw : String(modelsRaw || '').split(','))
     .map((s) => s.trim())
@@ -64,6 +117,19 @@ export function planWorkflowShards({
     JSON.parse(readFileSync(join(PROJECT_ROOT, 'prompts', 'index.json'), 'utf8'));
   const mReg = modelRegistry || loadModelRegistryConfig();
   const modelMap = new Map((mReg.models || []).map((m) => [m.key, m]));
+
+  const unknownModels = validateModelSelectors(models, mReg.models || []);
+  if (strictModels && unknownModels.length > 0) {
+    const detail = unknownModels
+      .map((u) => `"${u.selector}"${u.suggestions.length ? ` (did you mean: ${u.suggestions.join(', ')}?)` : ''}`)
+      .join('; ');
+    throw new Error(
+      `Unrecognized model selector(s): ${detail}. Use a key or alias from config/models.json, ` +
+        'or a provider-qualified id such as anthropic/<model-id> for built-in pi-ai catalog models.'
+    );
+  }
+  const genCfg = generationConfig || loadGenerationConfig();
+  const warnings = [];
 
   const allPrompts = (reg.prompts || []).map((p) => p.id);
   const pilotPrompts = (reg.prompts || []).filter((p) => p.pilot).map((p) => p.id);
@@ -115,9 +181,33 @@ export function planWorkflowShards({
   const totalCells = comboCount * selectedPromptIds.length;
 
   // --- 1. Plan Stage 1 Generate Shards ---
+  // One-shot shards are fast, so they get a fixed share of the job budget; agent shards get the rest and
+  // are additionally capped so a full shard of worst-case (agentTimeoutMs) cells still fits the job timeout.
   const generateShards = [];
   if (!skipGenerate) {
-    const maxChunksPerCombo = Math.max(1, Math.floor(maxGenerateShards / Math.max(1, comboCount)));
+    const promptTotal = selectedPromptIds.length;
+    const ONESHOT_CHUNK = 10;
+    const AGENT_IDEAL_CHUNK = 4;
+    const oneshotCombos = activeCombos.filter((c) => c.cellMode === 'oneshot').length;
+    const agentCombos = comboCount - oneshotCombos;
+    const oneshotChunksEach = Math.ceil(promptTotal / ONESHOT_CHUNK);
+    const agentBudget = Math.max(agentCombos, maxGenerateShards - oneshotCombos * oneshotChunksEach);
+    const maxAgentChunksPerCombo = Math.max(1, Math.floor(agentBudget / Math.max(1, agentCombos)));
+    const agentTimeCap = maxAgentPromptsPerShard({
+      jobTimeoutMinutes: generateJobTimeoutMinutes,
+      agentTimeoutMs: genCfg.agentTimeoutMs || 900000,
+      agentConcurrency: genCfg.agentConcurrency || 2,
+    });
+    const agentChunkSize = Math.max(
+      Math.min(AGENT_IDEAL_CHUNK, agentTimeCap),
+      Math.ceil(promptTotal / maxAgentChunksPerCombo)
+    );
+    if (agentCombos > 0 && agentChunkSize > agentTimeCap) {
+      warnings.push(
+        `Agent shards hold ${agentChunkSize} prompts but only ${agentTimeCap} are guaranteed to finish within ` +
+          `${generateJobTimeoutMinutes} min at the per-cell agent timeout; raise maxGenerateShards or reduce the matrix.`
+      );
+    }
 
     for (const { cellHarness, cellSpec, model, cellMode } of activeCombos) {
       const modelSlug = sanitizeSlug(model);
@@ -126,11 +216,8 @@ export function planWorkflowShards({
       const specTag = specs.length > 1 || cellSpec === 'guided' ? `:${cellSpec}` : '';
       const harnessTag = harnesses.length > 1 || cellHarness !== 'pi' ? `:${cellHarness}` : '';
 
-      const idealChunkSize = cellMode === 'agent' ? 4 : 10;
-      const minChunkForCap = Math.ceil(selectedPromptIds.length / maxChunksPerCombo);
-      const chunkSize = Math.max(idealChunkSize, minChunkForCap);
+      const chunkSize = cellMode === 'agent' ? agentChunkSize : ONESHOT_CHUNK;
       const promptChunks = chunkArray(selectedPromptIds, chunkSize);
-
       promptChunks.forEach((chunk, idx) => {
         const shardNum = idx + 1;
         generateShards.push({
@@ -192,6 +279,8 @@ export function planWorkflowShards({
     promptCount: selectedPromptIds.length,
     totalCells,
     auditRuns: runsPerCell,
+    unknownModels,
+    warnings,
     skipGenerate,
     reuseGenerationRunId: cleanReuseRunId,
     generateShards,
