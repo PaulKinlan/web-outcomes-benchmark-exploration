@@ -199,7 +199,14 @@ async function main() {
   for (const harnessId of opts.harnesses) {
     const spec = getHarnessSpec(harnessId);
     if (spec?.protocol === 'pi-extension') {
-      const ext = installPiExtensionHarness(harnessId);
+      let ext;
+      try {
+        ext = installPiExtensionHarness(harnessId);
+      } catch (err) {
+        // Optional harness: a failed extension install must not stop the other lanes from being set up.
+        console.warn(`[setup:vm] ! harness "${harnessId}" could not be installed (${String(err.message).split('\n')[0]}). Its cells will be recorded as failed.`);
+        continue;
+      }
       if (ext.available) {
         console.log(`[setup:vm] ✓ harness "${harnessId}" ready (${spec.extensionPackage}@${ext.extensionVersion}, ${spec.requiresBinary} -> ${ext.binaryPath})`);
       } else {

@@ -11,7 +11,10 @@ import {
 } from '../src/harness/harness-registry.mjs';
 import { planWorkflowShards } from '../src/runner/shard-planner.mjs';
 import { loadModelRegistryConfig } from '../src/harness/model-registry.mjs';
-import { capturePiSystemPrompt } from '../src/harness/generate.mjs';
+import { capturePiSystemPrompt, piSystemPromptModuleCandidates } from '../src/harness/generate.mjs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { anthropicCompatForModel, buildCleanRoomPiModelsConfig } from '../src/harness/pi-auth-bridge.mjs';
 import { pickLiveModelId, resolveLiveRoute, resetLiveModelIdCache } from '../src/harness/model-id-resolver.mjs';
 
@@ -112,6 +115,23 @@ describe('System prompt capture', () => {
     assert.ok(a && a.text.length > 100);
     assert.match(a.sha256, /^[0-9a-f]{64}$/);
     assert.equal(a.sha256, b.sha256);
+  });
+});
+
+describe('System prompt module lookup', () => {
+  it('finds the prompt module from the selected pi install in bundled and unbundled layouts', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-layout-'));
+    try {
+      for (const binRel of ['dist/bundle/cli.js', 'dist/cli.js']) {
+        const pkg = join(root, binRel.replace(/\W/g, '_'));
+        mkdirSync(join(pkg, 'dist', 'bundle'), { recursive: true });
+        writeFileSync(join(pkg, 'package.json'), '{}');
+        writeFileSync(join(pkg, binRel), '');
+        assert.equal(piSystemPromptModuleCandidates(join(pkg, binRel))[0], join(pkg, 'dist', 'core', 'system-prompt.js'));
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

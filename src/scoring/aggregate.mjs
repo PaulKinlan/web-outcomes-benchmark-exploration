@@ -244,7 +244,11 @@ export function aggregateAllResults({
         trackLabel: describeTrack(generation.track || getTrackForCell(harness, mode)).label,
         harnessVersion: generation.harnessVersion || null,
         systemPromptSha256: generation.exactPrompt?.systemPromptSha256 || generation.systemPromptSha256 || null,
-        systemPromptSource: generation.systemPromptSource || generation.exactPrompt?.systemPromptSource || null,
+        systemPromptSource:
+          generation.systemPromptSource ||
+          generation.exactPrompt?.systemPromptSource ||
+          generation.harnessEnvironment?.systemPromptSource ||
+          null,
         mode,
         spec,
         provider: generation.provider,
@@ -595,6 +599,12 @@ export function aggregateAllResults({
   const byTrack = new Map();
   const byMode = new Map();
   const bySpec = new Map();
+
+  // Every track that was run gets a row, including one where every cell failed: a harness that never produced a
+  // build is a result, not an absence.
+  for (const c of cells) {
+    if (c.track && !byTrack.has(c.track)) byTrack.set(c.track, []);
+  }
 
   for (const c of cells.filter((x) => x.buildSucceeded)) {
     const h = c.harness || 'pi';

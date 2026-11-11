@@ -83,6 +83,37 @@ export function buildCellId(modelKey, promptId, mode = 'agent', spec = 'freeform
 }
 
 let cachedPiPromptBuilder;
+
+/**
+ * Where pi's `buildSystemPrompt` module can live for a given `pi` binary. The published package points its bin at
+ * `dist/bundle/cli.js`, older and source checkouts at `dist/cli.js`, so walk up from the real binary to the package
+ * root rather than assuming one layout. The project-local runtime is only a last resort: capturing its prompt when a
+ * different pi was actually selected would publish the wrong text.
+ */
+export function piSystemPromptModuleCandidates(piBin) {
+  const out = [];
+  if (piBin) {
+    let real = piBin;
+    try {
+      real = realpathSync(piBin);
+    } catch {
+      // keep the unresolved path
+    }
+    let dir = dirname(real);
+    for (let i = 0; i < 6; i++) {
+      if (existsSync(join(dir, 'package.json'))) {
+        out.push(join(dir, 'dist', 'core', 'system-prompt.js'));
+        break;
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+  const local = join(PROJECT_ROOT, '.pi-runtime', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'core', 'system-prompt.js');
+  if (!out.includes(local)) out.push(local);
+  return out;
+}
 /**
  * Reconstructs the system prompt the clean-room pi agent sends, using pi's own `buildSystemPrompt`, so the
  * "direct agent" baseline is published rather than described. Tool one-liners registered at runtime are not
@@ -91,12 +122,7 @@ let cachedPiPromptBuilder;
 export async function capturePiSystemPrompt(cwd) {
   try {
     if (cachedPiPromptBuilder === undefined) {
-      const piBin = resolvePiBin();
-      const distRoot = piBin ? resolve(dirname(realpathSync(piBin)), '..', 'dist') : null;
-      const candidates = [
-        distRoot && join(distRoot, 'core', 'system-prompt.js'),
-        join(PROJECT_ROOT, '.pi-runtime', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'core', 'system-prompt.js'),
-      ].filter((c) => c && existsSync(c));
+      const candidates = piSystemPromptModuleCandidates(resolvePiBin()).filter((c) => existsSync(c));
       cachedPiPromptBuilder = candidates.length
         ? (await import(pathToFileURL(candidates[0]).href)).buildSystemPrompt || null
         : null;
@@ -564,8 +590,8 @@ export async function generateWebsite({
       // Vendor CLIs that read differently named variables (e.g. Qwen Code reads OPENAI_API_KEY for DashScope):
       // copy the first configured source key across, plus any static endpoint settings.
       for (const [target, sources] of Object.entries(harnessSpec.envFrom || {})) {
-        const hit = (Array.isArray(sources) ? sources : [sources]).find((v) => process.env[v]);
-        if (hit && !childEnv[target]) childEnv[target] = process.env[hit];
+        const hit = (Array.isArray(sources) ? sources : [sources]).find((v) => childEnv[v] || process.env[v]);
+        if (hit && !childEnv[target]) childEnv[target] = childEnv[hit] || process.env[hit];
       }
       for (const [k, v] of Object.entries(harnessSpec.env || {})) {
         if (!childEnv[k]) childEnv[k] = v;
