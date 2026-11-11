@@ -474,7 +474,10 @@ jobs:
                 ) {
                   continue;
                 }
+                // Cells whose generation failed (bad key, harness refused the model, timeout) are kept too,
+                // so a broken lane shows up in the report with its error instead of silently disappearing.
                 if (
+                  !gen.error &&
                   !existsSync(join(cellDir, "results")) &&
                   !existsSync(join(cellDir, "materialization.json")) &&
                   !existsSync(join(cellDir, "audit-telemetry.json"))
@@ -570,6 +573,13 @@ jobs:
               process.exit(1);
             }
             console.log(`Verified ${cells} scored cell(s) ready for Benchmark Studio export.`);
+            // One line per site that failed, so a broken lane can be read from the end of this log.
+            const failed = (summary.cells || []).filter((c) => c.generationError || c.buildSucceeded === false);
+            console.log(`Lane status: ${(summary.cells || []).length - failed.length} site(s) built, ${failed.length} failed.`);
+            for (const c of failed) {
+              const why = c.generationError || c.auditTelemetry?.error || c.materializationError || "did not build";
+              console.log(`  FAILED ${c.cellId}: ${String(why).replace(/\s+/g, " ").slice(0, 240)}`);
+            }
           '
 
       - name: Restore earlier runs from the published report (run archive)

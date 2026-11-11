@@ -190,11 +190,9 @@
       "protocol": "acp",
       "track": "vendor-harness",
       "vendor": "Moonshot",
-      "agentProduct": "Kimi CLI",
-      "installer": "pip",
-      "packageName": "kimi-cli",
-      "version": "1.52.0",
-      "minPython": "3.12",
+      "agentProduct": "Kimi Code CLI",
+      "packageName": "@moonshot-ai/kimi-code",
+      "version": "2.5.3",
       "binName": "kimi",
       "args": [
         "acp"
@@ -218,7 +216,7 @@
         "default"
       ],
       "sessionMeta": {},
-      "description": "Drives Moonshot's Kimi CLI over the Agent Client Protocol (`kimi acp`, PyPI `kimi-cli`) in an empty workspace."
+      "description": "Drives Moonshot's Kimi Code CLI over the Agent Client Protocol (`kimi acp`, npm `@moonshot-ai/kimi-code`; the older PyPI `kimi-cli` was retired and now exits with a notice) in an empty workspace."
     },
     {
       "id": "muse-msp",
