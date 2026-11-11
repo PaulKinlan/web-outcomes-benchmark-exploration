@@ -100,6 +100,11 @@ on:
         required: false
         default: false
         type: boolean
+      outside_testing:
+        description: 'Full-app builds only: build and start each generated container, and give each server a temporary public address during its audit so outside services (MDN Observatory, PageSpeed Insights) can test it. Free, not scored'
+        required: false
+        default: false
+        type: boolean
       deploy_pages:
         description: 'Deploy static Benchmark Studio report to GitHub Pages'
         required: false
@@ -361,8 +366,18 @@ jobs:
           fi
           echo "Verified $count cell directory(ies) from run ${{ inputs.reuse_generation_run_id }}."
 
+      - name: Install cloudflared for temporary public addresses (outside testing)
+        if: ${{ inputs.outside_testing == true || inputs.outside_testing == 'true' }}
+        continue-on-error: true
+        run: |
+          curl -fsSL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          sudo install -m 0755 /tmp/cloudflared /usr/local/bin/cloudflared
+          cloudflared --version
+
       - name: Run Host Canary + All 5 Benchmark Test Pillars (${{ matrix.shard.label }})
         # Notice: ZERO LLM API keys are passed into this step while executing generated $PORT servers!
+        env:
+          BENCH_PUBLIC_TUNNEL: ${{ (inputs.outside_testing == true || inputs.outside_testing == 'true') && '1' || '0' }}
         run: |
           node bin/bench.mjs \
             --stage=audit \
@@ -374,6 +389,13 @@ jobs:
             --spec="${{ matrix.shard.spec }}" \
             --models="${{ matrix.shard.model }}" \
             ${{ matrix.shard.promptFlag }} ${{ matrix.shard.sampleFlag }}
+
+      - name: Build and start each full-app container to prove the published kit works (outside testing)
+        if: ${{ inputs.outside_testing == true || inputs.outside_testing == 'true' }}
+        continue-on-error: true
+        timeout-minutes: 25
+        # No API keys here either: generated code is built and run inside containers bound to loopback.
+        run: node scripts/verify-container-kits.mjs runs/cells
 
       - name: Run Post-Server Multimodal On-Topic LLM Judge (${{ matrix.shard.label }})
         # Runs strictly AFTER all untrusted $PORT servers have exited, evaluating static screenshots & DOM evidence.

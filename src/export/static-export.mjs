@@ -144,7 +144,7 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
       let container = null;
       try {
         const kit = writeCellContainerKit({ cellDir, outDir: join(outDir, 'artifacts', cellId, 'container'), materialization });
-        if (kit.ok) container = { ...kit, path: `artifacts/${cellId}/container/` };
+        if (kit.ok) container = { ...kit, path: `artifacts/${cellId}/container/`, verified: readOpt(join(cellDir, 'container-check.json')) };
       } catch (err) {
         container = null;
         console.warn(`[export] Could not write a container kit for ${cellId}: ${err.message}`);
@@ -205,6 +205,7 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
             'deep-perf': readOpt(join(cellDir, 'results', 'deep-perf.json')),
             memory: readOpt(join(cellDir, 'results', 'memory.json')),
             security: readOpt(join(cellDir, 'results', 'security.json')),
+            'outside-in': readOpt(join(cellDir, 'results', 'outside-in.json')),
           },
           extractedFiles: collectCompactSourceFiles(cellDir),
         }),

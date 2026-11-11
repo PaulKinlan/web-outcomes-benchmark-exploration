@@ -5,6 +5,7 @@ import lighthouseUpliftBench from './lighthouse-uplift.bench.mjs';
 import deepPerfBench from './deep-perf.bench.mjs';
 import memoryBench from './memory.bench.mjs';
 import securityBench from './security.bench.mjs';
+import outsideInBench from './outside-in.bench.mjs';
 
 export const BENCHMARK_PLUGINS = [
   techStackBench,
@@ -13,6 +14,8 @@ export const BENCHMARK_PLUGINS = [
   lighthouseUpliftBench,
   deepPerfBench,
   memoryBench,
+  // Optional and unscored: a temporary public address so outside services can test a generated server.
+  outsideInBench,
   // Last on purpose: its active probes write junk into the app, which must not colour the other measurements.
   securityBench,
 ];
