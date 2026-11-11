@@ -1823,7 +1823,7 @@ function renderMatrix() {
   const scopeBannerHtml =
     evaluatedCount < allCategoryPrompts.length
       ? `<div class="panel-sub" style="padding:8px 12px;border-bottom:1px solid var(--border-subtle)">
-           Current run evaluated <strong>${evaluatedCount} of ${allCategoryPrompts.length}</strong> prompts${evaluatedCount === 10 && catFilter === 'all' ? ' (<code>prompt_scope: pilot</code> — 1 per category)' : ''}. Run with <code>prompt_scope: all</code> to populate all 37 prompts.
+           Current run evaluated <strong>${evaluatedCount} of ${allCategoryPrompts.length}</strong> prompts${evaluatedCount === 10 && catFilter === 'all' ? ' (<code>prompt_scope: pilot</code> — 1 per category)' : ''}. Run with <code>prompt_scope: all</code> to populate all 47 prompts.
          </div>`
       : '';
 

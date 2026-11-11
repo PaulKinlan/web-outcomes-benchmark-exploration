@@ -9,13 +9,14 @@ on:
         default: 'deepseek-flash,gemini-3.8-flash,grok-4.7,claude-sonnet-5-5,gpt-6-1-sol,kimi-k3,kimi-k3-1-pro,muse-spark'
         type: string
       prompt_scope:
-        description: 'Prompt corpus scope: "all" runs all 37 prompts across 10 categories; "pilot" runs 10 prompts (1 per category)'
+        description: 'Prompt corpus scope: "all" runs all 47 prompts across 10 categories; "pilot" runs 10 prompts (1 per category); "fullapp" runs the 10 prompts that need accounts, stored content or an admin area'
         required: true
         default: 'all'
         type: choice
         options:
           - all
           - pilot
+          - fullapp
           - custom
       prompts:
         description: 'Custom prompt IDs (only used when prompt_scope is "custom", e.g. plumbing-appointment,minecraft-clone)'

@@ -27,12 +27,16 @@ import { extractGeneratedFiles } from '../src/materialize/extract-files.mjs';
 import { loadModelRegistryConfig, matchesModelSelector } from '../src/harness/model-registry.mjs';
 import { planWorkflowShards } from '../src/runner/shard-planner.mjs';
 
-test('all 37 prompts have valid zero-bias design.md, seed-data.json, and gemini-nano-banana-2.1 reference JPEGs', () => {
+test('all prompts have valid zero-bias design.md and seed-data.json, and the original 37 have reference JPEGs', () => {
   const validation = validatePromptRegistry();
   assert.equal(validation.valid, true, `Validation failed: ${validation.errors.join('; ')}`);
 
   const reg = loadPromptRegistry();
-  assert.equal(reg.prompts.length, 37);
+  assert.equal(reg.prompts.length, 47);
+  // The ten full-app prompts were added without layout mockups: those are generated with
+  // scripts/generate-reference-images.mjs, which needs an image-model key.
+  const awaitingImage = reg.prompts.filter((p) => p.guidedReferenceImages[0]?.available === false).map((p) => p.id);
+  assert.ok(awaitingImage.every((id) => reg.prompts.find((p) => p.id === id).tags?.includes('full-app')), `Unexpected prompts without a reference image: ${awaitingImage}`);
   assert.ok(reg.designDoc && reg.designDoc.length > 500, 'Expected prompts/design.md to be loaded');
 
   for (const p of reg.prompts) {
@@ -45,6 +49,10 @@ test('all 37 prompts have valid zero-bias design.md, seed-data.json, and gemini-
     );
 
     assert.ok(Array.isArray(p.guidedReferenceImages) && p.guidedReferenceImages.length === 1);
+    if (awaitingImage.includes(p.id)) {
+      assert.ok(p.seedData.records.length > 0, `Full-app prompt ${p.id} still needs seed records`);
+      continue;
+    }
     const refPath = join(PROJECT_ROOT, p.guidedReferenceImages[0].path);
     assert.equal(existsSync(refPath), true, `Missing reference layout image for ${p.id}: ${refPath}`);
     const st = statSync(refPath);

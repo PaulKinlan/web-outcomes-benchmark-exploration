@@ -1,6 +1,6 @@
 # Web Generation & Performance Benchmark (`performance-benchmark`)
 
-Evaluates modern LLMs across **10 real-world website categories (37 multi-flow functional prompts)** without hinting at speed, accessibility, memory, or technology stack — comparing **autonomous `pi` agentic web development (`--mode=agent`, building multi-route full-stack websites with real `$PORT` HTTP servers and stored `pi` session transcripts)** side-by-side against **1-shot stream generation (`--mode=oneshot`)**.
+Evaluates modern LLMs across **10 real-world website categories (47 multi-flow functional prompts)** without hinting at speed, accessibility, memory, or technology stack — comparing **autonomous `pi` agentic web development (`--mode=agent`, building multi-route full-stack websites with real `$PORT` HTTP servers and stored `pi` session transcripts)** side-by-side against **1-shot stream generation (`--mode=oneshot`)**.
 
 ## Dual-Track Generation Modes
 

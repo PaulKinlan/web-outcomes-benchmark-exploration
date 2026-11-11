@@ -140,6 +140,10 @@ export function planWorkflowShards({
     selectedPromptIds = allPrompts;
   } else if (normalizedScope === 'pilot') {
     selectedPromptIds = pilotPrompts;
+  } else if (normalizedScope === 'fullapp') {
+    // Prompts that need accounts, stored user content or an admin area: the builds where server-side quality
+    // and the security probes have something to measure.
+    selectedPromptIds = (reg.prompts || []).filter((p) => (p.tags || []).includes('full-app')).map((p) => p.id);
   } else {
     const parsedCustom = String(customPromptsRaw || '')
       .split(',')

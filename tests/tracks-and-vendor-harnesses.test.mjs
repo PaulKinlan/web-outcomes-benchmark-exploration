@@ -185,3 +185,11 @@ describe('Pilot regressions (run 11)', () => {
     assert.equal(other.modelIdResolution, undefined);
   });
 });
+
+describe('Full-app prompt scope', () => {
+  it('selects the prompts that need accounts, stored content or an admin area', () => {
+    const plan = planWorkflowShards({ modelsRaw: 'deepseek-flash', promptScope: 'fullapp' });
+    assert.equal(plan.promptCount, 10);
+    assert.equal(planWorkflowShards({ modelsRaw: 'deepseek-flash', promptScope: 'pilot' }).promptCount, 10);
+  });
+});
