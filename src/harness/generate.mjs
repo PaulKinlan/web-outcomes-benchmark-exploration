@@ -71,7 +71,15 @@ export function normalizeSpecMode(spec) {
   return 'freeform';
 }
 
-export function buildCellId(modelKey, promptId, mode = 'agent', spec = 'freeform', harness = 'pi') {
+/** Sample 1 keeps the plain cell id; repeat samples (2, 3, …) of the same cell get a `__s<N>` suffix. */
+export function normalizeSampleIndex(sample) {
+  const n = Math.floor(Number(sample));
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, 9) : 1;
+}
+
+export function buildCellId(modelKey, promptId, mode = 'agent', spec = 'freeform', harness = 'pi', sample = 1) {
+  const sampleIndex = normalizeSampleIndex(sample);
+  if (sampleIndex > 1) return `${buildCellId(modelKey, promptId, mode, spec, harness)}__s${sampleIndex}`;
   const cleanMode = mode === 'agent' ? 'agent' : 'oneshot';
   const cleanSpec = spec === 'guided' ? 'guided' : 'freeform';
   const cleanHarness = normalizeHarnessId(harness);
@@ -143,6 +151,12 @@ export async function capturePiSystemPrompt(cwd) {
 const KNOWN_NON_PI_HARNESS_RE = /^(?:[a-z0-9-]+-(?:acp|msp))$/i;
 
 export function parseCellDirIdentity(dirName, generation = null) {
+  const sampleMatch = String(dirName || '').match(/__s([2-9])$/);
+  const base = parseCellDirIdentityBase(sampleMatch ? String(dirName).slice(0, sampleMatch.index) : dirName, generation);
+  return sampleMatch ? { ...base, sample: Number(sampleMatch[1]) } : base;
+}
+
+function parseCellDirIdentityBase(dirName, generation = null) {
   const raw = String(dirName || '');
   const parts = raw.split('__');
   let dirHarness = null;

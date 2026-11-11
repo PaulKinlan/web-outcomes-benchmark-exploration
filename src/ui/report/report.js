@@ -35,8 +35,15 @@ async function cellDetail(id) {
 }
 
 // ---------------------------------------------------------------- helpers
-const cells = () => state.data.cells.filter((c) => state.filters.category === 'all' || c.category === state.filters.category);
+// Repeat samples of a site only feed the noise estimate; rankings and averages use the first sample.
+const cells = () => state.data.cells.filter((c) => (c.sample || 1) === 1 && (state.filters.category === 'all' || c.category === state.filters.category));
 const scored = () => cells().filter((c) => c.valid);
+// How far the overall score moves between repeats of the same model and prompt, when the run measured it.
+function noiseNote() {
+  const n = state.data.noise;
+  if (!n || !n.repeatedCells) return 'With one generation per prompt, small differences are noise. Treat a gap of a few points as a tie.';
+  return `${n.repeatedCells} model and prompt pair${n.repeatedCells === 1 ? ' was' : 's were'} generated more than once in this run. Between repeats the overall score moved by a median of ${fmt(n.medianRange)} points, and by ${fmt(n.maxRange)} at most. Treat gaps smaller than that as ties.`;
+}
 const pillarDef = (id) => state.data.pillars.find((p) => p.id === id);
 const laneKey = (c) => `${c.model}|${c.track}`;
 const st = (s) => `<span class="st ${s}">${s === 'pass' ? 'Pass' : s === 'fail' ? 'Fail' : 'N/A'}</span>`;
@@ -213,7 +220,7 @@ function viewHarness() {
       ${rows.length ? `<ul class="legend"><li><i data-bg="seq-2"></i>Direct agent (neutral loop)</li><li><i data-bg="seq-5"></i>Vendor coding agent</li><li>Number on the right: difference in points</li></ul>${dumbbells(rows)}
       <details><summary>Show as a table</summary><div class="tablewrap"><table><thead><tr><th>Model</th><th>Vendor agent</th><th class="num">Direct</th><th class="num">In agent</th><th class="num">Difference</th><th class="num">Shared prompts</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r.label)}</td><td>${esc(r.harnessLabel)}</td><td class="num">${fmt(r.direct)}</td><td class="num">${fmt(r.harness)}</td><td class="num">${r.harness - r.direct >= 0 ? '+' : '−'}${fmt(Math.abs(r.harness - r.direct))}</td><td class="num">${r.n}</td></tr>`).join('')}</tbody></table></div></details>` : '<p class="empty">No model in this run has usable sites from both a direct agent run and a vendor agent run for the same prompt.</p>'}
     </section>
-    <p class="sub">With one generation per prompt, small differences are noise. Treat a gap of a few points as a tie.</p>`;
+    <p class="sub">${esc(noiseNote())}</p>`;
 }
 
 function viewTests(params) {
@@ -300,12 +307,13 @@ function viewMethod() {
       <dt>Vendor coding agent</dt><dd>The model runs inside its vendor's own agent, such as Claude Code, Codex, Gemini CLI, Qwen Code, Kimi CLI or Muse. That agent brings its own system prompt and tools, which is exactly what this track measures.</dd></dl></section>
     <section class="card"><h2>What is measured</h2><p class="sub">Each site gets a 0 to 100 score per pillar. The overall score is their weighted average.</p><div class="tablewrap"><table><thead><tr><th>Pillar</th><th class="num">Weight</th><th>What it covers</th></tr></thead><tbody>${d.pillars.map((p) => `<tr><td><a href="#/pillar/${p.id}">${esc(p.label)}</a></td><td class="num">${p.weight != null ? `${Math.round(p.weight * 100)}%` : '–'}</td><td>${esc(p.blurb)}</td></tr>`).join('')}</tbody></table></div></section>
     <section class="card"><h2>Things to keep in mind</h2><ul>
-      <li><b>One generation per prompt.</b> Models are not deterministic, so a single site can be lucky or unlucky. Compare averages, and treat gaps of a few points as ties.</li>
+      <li><b>Mostly one generation per prompt.</b> Models are not deterministic, so a single site can be lucky or unlucky. A few prompts are generated more than once to measure that. ${esc(noiseNote())}</li>
       <li><b>Zero means unusable.</b> A site that does not build, or that the judge finds off brief, scores zero overall.</li>
       <li><b>“Not applicable” is not a pass.</b> A static site is not marked down for response headers only a server can send, and those tests are left out of its score.</li>
       <li><b>Heuristic tests are labelled.</b> Some security tests read the source code for known patterns. They can be wrong and say so.</li>
       <li><b>Sites with a server are probed.</b> After every other measurement, the running server is sent hostile input: script payloads, stray quotes, path traversal, forged cross-site posts, malformed and oversized bodies, repeated bad logins. Probes only ever target the local copy the benchmark started. Static sites have no server, so those tests are marked not applicable.</li>
       <li><b>Everything runs locally.</b> Sites are served on a local machine, so measurements exclude real network distance.</li></ul>
+      ${d.noise?.groups?.length ? `<details><summary>Repeat samples in this run</summary><div class="tablewrap"><table><thead><tr><th>Model</th><th>Prompt</th><th>How it was run</th><th class="num">Overall score of each sample</th><th class="num">Spread</th></tr></thead><tbody>${d.noise.groups.map((g) => `<tr><td>${esc(g.modelKey)}</td><td>${esc(g.promptId)}</td><td>${esc(g.track)}</td><td class="num">${g.scores.map((x) => fmt(x)).join(', ')}</td><td class="num">${fmt(g.range)}</td></tr>`).join('')}</tbody></table></div></details>` : ''}
       <p class="sub">Tooling in this run: ${[d.environment.mwgVersion && `Modern Web Guidance ${esc(d.environment.mwgVersion)}`, ...d.environment.harnesses.filter((h) => h.version).map((h) => `${esc(h.label)} ${esc(h.version)}`)].filter(Boolean).join(' · ') || 'not recorded'}. Results generated ${esc(new Date(d.generatedAt).toUTCString())}.</p></section>`;
 }
 

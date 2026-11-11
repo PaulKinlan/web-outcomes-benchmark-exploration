@@ -72,6 +72,15 @@ on:
         required: false
         default: ''
         type: string
+      samples:
+        description: 'Repeat samples: 1 = generate each site once. 2 or 3 = also regenerate the first two selected prompts per model and track, to measure run-to-run variation at low cost'
+        required: true
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
       audit_runs:
         description: 'Browser audit passes per cell (median selected to eliminate VM jitter)'
         required: true
@@ -131,6 +140,7 @@ jobs:
           INPUT_MODE: ${{ inputs.mode }}
           INPUT_SPEC: ${{ inputs.spec }}
           INPUT_AUDIT_RUNS: ${{ inputs.audit_runs }}
+          INPUT_SAMPLES: ${{ inputs.samples }}
           INPUT_REUSE_RUN_ID: ${{ inputs.reuse_generation_run_id }}
           INPUT_REUSE_AUDIT_RUN_ID: ${{ inputs.reuse_audit_run_id }}
           INPUT_ALLOW_UNREGISTERED: ${{ inputs.allow_unregistered_models }}
@@ -150,6 +160,7 @@ jobs:
               mode: process.env.INPUT_MODE,
               spec: process.env.INPUT_SPEC || "freeform",
               auditRuns: Number(process.env.INPUT_AUDIT_RUNS || 1),
+              samples: Number(process.env.INPUT_SAMPLES || 1),
               reuseGenerationRunId: process.env.INPUT_REUSE_RUN_ID || reuseAuditRunId,
               strictModels: String(process.env.INPUT_ALLOW_UNREGISTERED || "false") !== "true",
             });
@@ -245,7 +256,7 @@ jobs:
             --mode="${{ matrix.shard.mode }}" \
             --spec="${{ matrix.shard.spec }}" \
             --models="${{ matrix.shard.model }}" \
-            ${{ matrix.shard.promptFlag }}
+            ${{ matrix.shard.promptFlag }} ${{ matrix.shard.sampleFlag }}
 
       - name: Upload generated workspace & pi session artifacts (without node_modules)
         # Upload even when the shard fails or times out so finished cells and session transcripts survive;
@@ -362,7 +373,7 @@ jobs:
             --mode="${{ matrix.shard.mode }}" \
             --spec="${{ matrix.shard.spec }}" \
             --models="${{ matrix.shard.model }}" \
-            ${{ matrix.shard.promptFlag }}
+            ${{ matrix.shard.promptFlag }} ${{ matrix.shard.sampleFlag }}
 
       - name: Run Post-Server Multimodal On-Topic LLM Judge (${{ matrix.shard.label }})
         # Runs strictly AFTER all untrusted $PORT servers have exited, evaluating static screenshots & DOM evidence.
@@ -385,7 +396,7 @@ jobs:
             --mode="${{ matrix.shard.mode }}" \
             --spec="${{ matrix.shard.spec }}" \
             --models="${{ matrix.shard.model }}" \
-            ${{ matrix.shard.promptFlag }} \
+            ${{ matrix.shard.promptFlag }} ${{ matrix.shard.sampleFlag }} \
             --markdown-summary="$GITHUB_STEP_SUMMARY"
 
       - name: Stage only this shard's audited cells & VM canary telemetry
@@ -395,6 +406,7 @@ jobs:
           SHARD_MODE: ${{ matrix.shard.mode }}
           SHARD_SPEC: ${{ matrix.shard.spec }}
           SHARD_PROMPT_FLAG: ${{ matrix.shard.promptFlag }}
+          SHARD_SAMPLE: ${{ matrix.shard.sample || 1 }}
         run: |
           node --input-type=module -e '
             import { existsSync, readdirSync, readFileSync, rmSync, mkdirSync, cpSync, renameSync, writeFileSync, statSync } from "node:fs";
@@ -405,6 +417,7 @@ jobs:
             const shardHarness = process.env.SHARD_HARNESS || "pi";
             const shardMode = process.env.SHARD_MODE || "agent";
             const shardSpec = process.env.SHARD_SPEC || "freeform";
+            const shardSample = Number(process.env.SHARD_SAMPLE || 1);
             const promptIds = new Set(
               String(process.env.SHARD_PROMPT_FLAG || "")
                 .replace(/^--prompts=/, "")
@@ -434,6 +447,7 @@ jobs:
                   parsed.harness !== shardHarness ||
                   parsed.mode !== shardMode ||
                   parsed.spec !== shardSpec ||
+                (parsed.sample || 1) !== shardSample ||
                   (promptIds.size > 0 && !promptIds.has(promptId))
                 ) {
                   continue;

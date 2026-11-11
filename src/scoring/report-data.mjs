@@ -20,6 +20,8 @@ export function buildReportData(summary, { runId = null, runLabel = null, source
     harnessVersion: c.harnessVersion || null,
     mode: c.mode,
     spec: c.spec,
+    sample: c.sample || 1,
+    sampleGroup: c.sampleGroup || c.cellId,
     built: Boolean(c.buildSucceeded),
     valid: Boolean(c.validBuild),
     disqualified: Boolean(c.disqualifiedByJudge),
@@ -46,6 +48,9 @@ export function buildReportData(summary, { runId = null, runLabel = null, source
       mwgVersion: summary.environment?.webUpliftMwgVersion || null,
       harnesses: (summary.environment?.harnesses || []).map((h) => ({ id: h.id, label: h.label, version: h.version })),
     },
+    noise: summary.sampleNoise
+      ? { ...summary.sampleNoise, groups: (summary.sampleNoise.groups || []).slice(0, 60) }
+      : { repeatedCells: 0, totalSamples: 0, medianRange: null, maxRange: null, typicalStdDev: null, groups: [] },
     totals: { cells: cells.length, demoCells: cells.filter((c) => c.demo).length },
     cells,
   };

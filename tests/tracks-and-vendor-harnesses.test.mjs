@@ -193,3 +193,34 @@ describe('Full-app prompt scope', () => {
     assert.equal(planWorkflowShards({ modelsRaw: 'deepseek-flash', promptScope: 'pilot' }).promptCount, 10);
   });
 });
+
+describe('Repeat samples', () => {
+  it('gives repeat samples their own cell ids that parse back to the same identity', async () => {
+    const { buildCellId, parseCellDirIdentity } = await import('../src/harness/generate.mjs');
+    assert.equal(buildCellId('grok-4-7', 'photo-portfolio', 'agent', 'freeform', 'pi', 1), 'grok-4-7__photo-portfolio__agent');
+    assert.equal(buildCellId('grok-4-7', 'photo-portfolio', 'agent', 'guided', 'claude-acp', 3), 'grok-4-7__photo-portfolio__agent__guided__claude-acp__s3');
+    const parsed = parseCellDirIdentity('grok-4-7__photo-portfolio__agent__guided__claude-acp__s3');
+    assert.deepEqual(parsed, { modelKey: 'grok-4-7', promptId: 'photo-portfolio', mode: 'agent', spec: 'guided', harness: 'claude-acp', sample: 3 });
+    assert.equal(parseCellDirIdentity('grok-4-7__photo-portfolio__agent').sample, undefined);
+  });
+
+  it('repeats only two anchor prompts per combo, in their own shards', () => {
+    const base = planWorkflowShards({ modelsRaw: 'deepseek-flash,grok-4.7', promptScope: 'pilot' });
+    const plan = planWorkflowShards({ modelsRaw: 'deepseek-flash,grok-4.7', promptScope: 'pilot', samples: 3 });
+    assert.equal(base.repeatCells, 0);
+    assert.ok(base.generateShards.every((s) => s.sampleFlag === ''));
+    assert.equal(plan.samplePromptIds.length, 2);
+    assert.equal(plan.repeatCells, 2 * 2 * 2);
+    assert.equal(plan.totalCells, base.totalCells + 8);
+    const repeats = plan.generateShards.filter((s) => s.sample);
+    assert.equal(repeats.length, 4);
+    assert.deepEqual([...new Set(repeats.map((s) => s.sampleFlag))], ['--sample-index=2', '--sample-index=3']);
+    const audit = plan.auditShards.find((s) => s.sample === 2 && s.modelSlug === repeats[0].modelSlug);
+    assert.match(audit.artifactPattern, /-s2-gen-\*$/);
+    assert.equal(new Set(plan.generateShards.map((s) => s.shardId)).size, plan.generateShards.length);
+    // A sample-1 audit shard must not pick up a repeat sample's artifact.
+    const first = plan.auditShards.find((s) => !s.sample && s.modelSlug === repeats[0].modelSlug);
+    const re = new RegExp(`^${first.artifactPattern.replace('*', '.*')}$`);
+    assert.equal(re.test(`generated-cells-${repeats[0].shardId}`), false);
+  });
+});

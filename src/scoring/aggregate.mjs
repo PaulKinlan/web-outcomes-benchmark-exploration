@@ -229,6 +229,8 @@ export function aggregateAllResults({
 
       cells.push({
         cellId: dirName,
+        sample: parsedIdentity.sample || 1,
+        sampleGroup: parsedIdentity.sample ? dirName.replace(/__s[2-9]$/, '') : dirName,
         pillarRollups: rollupTests(cellTests),
         demo: generation.demo === true,
         modelKey: generation.modelKey,
@@ -475,8 +477,9 @@ export function aggregateAllResults({
   for (const c of cells) c.testResults = compactTests.get(c.cellId) || [];
 
   // 1. Leaderboard Aggregation by (modelKey + mode + spec + harness) so Harnesses, Agent vs 1-Shot & Free-form vs Guided tracks are cleanly ranked & filterable
+  // Repeat samples only feed the noise estimate: counting them here would weight their prompts twice.
   const byModelMode = new Map();
-  for (const c of cells) {
+  for (const c of cells.filter((x) => (x.sample || 1) === 1)) {
     const baseKey = c.spec === 'guided' ? `${c.modelKey}__${c.mode}__guided` : `${c.modelKey}__${c.mode}`;
     const groupKey = c.harness && c.harness !== 'pi' ? `${baseKey}__${c.harness}` : baseKey;
     if (!byModelMode.has(groupKey)) byModelMode.set(groupKey, []);
@@ -1166,6 +1169,42 @@ export function aggregateAllResults({
     };
   });
 
+  // Repeat samples: the same model, prompt and track generated more than once. The spread between them is the
+  // benchmark's noise floor, so readers can tell a real difference between two models from run-to-run luck.
+  const bySampleGroup = new Map();
+  for (const c of cells) {
+    if (!bySampleGroup.has(c.sampleGroup)) bySampleGroup.set(c.sampleGroup, []);
+    bySampleGroup.get(c.sampleGroup).push(c);
+  }
+  const repeated = [...bySampleGroup.entries()].filter(([, list]) => list.length > 1).map(([group, list]) => {
+    const scores = list.map((c) => (c.buildSucceeded ? c.scores.composite ?? 0 : 0));
+    const mean = scores.reduce((x, y) => x + y, 0) / scores.length;
+    const sd = Math.sqrt(scores.reduce((x, y) => x + (y - mean) ** 2, 0) / (scores.length - 1));
+    const first = list[0];
+    return {
+      group,
+      modelKey: first.modelKey,
+      promptId: first.promptId,
+      track: first.track,
+      samples: list.length,
+      built: list.filter((c) => c.buildSucceeded).length,
+      scores,
+      mean: Math.round(mean * 10) / 10,
+      range: Math.round((Math.max(...scores) - Math.min(...scores)) * 10) / 10,
+      stdDev: Math.round(sd * 10) / 10,
+      techStacks: [...new Set(list.map((c) => c.techStack?.primaryFramework).filter(Boolean))],
+    };
+  });
+  const ranges = repeated.map((r) => r.range).sort((x, y) => x - y);
+  const sampleNoise = {
+    repeatedCells: repeated.length,
+    totalSamples: repeated.reduce((n, r) => n + r.samples, 0),
+    medianRange: ranges.length ? ranges[Math.floor((ranges.length - 1) / 2)] : null,
+    maxRange: ranges.length ? ranges[ranges.length - 1] : null,
+    typicalStdDev: repeated.length ? Math.round((repeated.reduce((n, r) => n + r.stdDev, 0) / repeated.length) * 10) / 10 : null,
+    groups: repeated.sort((x, y) => y.range - x.range),
+  };
+
   const summary = {
     generatedAt: new Date().toISOString(),
     weights,
@@ -1205,6 +1244,7 @@ export function aggregateAllResults({
     trackComparison: {
       byTrack: byTrackRows,
     },
+    sampleNoise,
     harnessComparison: {
       byHarness: byHarnessRows,
       pairedHarnessHeadToHead,
