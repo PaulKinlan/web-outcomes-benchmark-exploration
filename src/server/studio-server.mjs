@@ -402,6 +402,8 @@ export async function startStudioServer({ port = null } = {}) {
             'lighthouse-uplift': readJsonOpt(join(cellDir, 'results', 'lighthouse-uplift.json')),
             'deep-perf': readJsonOpt(join(cellDir, 'results', 'deep-perf.json')),
             memory: readJsonOpt(join(cellDir, 'results', 'memory.json')),
+            security: readJsonOpt(join(cellDir, 'results', 'security.json')),
+            'outside-in': readJsonOpt(join(cellDir, 'results', 'outside-in.json')),
           },
           extractedFiles,
         });

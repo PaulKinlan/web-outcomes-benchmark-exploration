@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openQuickTunnel } from '../src/hosting/tunnel.mjs';
 import outsideInBench, { runOutsideIn, runObservatory, runPageSpeed } from '../src/benchmarks/outside-in.bench.mjs';
-import { verifyCellContainer } from '../src/hosting/verify-container.mjs';
+import { verifyCellContainer, verdictMatchesKit } from '../src/hosting/verify-container.mjs';
+import { writeCellContainerKit } from '../src/hosting/containerize.mjs';
 import { BENCHMARK_PLUGINS } from '../src/benchmarks/registry.mjs';
 
 function fakeChild() {
@@ -83,6 +84,34 @@ describe('Outside-in checks', () => {
     assert.deepEqual(out.services, []);
   });
 
+  it('stops waiting when the budget runs out, cancels the requests and closes the tunnel', async () => {
+    let closed = 0;
+    let aborted = false;
+    const t0 = Date.now();
+    const out = await runOutsideIn({
+      localUrl: 'http://127.0.0.1:4010',
+      budgetMs: 150,
+      openTunnel: async () => ({ url: 'https://x.trycloudflare.com', host: 'x.trycloudflare.com', close: () => closed++ }),
+      fetchImpl: async () => ({ status: 200 }),
+      services: {
+        observatory: async () => ({ service: 'MDN HTTP Observatory', ok: true, grade: 'A' }),
+        pagespeed: (url, { signal }) => new Promise(() => signal.addEventListener('abort', () => (aborted = true))),
+      },
+    });
+    assert.ok(Date.now() - t0 < 2000);
+    assert.equal(out.services[0].grade, 'A');
+    assert.deepEqual([out.services[1].ok, /no answer within/.test(out.services[1].error)], [false, true]);
+    assert.equal(closed, 1);
+    assert.equal(aborted, true);
+  });
+
+  it('treats a PageSpeed answer without a usable Lighthouse run as no result', async () => {
+    const r = await runPageSpeed('https://x.example/', { fetchImpl: async () => jsonRes(200, { lighthouseResult: { runtimeError: { code: 'NO_FCP', message: 'The page did not paint any content.' }, categories: {} } }) });
+    assert.deepEqual([r.ok, r.error], [false, 'NO_FCP: The page did not paint any content.']);
+    const empty = await runPageSpeed('https://x.example/', { fetchImpl: async () => jsonRes(200, {}) });
+    assert.equal(empty.ok, false);
+  });
+
   it('parses Observatory and PageSpeed answers, and their errors', async () => {
     const obs = await runObservatory('x.example', { fetchImpl: async (url, init) => (assert.equal(init.method, 'POST'), jsonRes(200, { grade: 'C+', score: 60, tests_passed: 7, tests_failed: 3, tests_quantity: 10 })) });
     assert.deepEqual([obs.ok, obs.grade, obs.score, obs.testsPassed, obs.testsTotal], [true, 'C+', 60, 7, 10]);
@@ -111,7 +140,8 @@ describe('Outside-in checks', () => {
     }
     assert.deepEqual(outsideInBench.score({}), { overall: null });
     const ids = BENCHMARK_PLUGINS.map((p) => p.id);
-    assert.ok(ids.indexOf('outside-in') < ids.indexOf('security'), 'security probes must still run last');
+    assert.equal(ids.at(-1), 'outside-in', 'outside checks run after every scored benchmark so they cannot eat its time');
+    assert.equal(ids.at(-2), 'security');
   });
 });
 
@@ -146,6 +176,14 @@ describe('Container kit verification', () => {
     try {
       const r = await verifyCellContainer({ cellDir, materialization: SERVER, hostPort: 18111, run: fakeDocker(calls), fetchImpl: async (u) => (assert.equal(u, 'http://127.0.0.1:18111/'), { status: 200 }), env: {} });
       assert.deepEqual([r.applicable, r.built, r.started, r.httpStatus, r.imageBytes, r.error], [true, true, true, 200, 123456789, null]);
+      // The verdict is tied to the kit it was built from: it stops counting once the workspace changes.
+      const kitDir = join(cellDir, 'kit');
+      const kit = writeCellContainerKit({ cellDir, outDir: kitDir, materialization: SERVER, env: {} });
+      assert.equal(verdictMatchesKit(r, kitDir, kit), true);
+      writeFileSync(join(cellDir, 'agent-workspace', 'package.json'), '{"scripts":{"start":"node other.js"}}');
+      const kit2 = writeCellContainerKit({ cellDir, outDir: kitDir, materialization: SERVER, env: {} });
+      assert.equal(verdictMatchesKit(r, kitDir, kit2), false);
+      assert.equal(verdictMatchesKit(null, kitDir, kit2), false);
       assert.ok(calls.some((c) => /^docker run -d -p 127\.0\.0\.1:18111:8080 bench-cell-/.test(c)));
       assert.ok(calls.some((c) => c === 'docker rm -f abc123'));
       assert.ok(calls.some((c) => c.startsWith('docker rmi -f bench-cell-')));

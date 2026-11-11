@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { writeCellContainerKit } from '../hosting/containerize.mjs';
+import { verdictMatchesKit } from '../hosting/verify-container.mjs';
 import {
   mkdirSync,
   cpSync,
@@ -144,7 +145,11 @@ export function exportStaticReport(outDir = join(PROJECT_ROOT, 'dist-report')) {
       let container = null;
       try {
         const kit = writeCellContainerKit({ cellDir, outDir: join(outDir, 'artifacts', cellId, 'container'), materialization });
-        if (kit.ok) container = { ...kit, path: `artifacts/${cellId}/container/`, verified: readOpt(join(cellDir, 'container-check.json')) };
+        if (kit.ok) {
+          // Only show a build verdict that was produced from this exact kit; a regenerated cell must be re-checked.
+          const verdict = readOpt(join(cellDir, 'container-check.json'));
+          container = { ...kit, path: `artifacts/${cellId}/container/`, verified: verdictMatchesKit(verdict, join(outDir, 'artifacts', cellId, 'container'), kit) ? verdict : null };
+        }
       } catch (err) {
         container = null;
         console.warn(`[export] Could not write a container kit for ${cellId}: ${err.message}`);

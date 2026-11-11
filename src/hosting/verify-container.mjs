@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -12,6 +12,23 @@ import { writeCellContainerKit, CONTAINER_PORT } from './containerize.mjs';
  */
 
 export const CONTAINER_CHECK_FILE = 'container-check.json';
+
+/** Identifies exactly what was built: the Dockerfile text plus the published source archive's size. */
+export function kitFingerprint(kitDir, kit) {
+  const h = createHash('sha256').update(readFileSync(join(kitDir, 'Dockerfile')));
+  h.update(`\n${kit?.startCommand || ''}\n${kit?.buildCommand || ''}\n${kit?.sourceBytes || 0}`);
+  return h.digest('hex');
+}
+
+/** A stored verdict counts only for the kit it was produced from. */
+export function verdictMatchesKit(verdict, kitDir, kit) {
+  if (!verdict) return false;
+  try {
+    return Boolean(verdict.kitFingerprint) && verdict.kitFingerprint === kitFingerprint(kitDir, kit);
+  } catch {
+    return false;
+  }
+}
 
 function defaultRun(cmd, args, { timeoutMs = 60000 } = {}) {
   const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 });
@@ -30,6 +47,7 @@ export async function verifyCellContainer({ cellDir, materialization, hostPort =
   try {
     const kit = writeCellContainerKit({ cellDir, outDir: kitDir, materialization, env });
     if (!kit.ok) return { ...out, applicable: false, error: kit.reason };
+    out.kitFingerprint = kitFingerprint(kitDir, kit);
     if (!kit.sourceIncluded) return { ...out, applicable: false, error: `source archive not published: ${kit.sourceOmittedReason}` };
 
     const untar = run('tar', ['-xzf', join(kitDir, 'source.tar.gz'), '-C', ctxDir]);

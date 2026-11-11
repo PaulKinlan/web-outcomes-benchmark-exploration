@@ -566,6 +566,8 @@ export async function generateWebsite({
     rmSync(acpSessionPath, { force: true });
     rmSync(transcriptHtmlPath, { force: true });
     rmSync(trajectoryJsonPath, { force: true });
+    // A container build verdict belongs to the workspace it was built from.
+    rmSync(join(cellDir, 'container-check.json'), { force: true });
     mkdirSync(workspaceDir, { recursive: true });
 
     const piFileAttachments = [];

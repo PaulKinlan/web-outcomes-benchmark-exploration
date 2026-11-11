@@ -395,6 +395,13 @@ jobs:
         continue-on-error: true
         timeout-minutes: 25
         # No API keys here either: generated code is built and run inside containers bound to loopback.
+        env:
+          SHARD_HARNESS: ${{ matrix.shard.harness }}
+          SHARD_MODE: ${{ matrix.shard.mode }}
+          SHARD_SPEC: ${{ matrix.shard.spec }}
+          SHARD_MODEL: ${{ matrix.shard.model }}
+          SHARD_PROMPT_FLAG: ${{ matrix.shard.promptFlag }}
+          SHARD_SAMPLE: ${{ matrix.shard.sample || 1 }}
         run: node scripts/verify-container-kits.mjs runs/cells
 
       - name: Run Post-Server Multimodal On-Topic LLM Judge (${{ matrix.shard.label }})

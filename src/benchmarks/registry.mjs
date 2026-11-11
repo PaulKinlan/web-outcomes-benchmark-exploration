@@ -14,10 +14,11 @@ export const BENCHMARK_PLUGINS = [
   lighthouseUpliftBench,
   deepPerfBench,
   memoryBench,
-  // Optional and unscored: a temporary public address so outside services can test a generated server.
-  outsideInBench,
-  // Last on purpose: its active probes write junk into the app, which must not colour the other measurements.
+  // After every other scored benchmark on purpose: its active probes write junk into the app, which must not colour their measurements.
   securityBench,
+  // Optional and unscored: a temporary public address so outside services can test a generated server.
+  // Very last, with its own time budget, so slow outside services can never eat the time of a scored check.
+  outsideInBench,
 ];
 
 export function getBenchmarkById(id) {

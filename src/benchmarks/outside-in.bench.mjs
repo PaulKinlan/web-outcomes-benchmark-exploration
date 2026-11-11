@@ -12,9 +12,9 @@ import { openQuickTunnel } from '../hosting/tunnel.mjs';
 
 export const OUTSIDE_IN_VERSION = '1.0.0';
 
-async function getJson(url, { method = 'GET', timeoutMs = 90000, fetchImpl = globalThis.fetch } = {}) {
+async function getJson(url, { method = 'GET', timeoutMs = 90000, fetchImpl = globalThis.fetch, signal = null } = {}) {
   try {
-    const res = await fetchImpl(url, { method, signal: AbortSignal.timeout(timeoutMs), headers: { accept: 'application/json' } });
+    const res = await fetchImpl(url, { method, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs), headers: { accept: 'application/json' } });
     const text = await res.text();
     let json = null;
     try {
@@ -41,7 +41,9 @@ export async function runPageSpeed(url, { apiKey = process.env.PSI_API_KEY || ''
   const cats = ['performance', 'accessibility', 'best-practices', 'seo'].map((c) => `category=${c}`).join('&');
   const r = await getJson(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&strategy=mobile&${cats}${apiKey ? `&key=${encodeURIComponent(apiKey)}` : ''}`, { timeoutMs: 120000, ...opts });
   if (!r.ok) return { service: 'PageSpeed Insights', ok: false, error: r.error };
-  const lr = r.json.lighthouseResult || {};
+  const lr = r.json.lighthouseResult;
+  // PageSpeed answers HTTP 200 even when Lighthouse could not load the page (NO_FCP, DNS failure...).
+  if (!lr || lr.runtimeError?.code) return { service: 'PageSpeed Insights', ok: false, error: lr?.runtimeError ? `${lr.runtimeError.code}: ${String(lr.runtimeError.message || '').slice(0, 200)}` : 'no Lighthouse result in the answer' };
   const pct = (c) => (typeof lr.categories?.[c]?.score === 'number' ? Math.round(lr.categories[c].score * 100) : null);
   const num = (a) => (typeof lr.audits?.[a]?.numericValue === 'number' ? Math.round(lr.audits[a].numericValue) : null);
   return {
@@ -58,26 +60,50 @@ export async function runPageSpeed(url, { apiKey = process.env.PSI_API_KEY || ''
   };
 }
 
-export async function runOutsideIn({ localUrl, openTunnel = openQuickTunnel, fetchImpl = globalThis.fetch, services = { observatory: runObservatory, pagespeed: runPageSpeed } }) {
+/** Whole budget for one cell: tunnel start, reachability and both services. Kept well under the audit's per-cell deadline. */
+export const OUTSIDE_IN_BUDGET_MS = 75000;
+
+export async function runOutsideIn({ localUrl, openTunnel = openQuickTunnel, fetchImpl = globalThis.fetch, services = { observatory: runObservatory, pagespeed: runPageSpeed }, budgetMs = OUTSIDE_IN_BUDGET_MS }) {
   const out = { benchmarkId: 'outside-in', version: OUTSIDE_IN_VERSION, measuredAt: new Date().toISOString(), tunnel: { ok: false }, reachable: null, services: [] };
+  const deadline = Date.now() + budgetMs;
+  const left = () => Math.max(0, deadline - Date.now());
+  const ac = new AbortController();
   let tunnel;
   try {
-    tunnel = await openTunnel(localUrl);
+    tunnel = await openTunnel(localUrl, { startTimeoutMs: Math.min(20000, budgetMs / 3), readyTimeoutMs: Math.min(25000, budgetMs / 3), fetchImpl });
   } catch (err) {
     out.tunnel = { ok: false, error: err.message };
     return out;
   }
+  let timer;
   try {
     out.tunnel = { ok: true, provider: 'Cloudflare quick tunnel' };
     try {
-      const [pub, local] = await Promise.all([fetchImpl(tunnel.url, { redirect: 'manual', signal: AbortSignal.timeout(15000) }), fetchImpl(localUrl, { redirect: 'manual', signal: AbortSignal.timeout(15000) })]);
+      const sig = () => AbortSignal.any([ac.signal, AbortSignal.timeout(Math.min(15000, Math.max(1, left())))]);
+      const [pub, local] = await Promise.all([fetchImpl(tunnel.url, { redirect: 'manual', signal: sig() }), fetchImpl(localUrl, { redirect: 'manual', signal: sig() })]);
       out.reachable = { ok: pub.status === local.status, publicStatus: pub.status, localStatus: local.status, https: true };
     } catch (err) {
       out.reachable = { ok: false, error: err.message };
     }
-    const results = await Promise.all([services.observatory(tunnel.host, { fetchImpl }), services.pagespeed(`${tunnel.url}/`, { fetchImpl })]);
-    out.services = results;
+    // Each service gets what is left of the budget; whatever has not answered by then is reported as
+    // timed out, its request is cancelled, and the tunnel closes before the audit moves on.
+    const names = ['MDN HTTP Observatory', 'PageSpeed Insights'];
+    const results = names.map((service) => ({ service, ok: false, error: `no answer within the ${Math.round(budgetMs / 1000)}s budget for outside checks` }));
+    const runs = [services.observatory(tunnel.host, { fetchImpl, signal: ac.signal, timeoutMs: Math.max(1, left()) }), services.pagespeed(`${tunnel.url}/`, { fetchImpl, signal: ac.signal, timeoutMs: Math.max(1, left()) })].map((p, i) =>
+      Promise.resolve(p).then(
+        (r) => {
+          results[i] = r;
+        },
+        (err) => {
+          results[i] = { service: names[i], ok: false, error: err.message };
+        }
+      )
+    );
+    await Promise.race([Promise.all(runs), new Promise((r) => (timer = setTimeout(r, left())))]);
+    out.services = results.map((r) => ({ ...r }));
   } finally {
+    clearTimeout(timer);
+    ac.abort();
     tunnel.close();
   }
   return out;
