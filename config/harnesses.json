@@ -207,16 +207,6 @@
       ],
       "defaultModelKey": "kimi-k3-1-pro",
       "modelEnvVar": "KIMI_MODEL_NAME",
-      "envFrom": {
-        "KIMI_MODEL_API_KEY": [
-          "KIMI_CODING_API_KEY",
-          "KIMI_API_KEY",
-          "MOONSHOT_API_KEY"
-        ],
-        "KIMI_MODEL_BASE_URL": [
-          "KIMI_KEY_BASE_URL"
-        ]
-      },
       "env": {
         "KIMI_MODEL_PROVIDER_TYPE": "kimi"
       },

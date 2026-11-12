@@ -27,21 +27,27 @@ export function kimiKeyKind(env = process.env) {
   return looksLikeCodingKey(key) ? 'coding' : 'platform';
 }
 
-/** OpenAI-compatible base URL the key in KIMI_API_KEY belongs to (what the Kimi CLI needs as KIMI_MODEL_BASE_URL). */
-export function kimiKeyBaseUrl(env = process.env) {
-  if (env?.KIMI_KEY_BASE_URL) return env.KIMI_KEY_BASE_URL;
-  return kimiKeyKind(env) === 'platform' ? env?.MOONSHOT_BASE_URL || KIMI_PLATFORM_BASE_URL : KIMI_CODING_CLI_BASE_URL;
-}
-
 /**
- * The Kimi CLI harness is registered against `kimi-coding`; with a platform key it must use the platform
- * route (and its model ids) instead.
+ * Picks the credential the Kimi CLI should use and the provider route and endpoint that belong to it, together,
+ * so a key is never paired with another key's endpoint. Order: a dedicated Kimi Code key, then KIMI_API_KEY
+ * (by probed kind, else prefix), then a platform key in MOONSHOT_API_KEY.
  */
-export function effectiveKimiProvider(providerId, env = process.env) {
-  if (providerId !== 'kimi-coding') return providerId;
-  if (env?.KIMI_CODING_API_KEY) return providerId;
-  if (kimiKeyKind(env) === 'platform' || (!env?.KIMI_API_KEY && env?.MOONSHOT_API_KEY)) return 'moonshotai';
-  return providerId;
+export function resolveKimiCliCredential(env = process.env) {
+  const val = (name) => String(env?.[name] || '').trim();
+  if (val('KIMI_CODING_API_KEY')) {
+    return { provider: 'kimi-coding', apiKey: val('KIMI_CODING_API_KEY'), baseUrl: KIMI_CODING_CLI_BASE_URL, source: 'KIMI_CODING_API_KEY' };
+  }
+  if (val('KIMI_API_KEY')) {
+    const kind = kimiKeyKind(env);
+    const probedFor = String(env?.KIMI_KEY_KIND || '').trim().toLowerCase() === kind ? env?.KIMI_KEY_BASE_URL : null;
+    return kind === 'platform'
+      ? { provider: 'moonshotai', apiKey: val('KIMI_API_KEY'), baseUrl: probedFor || env?.MOONSHOT_BASE_URL || KIMI_PLATFORM_BASE_URL, source: 'KIMI_API_KEY' }
+      : { provider: 'kimi-coding', apiKey: val('KIMI_API_KEY'), baseUrl: probedFor || KIMI_CODING_CLI_BASE_URL, source: 'KIMI_API_KEY' };
+  }
+  if (val('MOONSHOT_API_KEY')) {
+    return { provider: 'moonshotai', apiKey: val('MOONSHOT_API_KEY'), baseUrl: env?.MOONSHOT_BASE_URL || KIMI_PLATFORM_BASE_URL, source: 'MOONSHOT_API_KEY' };
+  }
+  return null;
 }
 
 export async function probeKimiKey(key, { fetchImpl = globalThis.fetch, endpoints = KIMI_KEY_ENDPOINTS, timeoutMs = 8000 } = {}) {
@@ -77,20 +83,25 @@ export async function probeKimiKey(key, { fetchImpl = globalThis.fetch, endpoint
   };
 }
 
-let probed = false;
+let probePromise = null;
 
 export function resetKimiKeyProbe() {
-  probed = false;
+  probePromise = null;
 }
 
 /**
  * Probes once and records the answer in `env` (KIMI_KEY_KIND, KIMI_KEY_BASE_URL) so routing, pi and the Kimi CLI
- * all agree. Does nothing when the kind is already set, there is no key, KIMI_KEY_PROBE=0, or under `node --test`.
+ * all agree. Concurrent callers share the same in-flight probe, so none of them reads `env` before it is filled in.
+ * Does nothing when the kind is already set, there is no key, KIMI_KEY_PROBE=0, or under `node --test`.
  * Never throws and never logs the key.
  */
-export async function applyKimiKeyProbe(env = process.env, opts = {}) {
-  if (probed && !opts.force) return null;
-  probed = true;
+export function applyKimiKeyProbe(env = process.env, opts = {}) {
+  if (opts.force) return runKimiKeyProbe(env, opts);
+  if (!probePromise) probePromise = runKimiKeyProbe(env, opts).catch(() => null);
+  return probePromise;
+}
+
+async function runKimiKeyProbe(env, opts) {
   const key = String(env?.KIMI_API_KEY || '').trim();
   if (!key || env.KIMI_KEY_KIND || env.KIMI_KEY_PROBE === '0') return null;
   if (env.NODE_TEST_CONTEXT && !opts.fetchImpl) return null;
