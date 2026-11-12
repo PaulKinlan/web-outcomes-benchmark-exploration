@@ -207,6 +207,13 @@
       ],
       "defaultModelKey": "kimi-k3-1-pro",
       "modelEnvVar": "KIMI_MODEL_NAME",
+      "envModelPlaceholder": "__kimi_env_model__",
+      "env": {
+        "KIMI_MODEL_PROVIDER_TYPE": "kimi"
+      },
+      "authMethodIds": [
+        "login"
+      ],
       "supportsModes": [
         "agent"
       ],
@@ -216,7 +223,7 @@
         "default"
       ],
       "sessionMeta": {},
-      "description": "Drives Moonshot's Kimi Code CLI over the Agent Client Protocol (`kimi acp`, npm `@moonshot-ai/kimi-code`; the older PyPI `kimi-cli` was retired and now exits with a notice) in an empty workspace."
+      "description": "Drives Moonshot's Kimi Code CLI over the Agent Client Protocol (`kimi acp`, npm `@moonshot-ai/kimi-code`; the older PyPI `kimi-cli` was retired and now exits with a notice) in an empty workspace. Signs in with an API key through the CLI's KIMI_MODEL_* variables, pointed at whichever Kimi endpoint accepts the key."
     },
     {
       "id": "muse-msp",

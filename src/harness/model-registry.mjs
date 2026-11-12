@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { PROJECT_ROOT } from '../util/env.mjs';
 import { loadPiAi, getPiRuntimeInfo } from './pi-loader.mjs';
-import { createBridgedCredentialStore, getPiExtensionModels, anthropicCompatForModel } from './pi-auth-bridge.mjs';
+import { createBridgedCredentialStore, getCustomProviderEndpoint, getPiExtensionModels, anthropicCompatForModel } from './pi-auth-bridge.mjs';
 import { listProviderBridges, resolveBridgeForProvider } from './provider-bridges.mjs';
 
 export const MODELS_CONFIG_PATH = join(PROJECT_ROOT, 'config', 'models.json');
@@ -63,8 +63,10 @@ export function addModelToConfig(entry) {
  * the model released after pi-ai's static catalog snapshot.
  */
 function buildSyntheticPiModel(piModels, route, modelSpec) {
+  // The platform endpoint follows the key (api.moonshot.ai or api.moonshot.cn), so it overrides catalogue URLs.
+  const resolvedBaseUrl = route.provider === 'moonshotai' ? getCustomProviderEndpoint('moonshotai')?.baseUrl : null;
   const existing = piModels.getModel(route.provider, route.modelId);
-  if (existing) return existing;
+  if (existing) return resolvedBaseUrl && existing.baseUrl !== resolvedBaseUrl ? { ...existing, baseUrl: resolvedBaseUrl } : existing;
 
   const providerObj = piModels.getProvider(route.provider);
   const existingProviderModels = providerObj ? providerObj.getModels() : [];
@@ -76,7 +78,7 @@ function buildSyntheticPiModel(piModels, route, modelSpec) {
     name: modelSpec.label || route.modelId,
     api: route.api || template?.api || fallbackMeta.api,
     provider: route.provider,
-    baseUrl: route.baseUrl || template?.baseUrl || providerObj?.baseUrl || fallbackMeta.baseUrl,
+    baseUrl: route.baseUrl || resolvedBaseUrl || template?.baseUrl || providerObj?.baseUrl || fallbackMeta.baseUrl,
     reasoning: modelSpec.reasoning ?? template?.reasoning ?? true,
     input: ['text', 'image'],
     cost: modelSpec.cost || template?.cost || { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

@@ -935,6 +935,21 @@ export async function runAcpCodingSession({
           // the adapter refused the id; the strict check below reports it
         }
       }
+
+      // d) CLIs configured entirely through environment variables (Kimi Code with KIMI_MODEL_*) expose one
+      //    placeholder entry meaning "the model named in the environment". Accept it only when we set that
+      //    variable to the requested id ourselves.
+      if (
+        !modelSelectionMethod &&
+        desiredModelId &&
+        harnessSpec?.envModelPlaceholder &&
+        harnessSpec?.modelEnvVar &&
+        (selectedModelId || reportedModelId) === harnessSpec.envModelPlaceholder &&
+        env?.[harnessSpec.modelEnvVar] === desiredModelId
+      ) {
+        selectedModelId = desiredModelId;
+        modelSelectionMethod = 'env-model';
+      }
     } else {
       selectedModelId = desiredModelId || null;
       modelSelectionMethod = requestedModelId ? 'unverifiable' : null;

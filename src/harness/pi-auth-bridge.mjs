@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { loadPiAi, resolvePiBin } from './pi-loader.mjs';
 import { getAllInstalledBridgeCliFlags } from './provider-bridges.mjs';
 import { PROJECT_ROOT, loadDotEnv } from '../util/env.mjs';
+import { applyKimiKeyProbe, kimiKeyKind, KIMI_PLATFORM_BASE_URL } from './kimi-key-probe.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -82,7 +83,7 @@ export function getCustomProviderEndpoint(providerId) {
   const meta = CUSTOM_PROVIDER_DEFAULTS[providerId];
   if (!meta) return null;
   return {
-    baseUrl: providerId === 'muse' ? process.env.MUSE_BASE_URL || meta.baseUrl : meta.baseUrl,
+    baseUrl: providerBaseUrl(providerId),
     api: meta.api,
     apiKeyEnvVars: ENV_KEY_MAP[providerId] || [],
   };
@@ -107,27 +108,34 @@ const SENSITIVE_ENV_RE = /(?:_API_KEY|_SECRET|_TOKEN|_PASSWORD|^PI_AUTH_JSON_B64
 
 let ephemeralAgentDir = null;
 
-function isKimiCodingKey(val) {
-  return typeof val === 'string' && val.trim().startsWith('sk-kimi-');
-}
-
 export function resolveProviderApiKeyFromEnv(providerId, env = process.env) {
   const candidates = ENV_KEY_MAP[providerId] || [];
   for (const envName of candidates) {
     const raw = env?.[envName];
     if (!raw || !String(raw).trim()) continue;
     const trimmed = String(raw).trim();
-    // `sk-kimi-*` keys belong to Kimi For Coding (`https://api.kimi.com/coding`);
-    // standard `sk-*` keys in `KIMI_API_KEY` belong to Moonshot Open Platform (`https://api.moonshot.ai/v1`).
-    if (providerId === 'moonshotai' && envName === 'KIMI_API_KEY' && isKimiCodingKey(trimmed)) {
-      continue;
-    }
-    if (providerId === 'kimi-coding' && envName === 'KIMI_API_KEY' && !isKimiCodingKey(trimmed)) {
-      continue;
+    // KIMI_API_KEY can hold a Kimi Code key (`https://api.kimi.com/coding`) or a Kimi Platform key
+    // (`https://api.moonshot.ai/v1`). kimiKeyKind() uses the live probe when it ran, else the `sk-kimi-` prefix.
+    if (envName === 'KIMI_API_KEY' && (providerId === 'moonshotai' || providerId === 'kimi-coding')) {
+      const kind = kimiKeyKind({ ...env, KIMI_API_KEY: trimmed });
+      if (providerId === 'moonshotai' && kind === 'coding') continue;
+      if (providerId === 'kimi-coding' && kind !== 'coding') continue;
     }
     return trimmed;
   }
   return null;
+}
+
+function providerBaseUrl(providerId, env = process.env) {
+  const meta = CUSTOM_PROVIDER_DEFAULTS[providerId];
+  if (providerId === 'muse') return env.MUSE_BASE_URL || meta.baseUrl;
+  if (providerId === 'moonshotai') {
+    if (env.MOONSHOT_BASE_URL) return env.MOONSHOT_BASE_URL;
+    // A platform key in KIMI_API_KEY may belong to the .cn endpoint; the probe records which one accepted it.
+    if (!env.MOONSHOT_API_KEY && env.KIMI_KEY_KIND === 'platform' && env.KIMI_KEY_BASE_URL) return env.KIMI_KEY_BASE_URL;
+    return meta.baseUrl || KIMI_PLATFORM_BASE_URL;
+  }
+  return meta.baseUrl;
 }
 
 /**
@@ -164,7 +172,7 @@ export function buildCleanRoomPiModelsConfig() {
     if (!meta) return null;
     if (!providers[providerId]) {
       providers[providerId] = {
-        baseUrl: providerId === 'muse' ? process.env.MUSE_BASE_URL || meta.baseUrl : meta.baseUrl,
+        baseUrl: providerBaseUrl(providerId),
         api: meta.api,
         apiKey: meta.apiKeyExpr,
         ...(meta.compat ? { compat: meta.compat } : {}),
@@ -449,6 +457,7 @@ export async function getPiExtensionModels() {
  */
 export async function createBridgedCredentialStore(providersToCheck = []) {
   loadDotEnv();
+  await applyKimiKeyProbe(process.env);
   const piAi = await loadPiAi();
   const store = new piAi.InMemoryCredentialStore();
   const piBin = resolvePiBin();
