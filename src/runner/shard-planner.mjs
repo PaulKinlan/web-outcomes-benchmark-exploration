@@ -72,9 +72,9 @@ export function validateModelSelectors(models, registryModels = []) {
  * timeout if every cell runs to the per-cell agent timeout. Waves = ceil(prompts / agentConcurrency).
  */
 export function maxAgentPromptsPerShard({
-  jobTimeoutMinutes = 90,
+  jobTimeoutMinutes = 180,
   setupOverheadMinutes = 8,
-  agentTimeoutMs = 900000,
+  agentTimeoutMs = 1800000,
   agentConcurrency = 2,
 } = {}) {
   const cellMinutes = Math.max(1, agentTimeoutMs / 60000);
@@ -100,7 +100,7 @@ export function planWorkflowShards({
   reuseGenerationRunId = '',
   maxGenerateShards = 240,
   maxAuditShards = 160,
-  generateJobTimeoutMinutes = 90,
+  generateJobTimeoutMinutes = 180,
   strictModels = false,
   promptRegistry = null,
   modelRegistry = null,
@@ -224,7 +224,7 @@ export function planWorkflowShards({
     const maxAgentChunksPerCombo = Math.max(1, Math.floor(agentBudget / Math.max(1, agentCombos)));
     const agentTimeCap = maxAgentPromptsPerShard({
       jobTimeoutMinutes: generateJobTimeoutMinutes,
-      agentTimeoutMs: genCfg.agentTimeoutMs || 900000,
+      agentTimeoutMs: genCfg.agentTimeoutMs || 1800000,
       agentConcurrency: genCfg.agentConcurrency || 2,
     });
     const agentChunkSize = Math.max(

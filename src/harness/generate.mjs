@@ -658,7 +658,7 @@ export async function generateWebsite({
         sessionJsonlPath: acpSessionPath,
         trajectoryJsonPath,
         transcriptHtmlPath,
-        timeoutMs: config.generation.agentTimeoutMs || 900000,
+        timeoutMs: config.generation.agentTimeoutMs || 1800000,
         onProgress,
       });
 
@@ -898,7 +898,7 @@ export async function generateWebsite({
       const res = await runPiCli(cliArgs, {
         cwd: workspaceDir,
         env: childEnv,
-        timeoutMs: config.generation.agentTimeoutMs || 600000,
+        timeoutMs: config.generation.agentTimeoutMs || 1800000,
       });
 
       const createdFiles = listWorkspaceFiles(workspaceDir);

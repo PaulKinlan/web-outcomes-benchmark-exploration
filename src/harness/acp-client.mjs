@@ -258,7 +258,7 @@ export async function runAcpCodingSession({
   sessionJsonlPath = null,
   trajectoryJsonPath = null,
   transcriptHtmlPath = null,
-  timeoutMs = 900000,
+  timeoutMs = 1800000,
   onProgress = () => {},
 }) {
   mkdirSync(workspaceDir, { recursive: true });
