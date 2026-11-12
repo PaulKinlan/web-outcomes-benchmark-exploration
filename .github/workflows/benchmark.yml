@@ -101,7 +101,7 @@ on:
         default: false
         type: boolean
       outside_testing:
-        description: 'Full-app builds only: build and start each generated container, and give each server a temporary public address during its audit so outside services (MDN Observatory, PageSpeed Insights) can test it. Free, not scored'
+        description: 'Full-app builds only: build and start each generated container, and give each server a temporary public address during its audit so MDN HTTP Observatory can check its headers from outside. Free, not scored'
         required: false
         default: false
         type: boolean

@@ -36,34 +36,10 @@ export async function runObservatory(host, opts = {}) {
   return { service: 'MDN HTTP Observatory', ok: true, grade: r.json.grade ?? null, score: r.json.score ?? null, testsPassed: r.json.tests_passed ?? null, testsFailed: r.json.tests_failed ?? null, testsTotal: r.json.tests_quantity ?? null };
 }
 
-/** PageSpeed Insights: Lighthouse run from Google's machines over the real network. */
-export async function runPageSpeed(url, { apiKey = process.env.PSI_API_KEY || '', ...opts } = {}) {
-  const cats = ['performance', 'accessibility', 'best-practices', 'seo'].map((c) => `category=${c}`).join('&');
-  const r = await getJson(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&strategy=mobile&${cats}${apiKey ? `&key=${encodeURIComponent(apiKey)}` : ''}`, { timeoutMs: 120000, ...opts });
-  if (!r.ok) return { service: 'PageSpeed Insights', ok: false, error: r.error };
-  const lr = r.json.lighthouseResult;
-  // PageSpeed answers HTTP 200 even when Lighthouse could not load the page (NO_FCP, DNS failure...).
-  if (!lr || lr.runtimeError?.code) return { service: 'PageSpeed Insights', ok: false, error: lr?.runtimeError ? `${lr.runtimeError.code}: ${String(lr.runtimeError.message || '').slice(0, 200)}` : 'no Lighthouse result in the answer' };
-  const pct = (c) => (typeof lr.categories?.[c]?.score === 'number' ? Math.round(lr.categories[c].score * 100) : null);
-  const num = (a) => (typeof lr.audits?.[a]?.numericValue === 'number' ? Math.round(lr.audits[a].numericValue) : null);
-  return {
-    service: 'PageSpeed Insights',
-    ok: true,
-    lighthouseVersion: lr.lighthouseVersion || null,
-    performance: pct('performance'),
-    accessibility: pct('accessibility'),
-    bestPractices: pct('best-practices'),
-    seo: pct('seo'),
-    lcpMs: num('largest-contentful-paint'),
-    tbtMs: num('total-blocking-time'),
-    cls: typeof lr.audits?.['cumulative-layout-shift']?.numericValue === 'number' ? Math.round(lr.audits['cumulative-layout-shift'].numericValue * 1000) / 1000 : null,
-  };
-}
-
-/** Whole budget for one cell: tunnel start, reachability and both services. Kept well under the audit's per-cell deadline. */
+/** Whole budget for one cell: tunnel start, reachability and the outside service. Kept well under the audit's per-cell deadline. */
 export const OUTSIDE_IN_BUDGET_MS = 75000;
 
-export async function runOutsideIn({ localUrl, openTunnel = openQuickTunnel, fetchImpl = globalThis.fetch, services = { observatory: runObservatory, pagespeed: runPageSpeed }, budgetMs = OUTSIDE_IN_BUDGET_MS }) {
+export async function runOutsideIn({ localUrl, openTunnel = openQuickTunnel, fetchImpl = globalThis.fetch, services = { observatory: runObservatory }, budgetMs = OUTSIDE_IN_BUDGET_MS }) {
   const out = { benchmarkId: 'outside-in', version: OUTSIDE_IN_VERSION, measuredAt: new Date().toISOString(), tunnel: { ok: false }, reachable: null, services: [] };
   const deadline = Date.now() + budgetMs;
   const left = () => Math.max(0, deadline - Date.now());
@@ -85,11 +61,11 @@ export async function runOutsideIn({ localUrl, openTunnel = openQuickTunnel, fet
     } catch (err) {
       out.reachable = { ok: false, error: err.message };
     }
-    // Each service gets what is left of the budget; whatever has not answered by then is reported as
+    // The service gets what is left of the budget; if it has not answered by then it is reported as
     // timed out, its request is cancelled, and the tunnel closes before the audit moves on.
-    const names = ['MDN HTTP Observatory', 'PageSpeed Insights'];
+    const names = ['MDN HTTP Observatory'];
     const results = names.map((service) => ({ service, ok: false, error: `no answer within the ${Math.round(budgetMs / 1000)}s budget for outside checks` }));
-    const runs = [services.observatory(tunnel.host, { fetchImpl, signal: ac.signal, timeoutMs: Math.max(1, left()) }), services.pagespeed(`${tunnel.url}/`, { fetchImpl, signal: ac.signal, timeoutMs: Math.max(1, left()) })].map((p, i) =>
+    const runs = [services.observatory(tunnel.host, { fetchImpl, signal: ac.signal, timeoutMs: Math.max(1, left()) })].map((p, i) =>
       Promise.resolve(p).then(
         (r) => {
           results[i] = r;

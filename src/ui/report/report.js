@@ -292,13 +292,12 @@ function containerVerdict(v) {
 /** Results from services outside the benchmark machine, reached through a temporary public address. Not scored. */
 function outsideInCard(o) {
   if (!o) return '';
-  const head = '<h2>Tested from outside <span class="pill">not scored</span></h2><p class="sub">While this site was being audited it was given a temporary public address, so services that run elsewhere could test it over the real internet. Their verdicts are shown for comparison and do not change the score.</p>';
+  const head = '<h2>Tested from outside <span class="pill">not scored</span></h2><p class="sub">While this site was being audited it was given a temporary public address, so a service that runs elsewhere could check its response headers over the real internet. Its verdict is shown for comparison and does not change the score.</p>';
   if (!o.tunnel?.ok) return `<section class="card">${head}<p class="sub">The temporary address could not be opened, so no outside checks ran. ${esc(o.tunnel?.error || '')}</p></section>`;
   const reach = o.reachable?.ok ? `Reachable over HTTPS from outside (HTTP ${esc(o.reachable.publicStatus)}, same as locally).` : `Not reachable the same way from outside${o.reachable?.publicStatus ? ` (HTTP ${esc(o.reachable.publicStatus)} outside, ${esc(o.reachable.localStatus)} locally)` : ''}. ${esc(o.reachable?.error || '')}`;
   const row = (s) => {
     if (!s.ok) return `<tr><td>${esc(s.service)}</td><td class="muted">No result: ${esc(s.error || 'the service did not answer')}</td></tr>`;
-    if (s.service === 'MDN HTTP Observatory') return `<tr><td>${esc(s.service)}</td><td>Grade <b>${esc(s.grade ?? 'n/a')}</b>, score ${esc(s.score ?? 'n/a')}, ${esc(s.testsPassed ?? '?')} of ${esc(s.testsTotal ?? '?')} header and cookie tests passed</td></tr>`;
-    return `<tr><td>${esc(s.service)}</td><td>Performance <b>${fmt(s.performance)}</b>, accessibility <b>${fmt(s.accessibility)}</b>, best practices <b>${fmt(s.bestPractices)}</b>, SEO <b>${fmt(s.seo)}</b>${s.lcpMs != null ? `. Largest paint ${(s.lcpMs / 1000).toFixed(1)}s, blocking time ${esc(s.tbtMs)}ms, layout shift ${esc(s.cls)}` : ''}</td></tr>`;
+    return `<tr><td>${esc(s.service)}</td><td>Grade <b>${esc(s.grade ?? 'n/a')}</b>, score ${esc(s.score ?? 'n/a')}, ${esc(s.testsPassed ?? '?')} of ${esc(s.testsTotal ?? '?')} header and cookie tests passed</td></tr>`;
   };
   return `<section class="card">${head}<p class="sub">${reach}</p><div class="tablewrap"><table><tbody>${(o.services || []).map(row).join('')}</tbody></table></div></section>`;
 }

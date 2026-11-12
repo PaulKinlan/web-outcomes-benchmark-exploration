@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openQuickTunnel } from '../src/hosting/tunnel.mjs';
-import outsideInBench, { runOutsideIn, runObservatory, runPageSpeed } from '../src/benchmarks/outside-in.bench.mjs';
+import outsideInBench, { runOutsideIn, runObservatory } from '../src/benchmarks/outside-in.bench.mjs';
 import { verifyCellContainer, verdictMatchesKit } from '../src/hosting/verify-container.mjs';
 import { writeCellContainerKit } from '../src/hosting/containerize.mjs';
 import { BENCHMARK_PLUGINS } from '../src/benchmarks/registry.mjs';
@@ -68,13 +68,12 @@ describe('Outside-in checks', () => {
       fetchImpl: async () => ({ status: 200 }),
       services: {
         observatory: async (host) => ({ service: 'MDN HTTP Observatory', ok: true, grade: 'B', host }),
-        pagespeed: async () => ({ service: 'PageSpeed Insights', ok: false, error: 'quota' }),
       },
     });
     assert.equal(out.tunnel.ok, true);
     assert.deepEqual(out.reachable, { ok: true, publicStatus: 200, localStatus: 200, https: true });
     assert.equal(out.services[0].host, 'x.trycloudflare.com');
-    assert.equal(out.services[1].ok, false);
+    assert.equal(out.services.length, 1, 'performance numbers come only from our own Chrome instrumentation');
     assert.equal(closed, 1);
   });
 
@@ -94,37 +93,20 @@ describe('Outside-in checks', () => {
       openTunnel: async () => ({ url: 'https://x.trycloudflare.com', host: 'x.trycloudflare.com', close: () => closed++ }),
       fetchImpl: async () => ({ status: 200 }),
       services: {
-        observatory: async () => ({ service: 'MDN HTTP Observatory', ok: true, grade: 'A' }),
-        pagespeed: (url, { signal }) => new Promise(() => signal.addEventListener('abort', () => (aborted = true))),
+        observatory: (host, { signal }) => new Promise(() => signal.addEventListener('abort', () => (aborted = true))),
       },
     });
     assert.ok(Date.now() - t0 < 2000);
-    assert.equal(out.services[0].grade, 'A');
-    assert.deepEqual([out.services[1].ok, /no answer within/.test(out.services[1].error)], [false, true]);
+    assert.deepEqual([out.services[0].ok, /no answer within/.test(out.services[0].error)], [false, true]);
     assert.equal(closed, 1);
     assert.equal(aborted, true);
   });
 
-  it('treats a PageSpeed answer without a usable Lighthouse run as no result', async () => {
-    const r = await runPageSpeed('https://x.example/', { fetchImpl: async () => jsonRes(200, { lighthouseResult: { runtimeError: { code: 'NO_FCP', message: 'The page did not paint any content.' }, categories: {} } }) });
-    assert.deepEqual([r.ok, r.error], [false, 'NO_FCP: The page did not paint any content.']);
-    const empty = await runPageSpeed('https://x.example/', { fetchImpl: async () => jsonRes(200, {}) });
-    assert.equal(empty.ok, false);
-  });
-
-  it('parses Observatory and PageSpeed answers, and their errors', async () => {
+  it('parses an Observatory answer, and its error', async () => {
     const obs = await runObservatory('x.example', { fetchImpl: async (url, init) => (assert.equal(init.method, 'POST'), jsonRes(200, { grade: 'C+', score: 60, tests_passed: 7, tests_failed: 3, tests_quantity: 10 })) });
     assert.deepEqual([obs.ok, obs.grade, obs.score, obs.testsPassed, obs.testsTotal], [true, 'C+', 60, 7, 10]);
-    const psi = await runPageSpeed('https://x.example/', {
-      apiKey: '',
-      fetchImpl: async (url) => {
-        assert.ok(!url.includes('key='));
-        return jsonRes(200, { lighthouseResult: { lighthouseVersion: '13', categories: { performance: { score: 0.91 }, accessibility: { score: 1 } }, audits: { 'largest-contentful-paint': { numericValue: 1834.4 }, 'cumulative-layout-shift': { numericValue: 0.0123 } } } });
-      },
-    });
-    assert.deepEqual([psi.ok, psi.performance, psi.accessibility, psi.seo, psi.lcpMs, psi.cls], [true, 91, 100, null, 1834, 0.012]);
-    const bad = await runPageSpeed('https://x.example/', { fetchImpl: async () => jsonRes(429, { error: { message: 'Quota exceeded' } }) });
-    assert.deepEqual([bad.ok, bad.error], [false, 'Quota exceeded']);
+    const bad = await runObservatory('x.example', { fetchImpl: async () => jsonRes(429, { message: 'Too many scans' }) });
+    assert.deepEqual([bad.ok, bad.error], [false, 'Too many scans']);
   });
 
   it('is off by default, static-site builds never get a public address, and it is never scored', async () => {
@@ -184,6 +166,12 @@ describe('Container kit verification', () => {
       const kit2 = writeCellContainerKit({ cellDir, outDir: kitDir, materialization: SERVER, env: {} });
       assert.equal(verdictMatchesKit(r, kitDir, kit2), false);
       assert.equal(verdictMatchesKit(null, kitDir, kit2), false);
+      // Same size, different content: still a different kit.
+      writeFileSync(join(cellDir, 'agent-workspace', 'package.json'), '{"scripts":{"start":"node serveR.js"}}');
+      const kit3 = writeCellContainerKit({ cellDir, outDir: kitDir, materialization: SERVER, env: {} });
+      writeFileSync(join(cellDir, 'agent-workspace', 'package.json'), '{"scripts":{"start":"node serveS.js"}}');
+      const kit4 = writeCellContainerKit({ cellDir, outDir: kitDir, materialization: SERVER, env: {} });
+      assert.notEqual(kit3.sourceDigest, kit4.sourceDigest);
       assert.ok(calls.some((c) => /^docker run -d -p 127\.0\.0\.1:18111:8080 bench-cell-/.test(c)));
       assert.ok(calls.some((c) => c === 'docker rm -f abc123'));
       assert.ok(calls.some((c) => c.startsWith('docker rmi -f bench-cell-')));

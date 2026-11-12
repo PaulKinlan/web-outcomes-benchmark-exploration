@@ -13,10 +13,10 @@ import { writeCellContainerKit, CONTAINER_PORT } from './containerize.mjs';
 
 export const CONTAINER_CHECK_FILE = 'container-check.json';
 
-/** Identifies exactly what was built: the Dockerfile text plus the published source archive's size. */
+/** Identifies exactly what was built: the Dockerfile text plus a digest of the workspace's file contents. */
 export function kitFingerprint(kitDir, kit) {
   const h = createHash('sha256').update(readFileSync(join(kitDir, 'Dockerfile')));
-  h.update(`\n${kit?.startCommand || ''}\n${kit?.buildCommand || ''}\n${kit?.sourceBytes || 0}`);
+  h.update(`\n${kit?.startCommand || ''}\n${kit?.buildCommand || ''}\n${kit?.sourceDigest || ''}`);
   return h.digest('hex');
 }
 
