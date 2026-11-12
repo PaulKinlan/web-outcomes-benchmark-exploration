@@ -100,6 +100,11 @@ on:
         required: false
         default: false
         type: boolean
+      outside_testing:
+        description: 'Full-app builds only: build and start each generated container, and give each server a temporary public address during its audit so MDN HTTP Observatory can check its headers from outside. Free, not scored'
+        required: false
+        default: false
+        type: boolean
       deploy_pages:
         description: 'Deploy static Benchmark Studio report to GitHub Pages'
         required: false
@@ -361,8 +366,18 @@ jobs:
           fi
           echo "Verified $count cell directory(ies) from run ${{ inputs.reuse_generation_run_id }}."
 
+      - name: Install cloudflared for temporary public addresses (outside testing)
+        if: ${{ inputs.outside_testing == true || inputs.outside_testing == 'true' }}
+        continue-on-error: true
+        run: |
+          curl -fsSL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          sudo install -m 0755 /tmp/cloudflared /usr/local/bin/cloudflared
+          cloudflared --version
+
       - name: Run Host Canary + All 5 Benchmark Test Pillars (${{ matrix.shard.label }})
         # Notice: ZERO LLM API keys are passed into this step while executing generated $PORT servers!
+        env:
+          BENCH_PUBLIC_TUNNEL: ${{ (inputs.outside_testing == true || inputs.outside_testing == 'true') && '1' || '0' }}
         run: |
           node bin/bench.mjs \
             --stage=audit \
@@ -374,6 +389,20 @@ jobs:
             --spec="${{ matrix.shard.spec }}" \
             --models="${{ matrix.shard.model }}" \
             ${{ matrix.shard.promptFlag }} ${{ matrix.shard.sampleFlag }}
+
+      - name: Build and start each full-app container to prove the published kit works (outside testing)
+        if: ${{ inputs.outside_testing == true || inputs.outside_testing == 'true' }}
+        continue-on-error: true
+        timeout-minutes: 25
+        # No API keys here either: generated code is built and run inside containers bound to loopback.
+        env:
+          SHARD_HARNESS: ${{ matrix.shard.harness }}
+          SHARD_MODE: ${{ matrix.shard.mode }}
+          SHARD_SPEC: ${{ matrix.shard.spec }}
+          SHARD_MODEL: ${{ matrix.shard.model }}
+          SHARD_PROMPT_FLAG: ${{ matrix.shard.promptFlag }}
+          SHARD_SAMPLE: ${{ matrix.shard.sample || 1 }}
+        run: node scripts/verify-container-kits.mjs runs/cells
 
       - name: Run Post-Server Multimodal On-Topic LLM Judge (${{ matrix.shard.label }})
         # Runs strictly AFTER all untrusted $PORT servers have exited, evaluating static screenshots & DOM evidence.
@@ -452,7 +481,10 @@ jobs:
                 ) {
                   continue;
                 }
+                // Cells whose generation failed (bad key, harness refused the model, timeout) are kept too,
+                // so a broken lane shows up in the report with its error instead of silently disappearing.
                 if (
+                  !gen.error &&
                   !existsSync(join(cellDir, "results")) &&
                   !existsSync(join(cellDir, "materialization.json")) &&
                   !existsSync(join(cellDir, "audit-telemetry.json"))
@@ -548,6 +580,13 @@ jobs:
               process.exit(1);
             }
             console.log(`Verified ${cells} scored cell(s) ready for Benchmark Studio export.`);
+            // One line per site that failed, so a broken lane can be read from the end of this log.
+            const failed = (summary.cells || []).filter((c) => c.generationError || c.buildSucceeded === false);
+            console.log(`Lane status: ${(summary.cells || []).length - failed.length} site(s) built, ${failed.length} failed.`);
+            for (const c of failed) {
+              const why = c.generationError || c.auditTelemetry?.error || c.materializationError || "did not build";
+              console.log(`  FAILED ${c.cellId}: ${String(why).replace(/\s+/g, " ").slice(0, 240)}`);
+            }
           '
 
       - name: Restore earlier runs from the published report (run archive)

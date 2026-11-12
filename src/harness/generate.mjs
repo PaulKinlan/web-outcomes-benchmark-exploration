@@ -386,6 +386,16 @@ async function killProcessGroupSafe(pid) {
   }
 }
 
+/** True when the agent process was killed (SIGTERM/SIGKILL) rather than finishing on its own. */
+export function wasCutOff(res) {
+  return Boolean(res) && (res.signal === 'SIGTERM' || res.signal === 'SIGKILL' || res.code === 143 || res.code === 137);
+}
+
+export function cutOffMessage(res, createdFiles = [], trajectory = null) {
+  const secs = Math.round((res?.durationMs || 0) / 1000);
+  return `Stopped by the time limit after ${secs}s before the agent finished (${createdFiles.length} files written, ${trajectory?.turnCount ?? '?'} turns, ${trajectory?.totalToolCalls ?? '?'} tool calls). The site is incomplete.`;
+}
+
 function runPiCli(args, { cwd, env, timeoutMs = 420000 } = {}) {
   const piBin = resolvePiBin();
   if (!piBin) throw new Error('pi CLI binary not found');
@@ -420,11 +430,12 @@ function runPiCli(args, { cwd, env, timeoutMs = 420000 } = {}) {
       await killProcessGroupSafe(child.pid);
       reject(err);
     });
-    child.on('close', async (code) => {
+    child.on('close', async (code, signal) => {
       clearTimeout(timer);
       await killProcessGroupSafe(child.pid);
       resolve({
         code,
+        signal: signal || null,
         stdout,
         stderr,
         ttftMs: firstByteMs,
@@ -555,6 +566,8 @@ export async function generateWebsite({
     rmSync(acpSessionPath, { force: true });
     rmSync(transcriptHtmlPath, { force: true });
     rmSync(trajectoryJsonPath, { force: true });
+    // A container build verdict belongs to the workspace it was built from.
+    rmSync(join(cellDir, 'container-check.json'), { force: true });
     mkdirSync(workspaceDir, { recursive: true });
 
     const piFileAttachments = [];
@@ -920,7 +933,14 @@ export async function generateWebsite({
         totalToolCalls: trajectory?.totalToolCalls ?? null,
         usage: trajectory?.usage || null,
         costUsd: trajectory?.usage?.costUsd ?? null,
-        error: res.code !== 0 && createdFiles.length === 0 ? (res.stderr || `pi exited ${res.code}`).slice(0, 600) : null,
+        // A run that was stopped from outside (shard time budget, runner shutdown) leaves a half-written
+        // workspace. That is an incomplete generation, not a site the model chose to hand in.
+        cutOff: wasCutOff(res),
+        error: wasCutOff(res)
+          ? cutOffMessage(res, createdFiles, trajectory)
+          : res.code !== 0 && createdFiles.length === 0
+            ? (res.stderr || `pi exited ${res.code}`).slice(0, 600)
+            : null,
       };
       writeFileSync(join(cellDir, 'generation.json'), JSON.stringify(meta, null, 2) + '\n', 'utf8');
       return meta;

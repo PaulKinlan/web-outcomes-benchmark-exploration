@@ -41,6 +41,12 @@ rl.on('line', (line) => {
       models: { currentModelId: current, availableModels: [{ modelId: 'default', name: 'Default (recommended)' }, { modelId: 'sonnet', name: 'Sonnet' }] },
       configOptions: withConfig ? [{ id: 'model', category: 'model', currentValue: current, options: [{ value: 'default' }, { value: 'sonnet' }, ...(current !== 'default' ? [{ value: current }] : [])] }] : undefined,
     } });
+  } else if (msg.method === 'session/set_config_option' && process.env.MOCK_CODEX_STYLE === '1') {
+    // codex-acp: lists a few presets, but takes any id and echoes it (MOCK_CODEX_ECHO=0 pretends it silently kept the old one).
+    if (process.env.MOCK_CODEX_ECHO !== '0') current = msg.params.value;
+    send({ jsonrpc: '2.0', id: msg.id, result: { configOptions: [{ id: 'model', category: 'model', currentValue: current, options: [{ value: 'default' }] }] } });
+  } else if (msg.method === 'session/set_model' && process.env.MOCK_CODEX_STYLE === '1') {
+    send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'Method not found' } });
   } else if (msg.method === 'session/set_config_option') {
     send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'locked' } });
   } else if (msg.method === 'session/set_mode') {
@@ -115,6 +121,21 @@ describe('ACP model selection', () => {
     assert.equal(res.ok, true, res.error);
     assert.equal(res.modelSelection.method, 'already-current');
     assert.equal(res.modelSelection.verified, true);
+  });
+
+  it('selects an unlisted model through the model config option when the adapter has no session/set_model (codex-acp)', async () => {
+    const res = await runMock({ MOCK_CONFIG_OPTION: '1', MOCK_CODEX_STYLE: '1' });
+    assert.equal(res.ok, true, res.error);
+    assert.equal(res.modelSelection.method, 'config-option-passthrough');
+    assert.equal(res.modelSelection.verified, true);
+    assert.equal(res.selectedModelId, 'claude-sonnet-5-5');
+    assert.match(res.assistantText, /model=claude-sonnet-5-5/);
+  });
+
+  it('does not trust a config-option passthrough the adapter did not echo back', async () => {
+    const res = await runMock({ MOCK_CONFIG_OPTION: '1', MOCK_CODEX_STYLE: '1', MOCK_CODEX_ECHO: '0' });
+    assert.equal(res.ok, false);
+    assert.match(res.error, /did not accept requested model/);
   });
 
   it('authenticates with an API-key method when the agent answers "Authentication required"', async () => {

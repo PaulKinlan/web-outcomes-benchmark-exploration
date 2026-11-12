@@ -11,7 +11,7 @@ import {
 } from '../src/harness/harness-registry.mjs';
 import { planWorkflowShards } from '../src/runner/shard-planner.mjs';
 import { loadModelRegistryConfig } from '../src/harness/model-registry.mjs';
-import { capturePiSystemPrompt, piSystemPromptModuleCandidates } from '../src/harness/generate.mjs';
+import { capturePiSystemPrompt, piSystemPromptModuleCandidates, wasCutOff, cutOffMessage } from '../src/harness/generate.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -42,7 +42,9 @@ describe('Vendor harnesses', () => {
       assert.ok(Array.isArray(spec.args) && spec.args.length > 0, `${id} needs ACP launch args`);
       assert.deepEqual(spec.supportsModes, ['agent']);
     }
-    assert.equal(getHarnessSpec('kimi-acp').installer, 'pip');
+    // The PyPI `kimi-cli` package was retired (it prints a notice and exits 0); the CLI now ships on npm.
+    assert.equal(getHarnessSpec('kimi-acp').packageName, '@moonshot-ai/kimi-code');
+    assert.notEqual(getHarnessSpec('kimi-acp').installer, 'pip');
     assert.equal(getHarnessSpec('qwen-acp').modelEnvVar, 'OPENAI_MODEL');
     const muse = getHarnessSpec('muse-msp');
     assert.equal(muse.protocol, 'pi-extension');
@@ -222,5 +224,16 @@ describe('Repeat samples', () => {
     const first = plan.auditShards.find((s) => !s.sample && s.modelSlug === repeats[0].modelSlug);
     const re = new RegExp(`^${first.artifactPattern.replace('*', '.*')}$`);
     assert.equal(re.test(`generated-cells-${repeats[0].shardId}`), false);
+  });
+});
+
+describe('Agent runs stopped by the time limit', () => {
+  it('counts a killed agent as incomplete even when it had already written files', () => {
+    assert.equal(wasCutOff({ code: 143 }), true);
+    assert.equal(wasCutOff({ code: null, signal: 'SIGTERM' }), true);
+    assert.equal(wasCutOff({ code: 137 }), true);
+    assert.equal(wasCutOff({ code: 0 }), false);
+    assert.equal(wasCutOff({ code: 1 }), false);
+    assert.match(cutOffMessage({ durationMs: 885400 }, ['package.json'], { turnCount: 14, totalToolCalls: 22 }), /after 885s before the agent finished \(1 files written, 14 turns, 22 tool calls\)/);
   });
 });

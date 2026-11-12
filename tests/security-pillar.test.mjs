@@ -247,7 +247,8 @@ describe('Security pillar: end to end against a generated server', () => {
     assert.equal(byId(out.checks, 'nosniff').status, 'na');
     assert.equal(byId(out.checks, 'cookie-httponly').status, 'na');
     assert.ok(out.checks.filter((x) => x.group === 'probes').every((x) => x.status === 'na'), 'static builds are not probed');
-    assert.equal(BENCHMARK_PLUGINS.at(-1).id, 'security', 'probes dirty the app, so security runs last');
+    const scored = BENCHMARK_PLUGINS.filter((p) => p.id !== 'outside-in');
+    assert.equal(scored.at(-1).id, 'security', 'probes dirty the app, so security runs after every other scored benchmark');
     assert.equal(byId(out.checks, 'csp-present').status, 'fail', 'a static site can still ship a <meta> policy');
   });
 });

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { resolveRuntimeContract } from '../materialize/server-runner.mjs';
 
 /**
@@ -105,6 +106,34 @@ function workspaceContainsAny(dir, needles, depth = 0) {
   return null;
 }
 
+const DIGEST_SKIP_DIRS = new Set(['node_modules', '.git', '.venv', 'venv', '__pycache__', '.cache']);
+
+/**
+ * A digest of the workspace's file paths and contents (same exclusions as the source archive). Unlike the
+ * archive bytes it does not depend on timestamps or file owners, so it is the same on every machine.
+ */
+export function workspaceDigest(workspaceDir) {
+  const h = createHash('sha256');
+  const walk = (dir, rel) => {
+    for (const name of readdirSync(dir).sort()) {
+      if (DIGEST_SKIP_DIRS.has(name) || /\.(?:log|heapsnapshot)$/.test(name)) continue;
+      const full = join(dir, name);
+      const relPath = rel ? `${rel}/${name}` : name;
+      if (relPath === '.next/cache') continue;
+      let st;
+      try {
+        st = statSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) walk(full, relPath);
+      else if (st.isFile()) h.update(`${relPath}\0${st.size}\0`).update(readFileSync(full));
+    }
+  };
+  walk(workspaceDir, '');
+  return h.digest('hex');
+}
+
 /**
  * Writes `Dockerfile`, `.dockerignore`, `source.tar.gz` and `README.md` for one cell into `outDir`.
  * Returns what was written, or `{ ok: false, reason }` when the cell is not a runnable server.
@@ -155,6 +184,7 @@ export function writeCellContainerKit({ cellDir, outDir, materialization, public
     port: CONTAINER_PORT,
     sourceIncluded: source.included,
     sourceBytes: source.bytes,
+    sourceDigest: workspaceDigest(workspaceDir),
     sourceOmittedReason: source.reason,
     commands,
   };

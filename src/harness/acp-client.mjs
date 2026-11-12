@@ -916,6 +916,25 @@ export async function runAcpCodingSession({
           }
         }
       }
+
+      // c) Adapters such as codex-acp list only a few presets and have no session/set_model, but accept any
+      //    model id through the model config option. Only trusted when the adapter echoes it back as current.
+      if (!modelSelectionMethod && modelConfigOpt && desiredModelId) {
+        try {
+          const res = await sendRequest(
+            'session/set_config_option',
+            { sessionId: activeSessionId, configId: modelConfigOpt.id, value: desiredModelId },
+            15000
+          );
+          const echoed = (res?.configOptions || []).find((o) => o.id === modelConfigOpt.id);
+          if ((echoed?.currentValue ?? echoed?.value) === desiredModelId) {
+            selectedModelId = desiredModelId;
+            modelSelectionMethod = 'config-option-passthrough';
+          }
+        } catch {
+          // the adapter refused the id; the strict check below reports it
+        }
+      }
     } else {
       selectedModelId = desiredModelId || null;
       modelSelectionMethod = requestedModelId ? 'unverifiable' : null;

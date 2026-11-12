@@ -562,7 +562,7 @@ export async function runBenchmarkJob(options = {}, emitter = new EventEmitter()
             }
 
             const tBench0 = performance.now();
-            const isSinglePassBench = bench.id === 'tech-stack' || bench.id === 'prompt-judge' || bench.id === 'security';
+            const isSinglePassBench = bench.id === 'tech-stack' || bench.id === 'prompt-judge' || bench.id === 'security' || bench.id === 'outside-in';
             const passes = isSinglePassBench ? 1 : auditRuns;
 
             if (passes === 1) {
