@@ -268,7 +268,7 @@
         {
           "provider": "xai",
           "modelId": "grok-4.6",
-          "api": "openai-completions"
+          "api": "openai-responses"
         },
         {
           "provider": "openrouter",
@@ -291,7 +291,7 @@
         {
           "provider": "xai",
           "modelId": "grok-4.5",
-          "api": "openai-completions"
+          "api": "openai-responses"
         },
         {
           "provider": "openrouter",
@@ -314,7 +314,7 @@
         {
           "provider": "xai",
           "modelId": "grok-build-0.1",
-          "api": "openai-completions"
+          "api": "openai-responses"
         },
         {
           "provider": "openrouter",
@@ -337,7 +337,7 @@
         {
           "provider": "xai",
           "modelId": "grok-4.3",
-          "api": "openai-completions"
+          "api": "openai-responses"
         },
         {
           "provider": "openrouter",
@@ -360,7 +360,7 @@
         {
           "provider": "xai",
           "modelId": "grok-4.20-multi-agent",
-          "api": "openai-completions"
+          "api": "openai-responses"
         },
         {
           "provider": "openrouter",

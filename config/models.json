@@ -604,7 +604,7 @@
       "enabled": true,
       "releaseDate": "2026-09-21",
       "routes": [
-        { "provider": "xai", "modelId": "grok-4.7", "api": "openai-completions" },
+        { "provider": "xai", "modelId": "grok-4.7", "api": "openai-responses" },
         { "provider": "openrouter", "modelId": "x-ai/grok-4.7", "api": "openai-completions" }
       ],
       "contextWindow": 256000,

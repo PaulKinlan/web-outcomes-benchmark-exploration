@@ -55,3 +55,12 @@ test('model registry includes modern October 2026 frontier & flash families', as
     else process.env.DEEPSEEK_API_KEY = prevDeepseekKey;
   }
 });
+
+test('Grok runs through the xAI Responses API, the one pi-ai uses for every Grok 4 model', async () => {
+  const cfg = loadModelRegistryConfig();
+  const xaiRoutes = cfg.models.flatMap((m) => (m.routes || []).filter((r) => r.provider === 'xai'));
+  assert.ok(xaiRoutes.length > 0);
+  assert.ok(xaiRoutes.every((r) => r.api === 'openai-responses'), 'xai routes must use openai-responses');
+  const { buildCleanRoomPiModelsConfig } = await import('../src/harness/pi-auth-bridge.mjs');
+  assert.equal(buildCleanRoomPiModelsConfig().providers.xai.api, 'openai-responses');
+});

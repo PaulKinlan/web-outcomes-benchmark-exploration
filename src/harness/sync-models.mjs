@@ -10,7 +10,7 @@ const TARGET_FAMILIES = [
   { prefix: 'openai/', family: 'OpenAI', nativeProvider: 'openai', nativeApi: 'openai-responses' },
   { prefix: 'deepseek/', family: 'DeepSeek', nativeProvider: 'deepseek', nativeApi: 'openai-completions' },
   { prefix: 'qwen/', family: 'Qwen (Alibaba)', nativeProvider: 'qwen-token-plan', nativeApi: 'openai-completions' },
-  { prefix: 'x-ai/', family: 'Grok (xAI)', nativeProvider: 'xai', nativeApi: 'openai-completions' },
+  { prefix: 'x-ai/', family: 'Grok (xAI)', nativeProvider: 'xai', nativeApi: 'openai-responses' },
   { prefix: 'z-ai/', family: 'Frontier Peers', nativeProvider: 'zai', nativeApi: 'openai-completions' },
   { prefix: 'moonshotai/', family: 'Kimi (Moonshot)', nativeProvider: 'moonshotai', nativeApi: 'openai-completions' },
   { prefix: 'meta/', family: 'Muse (Meta)', nativeProvider: 'muse', nativeApi: 'openai-completions' },

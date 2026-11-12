@@ -16,7 +16,7 @@ const PROVIDER_DEFAULTS = {
   deepseek: { baseUrl: 'https://api.deepseek.com', api: 'openai-completions' },
   openrouter: { baseUrl: 'https://openrouter.ai/api/v1', api: 'openai-completions' },
   'qwen-token-plan': { baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', api: 'openai-completions' },
-  xai: { baseUrl: 'https://api.x.ai/v1', api: 'openai-completions' },
+  xai: { baseUrl: 'https://api.x.ai/v1', api: 'openai-responses' },
   zai: { baseUrl: 'https://api.z.ai/api/paas/v4', api: 'openai-completions' },
   groq: { baseUrl: 'https://api.groq.com/openai/v1', api: 'openai-completions' },
   minimax: { baseUrl: 'https://api.minimax.io/v1', api: 'openai-completions' },
@@ -84,6 +84,8 @@ function buildSyntheticPiModel(piModels, route, modelSpec) {
     cost: modelSpec.cost || template?.cost || { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: modelSpec.contextWindow || template?.contextWindow || 200000,
     maxTokens: modelSpec.maxTokens || template?.maxTokens || 32768,
+    // Carry the provider's own mapping of thinking levels (xAI, for one, only accepts some) to newer models.
+    ...(template?.thinkingLevelMap ? { thinkingLevelMap: template.thinkingLevelMap } : {}),
     ...(route.provider === 'anthropic'
       ? { compat: { supportsTemperature: false, ...(anthropicCompatForModel(route.modelId) || {}) } }
       : {}),
