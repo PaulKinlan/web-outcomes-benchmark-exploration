@@ -207,6 +207,7 @@
       ],
       "defaultModelKey": "kimi-k3-1-pro",
       "modelEnvVar": "KIMI_MODEL_NAME",
+      "envModelPlaceholder": "__kimi_env_model__",
       "env": {
         "KIMI_MODEL_PROVIDER_TYPE": "kimi"
       },

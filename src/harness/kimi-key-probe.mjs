@@ -96,9 +96,26 @@ export function resetKimiKeyProbe() {
  * Never throws and never logs the key.
  */
 export function applyKimiKeyProbe(env = process.env, opts = {}) {
-  if (opts.force) return runKimiKeyProbe(env, opts);
-  if (!probePromise) probePromise = runKimiKeyProbe(env, opts).catch(() => null);
+  const run = () => runKimiKeyProbe(env, opts).finally(() => normalizeKimiEnv(env));
+  if (opts.force) return run();
+  if (!probePromise) probePromise = run().catch(() => null);
   return probePromise;
+}
+
+/**
+ * pi and pi-ai read KIMI_API_KEY themselves and always send it to the Kimi Code endpoint. Once the key is known
+ * to be a platform key, move it to MOONSHOT_API_KEY (the variable the platform route reads) so nothing downstream
+ * can send it to the wrong endpoint. A MOONSHOT_API_KEY that is already set is kept.
+ */
+export function normalizeKimiEnv(env = process.env) {
+  if (String(env?.KIMI_KEY_KIND || '').trim().toLowerCase() !== 'platform') return;
+  const key = String(env.KIMI_API_KEY || '').trim();
+  if (!key) return;
+  if (!String(env.MOONSHOT_API_KEY || '').trim()) {
+    env.MOONSHOT_API_KEY = key;
+    if (!env.MOONSHOT_BASE_URL && env.KIMI_KEY_BASE_URL) env.MOONSHOT_BASE_URL = env.KIMI_KEY_BASE_URL;
+  }
+  delete env.KIMI_API_KEY;
 }
 
 async function runKimiKeyProbe(env, opts) {

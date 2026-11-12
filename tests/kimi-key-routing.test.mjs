@@ -65,8 +65,11 @@ describe('Kimi key routing (Kimi Code key vs Kimi Platform key)', () => {
       provider: 'moonshotai',
       apiKey: KEY,
       baseUrl: 'https://api.moonshot.cn/v1',
-      source: 'KIMI_API_KEY',
+      source: 'MOONSHOT_API_KEY',
     });
+    // pi and pi-ai read KIMI_API_KEY themselves and would send it to the Kimi Code endpoint, so it is moved.
+    assert.equal(env.KIMI_API_KEY, undefined);
+    assert.equal(env.MOONSHOT_API_KEY, KEY);
   });
 
   it('leaves a real Kimi Code key on the coding route and never re-probes a forced kind', async () => {
@@ -124,6 +127,7 @@ describe('Kimi key routing (Kimi Code key vs Kimi Platform key)', () => {
     assert.equal(kimi.provider, 'kimi-coding');
     assert.equal(kimi.env.KIMI_MODEL_PROVIDER_TYPE, 'kimi');
     assert.equal(kimi.modelEnvVar, 'KIMI_MODEL_NAME');
+    assert.equal(kimi.envModelPlaceholder, '__kimi_env_model__');
     const src = readFileSync(new URL('../src/harness/generate.mjs', import.meta.url), 'utf8');
     assert.match(src, /childEnv\.KIMI_MODEL_API_KEY = kimiCli\.apiKey/);
     assert.match(src, /childEnv\.KIMI_MODEL_BASE_URL = kimiCli\.baseUrl/);
