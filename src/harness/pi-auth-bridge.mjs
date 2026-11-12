@@ -50,7 +50,7 @@ const CUSTOM_PROVIDER_DEFAULTS = {
   google: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta', api: 'google-generative-ai', apiKeyExpr: '$GEMINI_API_KEY' },
   openai: { baseUrl: 'https://api.openai.com/v1', api: 'openai-responses', apiKeyExpr: '$OPENAI_API_KEY' },
   deepseek: { baseUrl: 'https://api.deepseek.com', api: 'openai-completions', apiKeyExpr: '$DEEPSEEK_API_KEY' },
-  xai: { baseUrl: 'https://api.x.ai/v1', api: 'openai-completions', apiKeyExpr: '$XAI_API_KEY' },
+  xai: { baseUrl: 'https://api.x.ai/v1', api: 'openai-responses', apiKeyExpr: '$XAI_API_KEY' },
   zai: { baseUrl: 'https://api.z.ai/api/paas/v4', api: 'openai-completions', apiKeyExpr: '$ZAI_API_KEY' },
   groq: { baseUrl: 'https://api.groq.com/openai/v1', api: 'openai-completions', apiKeyExpr: '$GROQ_API_KEY' },
   minimax: { baseUrl: 'https://api.minimax.io/v1', api: 'openai-completions', apiKeyExpr: '$MINIMAX_API_KEY' },

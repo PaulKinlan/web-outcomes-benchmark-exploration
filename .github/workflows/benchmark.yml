@@ -201,7 +201,7 @@ jobs:
     needs: prepare-matrix
     if: ${{ needs.prepare-matrix.outputs.skip_generate != 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:

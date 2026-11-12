@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runAcpCodingSession, pickAcpAuthMethods } from '../src/harness/acp-client.mjs';
@@ -177,8 +177,12 @@ describe('Workflow shard planning', () => {
   });
 
   it('keeps every agent shard small enough to finish inside the generate job timeout', () => {
-    const cap = maxAgentPromptsPerShard({ jobTimeoutMinutes: 90, agentTimeoutMs: 900000, agentConcurrency: 2 });
+    // 30 minutes per site and a 180 minute generate job: five waves of two.
+    const cap = maxAgentPromptsPerShard({ agentConcurrency: 2 });
     assert.equal(cap, 10);
+    assert.equal(maxAgentPromptsPerShard({ jobTimeoutMinutes: 90, agentTimeoutMs: 900000, agentConcurrency: 2 }), 10);
+    assert.match(readFileSync(new URL('../.github/workflows/benchmark.yml', import.meta.url), 'utf8'), /needs: prepare-matrix\n[^\n]*\n\s+runs-on: ubuntu-latest\n\s+timeout-minutes: 180/);
+    assert.equal(JSON.parse(readFileSync(new URL('../config/benchmark.json', import.meta.url), 'utf8')).generation.agentTimeoutMs, 1800000);
 
     // The Nov 6 matrix: 8 models, all harnesses, both modes, both specs, all 37 prompts.
     const plan = planWorkflowShards({
