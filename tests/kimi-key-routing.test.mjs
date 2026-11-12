@@ -1,0 +1,92 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import {
+  applyKimiKeyProbe,
+  effectiveKimiProvider,
+  kimiKeyBaseUrl,
+  kimiKeyKind,
+  probeKimiKey,
+} from '../src/harness/kimi-key-probe.mjs';
+import { resolveProviderApiKeyFromEnv } from '../src/harness/pi-auth-bridge.mjs';
+
+const KEY = 'sk-kimi-example-platform-key';
+
+function fakeFetch(statusByHost, calls = []) {
+  return async (url, init) => {
+    calls.push({ url, auth: init?.headers?.Authorization });
+    const host = new URL(url).host;
+    const status = statusByHost[host] ?? 401;
+    return {
+      ok: status === 200,
+      status,
+      json: async () => ({ data: [{ id: 'kimi-k3' }, { id: 'kimi-k3.1-pro' }, { id: 'moonshot-v1-8k' }] }),
+    };
+  };
+}
+
+describe('Kimi key routing (Kimi Code key vs Kimi Platform key)', () => {
+  it('probes each endpoint and reports the one that accepts the key', async () => {
+    const calls = [];
+    const res = await probeKimiKey(KEY, { fetchImpl: fakeFetch({ 'api.moonshot.ai': 200 }, calls) });
+    assert.equal(res.kind, 'platform');
+    assert.equal(res.baseUrl, 'https://api.moonshot.ai/v1');
+    assert.ok(res.modelIds.includes('kimi-k3'));
+    assert.match(res.summary, /api\.kimi\.com\/coding\/v1=401/);
+    assert.ok(!res.summary.includes(KEY));
+    assert.ok(calls.every((c) => c.url.endsWith('/models') && c.auth === `Bearer ${KEY}`));
+  });
+
+  it('keeps the prefix guess when no endpoint accepts the key or the network fails', async () => {
+    const env = { KIMI_API_KEY: KEY };
+    const lines = [];
+    const res = await applyKimiKeyProbe(env, {
+      force: true,
+      log: (l) => lines.push(l),
+      fetchImpl: async () => {
+        throw new Error('offline');
+      },
+    });
+    assert.equal(res.kind, null);
+    assert.equal(env.KIMI_KEY_KIND, undefined);
+    assert.equal(kimiKeyKind(env), 'coding');
+    assert.ok(lines[0].includes('prefix guess') && !lines[0].includes(KEY));
+  });
+
+  it('routes a platform key that starts with sk-kimi- to the platform provider once probed', async () => {
+    const env = { KIMI_API_KEY: KEY };
+    assert.equal(resolveProviderApiKeyFromEnv('kimi-coding', env), KEY);
+    await applyKimiKeyProbe(env, { force: true, log: () => {}, fetchImpl: fakeFetch({ 'api.moonshot.cn': 200 }) });
+    assert.equal(env.KIMI_KEY_KIND, 'platform');
+    assert.equal(env.KIMI_KEY_BASE_URL, 'https://api.moonshot.cn/v1');
+    assert.equal(resolveProviderApiKeyFromEnv('kimi-coding', env), null);
+    assert.equal(resolveProviderApiKeyFromEnv('moonshotai', env), KEY);
+    assert.equal(effectiveKimiProvider('kimi-coding', env), 'moonshotai');
+    assert.equal(kimiKeyBaseUrl(env), 'https://api.moonshot.cn/v1');
+  });
+
+  it('leaves a real Kimi Code key on the coding route and never re-probes a forced kind', async () => {
+    const env = { KIMI_API_KEY: KEY };
+    await applyKimiKeyProbe(env, { force: true, log: () => {}, fetchImpl: fakeFetch({ 'api.kimi.com': 200 }) });
+    assert.equal(env.KIMI_KEY_KIND, 'coding');
+    assert.equal(effectiveKimiProvider('kimi-coding', env), 'kimi-coding');
+    assert.equal(kimiKeyBaseUrl(env), 'https://api.kimi.com/coding/v1');
+    assert.equal(resolveProviderApiKeyFromEnv('moonshotai', env), null);
+
+    const forced = { KIMI_API_KEY: KEY, KIMI_KEY_KIND: 'platform' };
+    let called = false;
+    await applyKimiKeyProbe(forced, { force: true, fetchImpl: async () => ((called = true), { ok: false, status: 401 }) });
+    assert.equal(called, false);
+    assert.equal(kimiKeyBaseUrl(forced), 'https://api.moonshot.ai/v1');
+    assert.equal(effectiveKimiProvider('anthropic', forced), 'anthropic');
+  });
+
+  it('hands the Kimi CLI its API key through the KIMI_MODEL_* variables', () => {
+    const { harnesses } = JSON.parse(readFileSync(new URL('../config/harnesses.json', import.meta.url), 'utf8'));
+    const kimi = harnesses.find((h) => h.id === 'kimi-acp');
+    assert.ok(kimi.envFrom.KIMI_MODEL_API_KEY.includes('KIMI_API_KEY'));
+    assert.deepEqual(kimi.envFrom.KIMI_MODEL_BASE_URL, ['KIMI_KEY_BASE_URL']);
+    assert.equal(kimi.env.KIMI_MODEL_PROVIDER_TYPE, 'kimi');
+    assert.equal(kimi.modelEnvVar, 'KIMI_MODEL_NAME');
+  });
+});

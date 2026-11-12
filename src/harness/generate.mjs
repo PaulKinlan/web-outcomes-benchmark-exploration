@@ -18,6 +18,7 @@ import {
 } from './harness-registry.mjs';
 import { runAcpCodingSession } from './acp-client.mjs';
 import { resolveLiveRoute } from './model-id-resolver.mjs';
+import { effectiveKimiProvider, kimiKeyBaseUrl } from './kimi-key-probe.mjs';
 import { loadDesignDoc } from '../registry/prompts.mjs';
 import { PROJECT_ROOT, sleep } from '../util/env.mjs';
 
@@ -593,8 +594,12 @@ export async function generateWebsite({
 
     // --- ACP Harness Path (claude-acp, codex-acp, custom-acp) ---
     if (harnessSpec.protocol === 'acp') {
-      const targetProvider = harnessSpec.provider || route?.provider || 'anthropic';
+      // A Kimi Platform key in KIMI_API_KEY moves the Kimi CLI onto the platform route and its model ids.
+      const targetProvider = effectiveKimiProvider(harnessSpec.provider || route?.provider || 'anthropic');
       const childEnv = await buildPiCliEnv(runtime, targetProvider);
+      if (targetProvider === 'kimi-coding' || targetProvider === 'moonshotai') {
+        childEnv.KIMI_KEY_BASE_URL = kimiKeyBaseUrl(childEnv);
+      }
       let binInfo = resolveAcpHarnessBinInfo(normalizedHarness);
       if (!binInfo.available) {
         onProgress({

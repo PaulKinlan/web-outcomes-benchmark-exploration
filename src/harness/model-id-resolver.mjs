@@ -1,4 +1,4 @@
-import { getCustomProviderEndpoint, registerExtraPiModelId } from './pi-auth-bridge.mjs';
+import { getCustomProviderEndpoint, registerExtraPiModelId, resolveProviderApiKeyFromEnv } from './pi-auth-bridge.mjs';
 
 /**
  * Some providers publish a model under a versioned id (`muse-wonder-1.0`) while the registry carries the
@@ -6,7 +6,7 @@ import { getCustomProviderEndpoint, registerExtraPiModelId } from './pi-auth-bri
  * For providers listed here we ask the provider which ids the API key can use (GET /models) and, when the
  * configured id is not one of them, switch to the closest listed id. The cell records both ids.
  */
-export const LIVE_MODEL_ID_PROVIDERS = new Set(['muse']);
+export const LIVE_MODEL_ID_PROVIDERS = new Set(['muse', 'moonshotai']);
 
 const listingCache = new Map();
 
@@ -17,7 +17,7 @@ export function resetLiveModelIdCache() {
 export async function listProviderModelIds(providerId, { fetchImpl = globalThis.fetch, env = process.env } = {}) {
   if (listingCache.has(providerId)) return listingCache.get(providerId);
   const endpoint = getCustomProviderEndpoint(providerId);
-  const apiKey = endpoint?.apiKeyEnvVars.map((v) => env[v]).find(Boolean);
+  const apiKey = resolveProviderApiKeyFromEnv(providerId, env);
   let ids = null;
   if (endpoint && apiKey && typeof fetchImpl === 'function') {
     try {
